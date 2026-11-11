@@ -247,7 +247,8 @@ try {
   // 10-5. 아래 폴더까지 찾기 — 하위\차카타.txt 는 이 폴더 거르기에 없고, Shift+Enter 로 찾는다
   await page.keyboard.press("Control+f");
   await page.keyboard.type("차카타");
-  check("이 폴더 거르기에는 없다", await until(() => pane.locator(".empty", { hasText: "이 폴더에 없다" }).count().then((c) => c === 1)));
+  // 3fcf556 부터 빈 결과는 글 대신 다음 동작(「하위 폴더까지 찾기」)을 보인다
+  check("이 폴더 거르기에는 없다", await until(() => pane.locator(".empty button", { hasText: "하위 폴더까지 찾기" }).count().then((c) => c === 1)));
   await page.keyboard.press("Shift+Enter");
   check("아래 폴더까지 찾기", await until(async () => (await rowNames()).some((n) => n.startsWith("차카타"))), (await rowNames()).join(" · "));
   check("찾은 자리를 곁에 적는다", (await row("차카타").locator(".where").textContent()) === "하위");
@@ -327,7 +328,9 @@ try {
   const ab2 = await across.boundingBox();
   check("칸 높이를 끌어 바꾼다", ab2.y < ab.y - 60, `${Math.round(ab.y)} → ${Math.round(ab2.y)}`);
   await page.screenshot({ path: join(SHOTS, "12b_네칸.png") });
-  check("다섯째는 나누지 않고 그 칸으로 옮긴다", await dragTab(page.locator(".tab").last(), A.x + 30, A.y + 120, "whole"));
+  // 탭 둘인 칸(왼쪽 위)의 탭을 다른 칸(오른쪽 아래) 가장자리로 — 나누면 다섯째가 되므로 그 칸으로 옮긴다.
+  // 탭 하나짜리 칸의 탭이면 그 칸이 접혀 넷 그대로라 가장자리 나누기(자리 바꾸기)가 맞다 — 그래서 그 탭으로는 시험하지 않는다.
+  check("다섯째는 나누지 않고 그 칸으로 옮긴다", await dragTab(page.locator(".tab").first(), A.x + A.width - 30, A.y + A.height - 60, "whole"));
   check("여전히 네 칸", (await panes.count()) === 4);
   await page.keyboard.press("Control+\\");
   check("한 칸으로 모은다", await until(() => panes.count().then((c) => c === 1)));
@@ -355,7 +358,8 @@ try {
     Buffer.from("iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAJElEQVR4nGP8z8Dwn4ECwESJ5lEDRg0YNWDUgFEDRg0YNQAAOwYCH0xD9z4AAAAASUVORK5CYII=", "base64"),
   );
   const ticksBefore = (await row("보고서").locator("svg.ticks").getAttribute("aria-label")) ?? "";
-  await pane.locator(".view-switch button").nth(1).click();
+  // 3fcf556 부터 목록 · 격자 단추가 크기 사다리 눈금이다 — 0 목록 촘촘 · 1 목록 · 2 격자 작게 …
+  await pane.locator(".ladder-tick").nth(2).click();
   check("격자 보기", await until(() => pane.locator(".tile").count().then((c) => c >= 7)));
   const tileW = () => pane.locator(".tile").first().evaluate((el) => el.getBoundingClientRect().width);
   const w0 = await tileW();
@@ -376,7 +380,7 @@ try {
   await page.keyboard.press("ArrowLeft");
   check("격자에서 화살표로 옮긴다", await until(() => pane.locator(".tile.selected").count().then((c) => c === 1)));
   await page.screenshot({ path: join(SHOTS, "14_격자.png") });
-  await pane.locator(".view-switch button").first().click();
+  await pane.locator(".ladder-tick").nth(1).click();
   check("다시 목록", await until(() => pane.locator(".row").count().then((c) => c >= 7)));
 
   // 10-10. 보일 열 — 열 머리 오른쪽 단추로 「크기」를 숨겼다가 다시
@@ -414,18 +418,22 @@ try {
   await maxBtn.click();
   await until(async () => (await maxBtn.getAttribute("aria-label")) === before);
 
-  // 11. 화면 색 — 시스템 → 밝게 → 어둡게. 바탕색이 실제로 바뀌는지 본다.
-  const themeBtn = page.locator(".theme-btn");
+  // 11. 화면 색 — 설정 「화면 색」에서 시스템 → 밝게 → 어둡게. 바탕색이 실제로 바뀌는지 본다.
+  //     3fcf556 부터 왼쪽 아래 단추가 아니라 설정 창의 그림 카드다.
+  await page.locator(".settings-btn").click();
+  await until(() => page.locator(".settings").count().then((c) => c === 1));
+  const card = (name) => page.locator(".theme-pick .theme-card", { hasText: name });
   const paper = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-  check("화면 색 기본은 시스템", (await themeBtn.textContent())?.includes("시스템"));
-  await themeBtn.click();
+  check("화면 색 기본은 시스템", (await card("시스템").getAttribute("aria-checked")) === "true");
+  await card("밝게").click();
   const light = await paper();
-  await themeBtn.click();
+  await card("어둡게").click();
   const dark = await until(async () => ((await paper()) !== light ? paper() : null));
   check("어둡게로 바꾸면 바탕이 바뀐다", dark && (await page.evaluate(() => document.documentElement.dataset.theme)) === "dark", `${light} → ${dark}`);
   await page.screenshot({ path: join(SHOTS, "08_어둡게.png") });
-  await themeBtn.click();
+  await card("시스템").click();
   check("다시 시스템으로", (await page.evaluate(() => document.documentElement.dataset.theme)) === undefined);
+  await page.keyboard.press("Escape");
 
   check("화면 스크립트 오류 · 404 없음", errors.length === 0, errors.slice(0, 3).join(" | "));
 } catch (e) {
