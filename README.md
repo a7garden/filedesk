@@ -14,6 +14,7 @@ bun tauri build --no-bundle    # 실행 파일: target/release/filedesk.exe
 ```
 
 앱 시험 (배포판을 띄워 WebView2 디버깅 포트로 조작 · 캡처): `node apps/desktop/e2e/smoke.mjs [캡처 폴더]` — 셸 메뉴 · 앱 밖 끌기는 사람이 본다.
+큰 폴더 성능: `node apps/desktop/e2e/perf.mjs [파일 수=20000]` — 켜고 첫 줄까지 · End 키 · 스크롤 프레임 · JS 힙을 잰다.
 
 이름 규칙: 문서 키에서 뗄 과업 이름 · 작성자 이름은 `%APPDATA%\kr.seesun.filedesk\name-rules.json` 에 둔다 — `{ "projectNames": ["…"], "people": ["…"] }` (없으면 비운 채로 묶는다).
 
@@ -25,7 +26,7 @@ GitHub Actions(`.github/workflows/release.yml`)가 서명한 설치 파일(NSIS)
 제목 줄에 「새 판」을 알린다 (설치는 사용자가 누른다). 서명 키는 `~/.tauri/filedesk.key` (저장소 비밀 `TAURI_SIGNING_PRIVATE_KEY`) — 잃으면 이미 깐 앱이 새 판을 못 받는다.
 로컬에서 설치 파일까지: `TAURI_SIGNING_PRIVATE_KEY="$(cat ~/.tauri/filedesk.key)" bun tauri build`.
 
-앱 아이콘: 원본은 `apps/desktop/src-tauri/icons/source.svg` (판 눈금 — 흐린 점 둘 다음 큰 찬 점: 지난 판들 다음 최신판). 고친 뒤 `node apps/desktop/e2e/render-icon.mjs` → `bun tauri icon src-tauri/icons/source.png -o src-tauri/icons` (android · ios · Square* · 64x64 · icns 는 지운다).
+앱 아이콘: 원본은 `apps/desktop/src-tauri/icons/source.svg` (폴더 앞판에 판 눈금 — 흐린 점 둘 다음 큰 찬 점: 지난 판들 다음 최신판). 고친 뒤 `node apps/desktop/e2e/render-icon.mjs` → `bun tauri icon src-tauri/icons/source.png -o src-tauri/icons` (android · ios · Square* · 64x64 · icns 는 지운다).
 
 ## 구조
 
