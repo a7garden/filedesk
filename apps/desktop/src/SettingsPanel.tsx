@@ -2,6 +2,8 @@
 //
 // 목차 (한 장으로 이어진다 · 왼쪽 목차는 지금 읽는 자리를 따라간다)
 //   보기       크기 사다리 · 보일 열 · 숨김 파일 · 격자 미리보기
+//   목록       기본 정렬 · 폴더를 위에 · 판 접어 시작 · 고친 날 · 크기 꼴
+//   열기       폴더 열기(두 번 · 한 번 누르기) · 시작 폴더
 //   화면 색     시스템 · 밝게 · 어둡게 — 작은 창 그림으로 고른다
 //   아이콘      Windows · filedesk · 아이콘 팩 — 같은 파일 몇 개가 셋에서 어떻게 보이는지 나란히
 //   종류       목록 위 종류 · 아이콘 색의 묶음. 확장자 칩을 다른 종류로 끌어 옮긴다
@@ -15,11 +17,11 @@
 //                일반 파일 탐색기에 한 과업에만 맞는 설정이었다 — 상태어는 고정 목록, 작성자 꼬리는 이름 꼴로 추정한다 (fd-core docname).
 import { useEffect, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import { api, iconUrl, type ColKey, type SkillStatus, type Theme, type ViewPrefs } from "./api";
+import { api, iconUrl, type ColKey, type Entry, type SkillStatus, type Theme, type ViewPrefs } from "./api";
 import { FileGlyph, FolderGlyph } from "./glyphs";
 import SizeLadder from "./SizeLadder";
 import { checkUpdate } from "./updater";
-import { DEFAULT_KINDS, errText, KIND_PALETTE, type KindDef, parseExts } from "./util";
+import { DEFAULT_KINDS, errText, formatSize, KIND_PALETTE, type KindDef, parseExts, relDate, type SortKey } from "./util";
 
 type Props = {
   current: string;
@@ -30,17 +32,25 @@ type Props = {
   theme: Theme;
   setTheme: (t: Theme) => void;
   resetCols: () => void;
+  /** 켤 때 열 폴더 — 비면 지난 탭. */
+  start: string;
+  setStart: (v: string) => void;
   onClose: () => void;
 };
 
 const SECTIONS = [
   { id: "view", label: "보기" },
+  { id: "list", label: "목록" },
+  { id: "open", label: "열기" },
   { id: "theme", label: "화면 색" },
   { id: "icons", label: "아이콘" },
   { id: "kinds", label: "종류" },
   { id: "skill", label: "Claude 스킬" },
 ] as const;
 type SectionId = (typeof SECTIONS)[number]["id"];
+
+/** 크기 꼴 견본 — 흔한 한글 문서 크기. */
+const SIZE_SAMPLE = { isDir: false, size: 2_450_000 } as Entry;
 
 /** 아이콘 견주기에 쓰는 표본 — 폴더 · 한글 · 표 · 발표 · PDF · 마크다운 · 그림. */
 const SAMPLES: { name: string; ext: string; isDir: boolean }[] = [
@@ -54,7 +64,7 @@ const SAMPLES: { name: string; ext: string; isDir: boolean }[] = [
 ];
 
 export default function SettingsPanel(props: Props) {
-  const { current, view, setView, showHidden, setShowHidden, theme, setTheme, resetCols, onClose } = props;
+  const { current, view, setView, showHidden, setShowHidden, theme, setTheme, resetCols, start, setStart, onClose } = props;
   const body = useRef<HTMLDivElement>(null);
   const [at, setAt] = useState<SectionId>("view");
   const [skill, setSkill] = useState<SkillStatus | null>(null);
@@ -133,6 +143,23 @@ export default function SettingsPanel(props: Props) {
     </label>
   );
 
+  /** 하나를 고르는 줄 — 선택지마다 그 결과(견본 · 동작)를 옆에 적어, 누르기 전에 견준다.
+   *  options: [값, 이름, 결과]. 결과가 있으면 위아래 줄, 없으면 한 줄에 나란히.
+   *  2026.11.11 : 열 머리 칩(col-chip)을 빌려 쓰던 것을 바꿨다. 그 칩은 「끈 열」을 취소선으로 그려
+   *  고르지 않은 선택지가 지워진 것처럼 보였다. 네이티브 radio 라 방향키로 옮긴다. */
+  const choice = <T extends string>(label: string, options: [T, string, string?][], on: T, set: (v: T) => void) => (
+    <div className={"pick" + (options.some((o) => o[2]) ? " rows" : " inline")} role="radiogroup" aria-label={label}>
+      {options.map(([v, l, note]) => (
+        <label key={v} className="pick-opt">
+          <input type="radio" name={`pick-${label}`} checked={on === v} onChange={() => set(v)} />
+          <span className="pick-name">{l}</span>
+          {note && <span className="pick-note">{note}</span>}
+        </label>
+      ))}
+    </div>
+  );
+  const sample = Date.now() - 3 * 3600_000;
+
   const colOn = (c: ColKey) => !view.hiddenCols.includes(c);
   const toggleCol = (c: ColKey) => setView((v) => ({ ...v, hiddenCols: v.hiddenCols.includes(c) ? v.hiddenCols.filter((x) => x !== c) : [...v.hiddenCols, c] }));
   const skillOld = skill?.installed && skill.installed !== skill.current;
@@ -166,7 +193,7 @@ export default function SettingsPanel(props: Props) {
           <div className="set-ver">
             <span>filedesk {version && `v${version}`}</span>
             <button className="act" onClick={() => checkUpdate(true)}>
-              새 판 확인
+              업데이트 확인
             </button>
           </div>
         </nav>
@@ -203,7 +230,7 @@ export default function SettingsPanel(props: Props) {
                   ))}
                 </div>
                 <p className="muted set-hint">
-                  눌러서 켜고 끈다 · 너비는 목록 머리 사이 줄을 끈다 ·{" "}
+                  눌러서 켜고 끈다 · 열 너비는 목록 머리의 경계선을 끌어 바꾼다 ·{" "}
                   <button className="link-btn" onClick={resetCols}>
                     너비 처음대로
                   </button>
@@ -215,6 +242,111 @@ export default function SettingsPanel(props: Props) {
               <div>
                 {check("숨김 · 시스템 파일", showHidden, setShowHidden, "Ctrl+H")}
                 {check("격자에서 그림 · PDF · 영상의 내용 미리보기", view.thumbs, (thumbs) => setView((v) => ({ ...v, thumbs })))}
+                {check("왼쪽 열의 최근 파일 (다운로드 · 바탕화면에 최근 생긴 것)", view.recent, (recent) => setView((v) => ({ ...v, recent })))}
+              </div>
+            </div>
+          </section>
+
+          <section id="set-list" aria-labelledby="h-list">
+            <h3 id="h-list">목록</h3>
+            <div className="set-line">
+              <span className="set-label">정렬</span>
+              <div>
+                {choice<SortKey>(
+                  "기본 정렬",
+                  [
+                    ["name", "이름"],
+                    ["modified", "고친 날"],
+                    ["kind", "종류"],
+                    ["size", "크기"],
+                  ],
+                  view.sort.key,
+                  (key) => setView((v) => ({ ...v, sort: { key, asc: key === "name" || key === "kind" } })),
+                )}
+                {choice<"asc" | "desc">(
+                  "정렬 방향",
+                  [
+                    ["asc", view.sort.key === "modified" ? "옛것부터" : view.sort.key === "size" ? "작은 것부터" : "가나다순"],
+                    ["desc", view.sort.key === "modified" ? "최근 것부터" : view.sort.key === "size" ? "큰 것부터" : "거꾸로"],
+                  ],
+                  view.sort.asc ? "asc" : "desc",
+                  (d) => setView((v) => ({ ...v, sort: { ...v.sort, asc: d === "asc" } })),
+                )}
+                <p className="muted set-hint">새 탭 · 다시 켤 때 이 정렬로 시작한다 · 열 머리를 눌러 바꾼 정렬은 그 탭에서만</p>
+              </div>
+            </div>
+            <div className="set-line">
+              <span className="set-label">늘어놓기</span>
+              <div>
+                {check("폴더를 파일 위에 모으기", view.dirsFirst, (dirsFirst) => setView((v) => ({ ...v, dirsFirst })), "끄면 고친 날 순서에 폴더가 섞인다")}
+                {check("판을 접은 채 시작", view.foldStart, (foldStart) => setView((v) => ({ ...v, foldStart })), "Ctrl+Shift+D 는 그 탭에서만")}
+              </div>
+            </div>
+            <div className="set-line">
+              <span className="set-label">고친 날</span>
+              <div>
+                {choice(
+                  "고친 날 표시",
+                  [
+                    ["relative", "가깝게", relDate(sample, "relative")],
+                    ["absolute", "정확히", relDate(sample, "absolute")],
+                  ],
+                  view.dateStyle,
+                  (dateStyle) => setView((v) => ({ ...v, dateStyle })),
+                )}
+              </div>
+            </div>
+            <div className="set-line">
+              <span className="set-label">크기</span>
+              <div>
+                {choice(
+                  "크기 표시",
+                  [
+                    ["kb", "탐색기처럼", formatSize(SIZE_SAMPLE, "kb")],
+                    ["auto", "알맞은 단위", formatSize(SIZE_SAMPLE, "auto")],
+                  ],
+                  view.sizeUnit,
+                  (sizeUnit) => setView((v) => ({ ...v, sizeUnit })),
+                )}
+              </div>
+            </div>
+          </section>
+
+          <section id="set-open" aria-labelledby="h-open">
+            <h3 id="h-open">열기</h3>
+            <div className="set-line">
+              <span className="set-label">폴더 열기</span>
+              <div>
+                {choice(
+                  "폴더 열기",
+                  [
+                    ["double", "두 번 눌러 열기", "탐색기와 같다 · 한 번 누르면 고른다"],
+                    ["single", "한 번 눌러 열기", "고르기는 Ctrl · Shift 누르기나 방향키 · 파일은 두 번 눌러 연다"],
+                  ],
+                  view.folderClick,
+                  (folderClick) => setView((v) => ({ ...v, folderClick })),
+                )}
+              </div>
+            </div>
+            <div className="set-line">
+              <span className="set-label">시작 폴더</span>
+              <div>
+                {choice(
+                  "켤 때",
+                  [
+                    ["last", "지난 탭 그대로", "지난번에 열어 둔 탭 · 나눠 보기 그대로 연다"],
+                    ["folder", "정한 폴더", start || "고르면 지금 폴더로 정한다"],
+                  ],
+                  start ? "folder" : "last",
+                  (m) => setStart(m === "folder" ? start || current : ""),
+                )}
+                {start && start !== current && (
+                  <p className="set-hint pick-after">
+                    <button className="link-btn" onClick={() => setStart(current)} title={current}>
+                      지금 폴더로 바꾸기
+                    </button>
+                  </p>
+                )}
               </div>
             </div>
           </section>
@@ -257,7 +389,7 @@ export default function SettingsPanel(props: Props) {
             {view.icons === "pack" && (
               <div className="pack-box">
                 <p className="set-path" title={view.iconPack}>
-                  {view.iconPack || <span className="muted">팩 폴더를 정하지 않았다</span>}
+                  {view.iconPack || <span className="muted">아이콘 팩 폴더를 정하지 않았다</span>}
                 </p>
                 <div className="set-acts">
                   <button className="act primary" onClick={() => setView((v) => ({ ...v, iconPack: current }))} title={current}>
@@ -302,12 +434,12 @@ export default function SettingsPanel(props: Props) {
               <button
                 className={"act" + (!skill?.installed || skillOld ? " primary" : "")}
                 disabled={!skill?.hasCli}
-                title={skill?.hasCli ? (skill.file ?? "") : "설치본(릴리즈의 setup.exe)으로 깔아야 fd.exe 가 함께 들어온다"}
+                title={skill?.hasCli ? (skill.file ?? "") : "설치 파일(릴리스의 setup.exe)로 깔아야 fd.exe 가 함께 깔린다"}
                 onClick={installSkill}
               >
                 {skill?.installed ? "다시 설치" : "설치"}
               </button>
-              {!skill?.hasCli && skill && <span className="muted">설치본에서만 된다</span>}
+              {!skill?.hasCli && skill && <span className="muted">설치 파일로 깐 앱에서만 된다</span>}
             </div>
             {skillMsg && <p className="set-note">{skillMsg}</p>}
             {skill?.file && <p className="muted set-note">자리: {skill.file}</p>}
@@ -408,7 +540,7 @@ function KindsEditor({ kinds, set }: { kinds: KindDef[]; set: (k: KindDef[]) => 
 
   return (
     <>
-      <p className="muted set-note">목록 위 종류 거르기가 이 묶음을 쓴다. 확장자 칩을 다른 종류로 끌어 옮긴다. 「폴더」와, 어디에도 없는 확장자가 가는 「기타」는 늘 있다.</p>
+      <p className="muted set-note">목록 위 종류 거르기가 이 묶음을 쓴다. 확장자를 다른 종류로 끌어 옮긴다. 「폴더」와, 어디에도 없는 확장자가 가는 「기타」는 늘 있다.</p>
       <div className={"kind-edit" + (drag?.on ? " dragging" : "")} role="list">
         {kinds.map((k, i) => (
           <div className={"kind-edit-row" + (drag?.on && drag.over === k.id && drag.from !== k.id ? " drop" : "")} role="listitem" key={k.id} data-kind-row={k.id}>

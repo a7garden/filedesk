@@ -96,11 +96,15 @@ impl MemoStore {
         self.items.values()
     }
 
-    /// `dir` 바로 아래 항목의 메모. `이전판/` 안도 함께 — 목록이 판을 펼쳐 그 파일들을 보이므로.
+    /// `dir` 바로 아래 항목의 메모. 지난 판 폴더(`이전판/` 등) 안도 함께 — 목록이 판을 펼쳐 그 파일들을 보이므로.
+    /// 2026.11.11 : `이전판` 하나만 보던 것을 지난 판 폴더 이름 전부로 (`docs::is_history_name`) — 지난 판 옮기기가 이미 있는 다른 이름 폴더로도 간다.
     pub fn in_dir(&self, dir: &str) -> Vec<&Memo> {
         let d = key(dir);
-        let hist = format!("{d}\\{}", crate::docs::HISTORY_DIR);
-        self.items.iter().filter(|(k, _)| parent_key(k) == d || parent_key(k) == hist).map(|(_, m)| m).collect()
+        let under = |k: &str| {
+            let p = parent_key(k);
+            p == d || p.rsplit_once('\\').is_some_and(|(up, last)| up == d && crate::docs::is_history_name(last))
+        };
+        self.items.iter().filter(|(k, _)| under(k)).map(|(_, m)| m).collect()
     }
 
     /// 메모를 붙인다. 빈 글이면 글을 뗀다 (색이 있으면 항목은 남는다). 돌려주는 값은 남은 항목.

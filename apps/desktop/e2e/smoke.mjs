@@ -92,7 +92,7 @@ try {
   check("보고서는 한 줄로 접힌다 (문서 이름으로)", names?.filter((n) => n.startsWith("보고서")).length === 1 && names?.includes("보고서.pptx"), names?.find((n) => n.startsWith("보고서")));
   const ticks = await row("보고서").locator("svg.ticks").getAttribute("aria-label");
   // pptx · pdf 는 한 판으로 센다 — 보고서는 v3(pptx · pdf) · v2 두 판
-  check("판 눈금 — 글로도 읽힌다", ticks?.includes("2판") && ticks.includes("이전판 1"), ticks ?? "");
+  check("판 눈금 — 글로도 읽힌다", ticks?.includes("2판") && ticks.includes("「이전판」 폴더 1"), ticks ?? "");
   check("D09 판 겹침은 문제 줄로", (await pane.locator(".row.issue-line", { hasText: "v1.6 이 여러 날짜" }).count()) === 1);
   check("판 겹침 점은 경고 모양", (await row("LDM_D09").locator(".tick-arc").count()) === 1);
   check("셸 아이콘이 그려진다", await until(() => row("가나다").locator("img").evaluate((img) => img.complete && img.naturalWidth > 0), 5000));
@@ -162,9 +162,9 @@ try {
   // 8-1. 문제 줄 — 같은 자리에 남은 지난 판을 이전판으로 (계획을 보이고 확인 뒤)
   const meet = pane.locator(".row.issue-line", { hasText: "판이 2개" });
   check("같은 자리 판 둘은 문제 줄", await until(() => meet.count().then((c) => c === 1)));
-  await meet.locator("button", { hasText: "이전판으로" }).click();
+  await meet.locator("button", { hasText: "이전판」 폴더로" }).click();
   // 계획을 띄우면 문제 문장 자리에 옮길 목록이 선다 — 그 줄을 새로 찾는다
-  const planRow = pane.locator(".row.issue-line", { hasText: "이전판으로 옮김" });
+  const planRow = pane.locator(".row.issue-line", { hasText: "폴더로 옮김" });
   check("옮길 판을 먼저 보인다", await until(() => planRow.textContent().then((t) => t.includes("회의자료_v1_20261001.pptx") && !t.includes("v2"))));
   await page.screenshot({ path: join(SHOTS, "04_문제줄_옮김계획.png") });
   await planRow.locator("button.primary").click();
@@ -203,9 +203,9 @@ try {
   // 10. 「문제 N문서」 — 문제 있는 문서만 거른다 (9-2 끝에서 시험 폴더로 돌아와 있다)
   await until(async () => (await rowNames()).length >= 7);
   const chip = pane.locator(".issue-chip");
-  check("문제 칩", (await chip.textContent()) === "문제 1문서", (await chip.textContent()) ?? "");
+  check("문제 칩", (await chip.textContent()) === "문제 문서 1개", (await chip.textContent()) ?? "");
   await chip.click();
-  check("문제 있는 문서만", await until(async () => (await rowNames()).join() === "LDM_D09_테이블정의서.xlsx"), (await rowNames()).join(" · "));
+  check("문제 있는 문서만", await until(async () => (await rowNames()).join() === "LDM_D09_테이블정의서_예시과업.xlsx"), (await rowNames()).join(" · "));
   await page.screenshot({ path: join(SHOTS, "07_문제만.png") });
   await chip.click();
   check("다시 모두", await until(async () => (await rowNames()).length >= 7));
@@ -255,12 +255,15 @@ try {
   await pane.locator("input.filter").press("Escape");
   await until(async () => (await rowNames()).length >= 7);
 
-  // 10-6. 즐겨찾기 — 파일을 고르고 Ctrl+D → 왼쪽 즐겨찾기에 파일로
+  // 10-6. 즐겨찾기 — 파일을 고르고 Ctrl+D → 아래 독에 파일로. 더한 순간 독이 잠깐 올라와 그 타일을 밝힌다
   await row("LDM_D09").click();
   await page.keyboard.press("Control+d");
-  check("파일을 즐겨찾기에", await until(() => page.locator(".side li[data-pin-index]", { hasText: "LDM_D09" }).count().then((c) => c === 1)));
+  check("파일을 즐겨찾기에", await until(() => page.locator(".dock li[data-pin-index]", { hasText: "LDM_D09" }).count().then((c) => c === 1)));
+  check("더하면 독이 올라와 밝힌다", await until(() => page.locator(".dock.open .dock-tile.fresh", { hasText: "LDM_D09" }).count().then((c) => c === 1), 1200));
+  check("잠시 뒤 독이 내려간다", await until(() => page.locator(".dock.open").count().then((c) => c === 0), 3000));
 
-  // 10-7. 나눠 보기 — Ctrl+\ 로 두 칸 · 오른쪽 칸만 옮기기 · 칸 너비 끌기 · 탭을 끌어 칸에 놓기 · 다시 Ctrl+\
+  // 10-7. 나눠 보기 — Ctrl+\ 로 두 칸 · 오른쪽 칸만 옮기기 · 칸 너비 끌기 · 탭을 끌어 칸 가운데에 놓기 · 다시 Ctrl+\
+  //       · 탭을 칸 가장자리로 끌어 네 칸까지 나누기 · 칸 높이 끌기 · 다섯째는 나누지 않고 그 칸으로 옮긴다
   //       칸 사이 파일 끌기는 셸 끌기(OLE)라 여기서 못 본다 — 사람이 본다.
   const panes = page.locator("section.pane:not([hidden])");
   await page.keyboard.press("Control+\\");
@@ -280,27 +283,66 @@ try {
   const widths = await panes.evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().width)));
   check("칸 너비를 끌어 바꾼다", widths[0] < widths[1], widths.join(" · "));
   await page.screenshot({ path: join(SHOTS, "12_나눠보기.png") });
+  await sleep(300); // 칸 사이 줄 끌기가 끝난 뒤에 탭을 끈다 — 곧바로 끌면 덮개가 가끔 안 떴다
   const tab0 = await page.locator(".tab").first().boundingBox();
   const area = await page.locator(".panes").boundingBox();
   await page.mouse.move(tab0.x + 20, tab0.y + 10);
   await page.mouse.down();
-  await page.mouse.move(area.x + area.width * 0.8, area.y + 200, { steps: 8 });
-  check("탭을 끌면 놓을 칸이 보인다", await until(() => page.locator(".split-drop.side-1").count().then((c) => c === 1), 2000));
+  await page.mouse.move(area.x + area.width * 0.8, area.y + area.height / 2, { steps: 8 });
+  check("탭을 칸 가운데로 끌면 그 칸 덮개가 보인다", await until(() => page.locator(".split-drop.whole").count().then((c) => c === 1), 2000));
   await page.mouse.up();
-  // 칸은 DOM 순서(탭 순서)가 아니라 grid 칸으로 놓인다 — 화면 왼쪽에 있는 칸을 위치로 고른다.
-  const leftCrumb = () =>
-    panes.evaluateAll((els) => {
-      const l = els.sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left)[0];
-      return l?.querySelector(".crumb.here")?.textContent ?? "";
-    });
-  check("탭을 오른쪽 반에 놓으면 그 칸에 연다 (두 칸이 맞바뀐다)", await until(async () => (await leftCrumb()) === "하위"), await leftCrumb());
+  // 2026.11.11 : 칸마다 탭 묶음이 된 뒤로 가운데에 놓으면 그 칸의 탭이 된다 — 탭 하나짜리 칸은 접혀 한 칸 · 탭 둘.
+  //              (예전 시험은 두 칸 시절의 「맞바꾸기」를 보았다)
+  check(
+    "가운데에 놓으면 그 칸의 탭이 된다 (한 칸 · 탭 둘)",
+    await until(async () => (await panes.count()) === 1 && (await page.locator(".tab").count()) === 2),
+    `칸 ${await panes.count()} · 탭 ${await page.locator(".tab").count()}`,
+  );
+
+  // 끌어서 나누기 — 탭을 칸 가장자리에 놓으면 그쪽 반에 새 칸. 넷까지.
+  for (let i = 0; i < 3; i++) await page.keyboard.press("Control+t");
+  const dragTab = async (tab, x, y, cls) => {
+    const b = await tab.boundingBox();
+    await page.mouse.move(b.x + 20, b.y + 10);
+    await page.mouse.down();
+    await page.mouse.move(x, y, { steps: 10 });
+    const seen = await until(() => page.locator(`.split-drop.${cls}`).count().then((c) => c === 1), 2000);
+    await page.mouse.up();
+    return seen;
+  };
+  const A = await page.locator(".panes").boundingBox();
+  check("오른쪽 가장자리 — 그쪽 반이 덮인다", await dragTab(page.locator(".tab").last(), A.x + A.width - 30, A.y + A.height / 2, "edge-right"));
+  check("끌어서 두 칸", await until(() => panes.count().then((c) => c === 2)));
+  check("오른쪽 칸 아래 가장자리", await dragTab(page.locator(".tab").first(), A.x + A.width * 0.75, A.y + A.height - 24, "edge-bottom"));
+  check("끌어서 세 칸 (오른쪽이 위아래로)", await until(() => panes.count().then((c) => c === 3)));
+  check("아래쪽 칸은 제 칸 위에 탭 줄", (await page.locator(".tabs.in-pane").count()) >= 1);
+  check("왼쪽 칸 아래 가장자리", await dragTab(page.locator(".tab").first(), A.x + A.width * 0.25, A.y + A.height - 24, "edge-bottom"));
+  check("끌어서 네 칸", await until(() => panes.count().then((c) => c === 4)));
+  const across = page.locator(".divider.across").first();
+  const ab = await across.boundingBox();
+  await page.mouse.move(ab.x + 40, ab.y + 2);
+  await page.mouse.down();
+  await page.mouse.move(ab.x + 40, ab.y - 120, { steps: 6 });
+  await page.mouse.up();
+  const ab2 = await across.boundingBox();
+  check("칸 높이를 끌어 바꾼다", ab2.y < ab.y - 60, `${Math.round(ab.y)} → ${Math.round(ab2.y)}`);
+  await page.screenshot({ path: join(SHOTS, "12b_네칸.png") });
+  check("다섯째는 나누지 않고 그 칸으로 옮긴다", await dragTab(page.locator(".tab").last(), A.x + 30, A.y + 120, "whole"));
+  check("여전히 네 칸", (await panes.count()) === 4);
   await page.keyboard.press("Control+\\");
-  check("다시 한 칸", await until(() => panes.count().then((c) => c === 1)));
+  check("한 칸으로 모은다", await until(() => panes.count().then((c) => c === 1)));
+  // 모은 뒤 앞에 선 탭이 어느 폴더인지는 끌어 온 차례에 달렸다 — 다음 시험을 위해 시험 폴더로 돌아간다 (주소 줄)
+  await page.keyboard.press("Control+l");
+  await pane.locator("input.path-input").fill(T);
+  await pane.locator("input.path-input").press("Enter");
+  await until(async () => (await rowNames()).some((n) => n.startsWith("보고서")), 5000);
 
   // 10-8. 설정 창 — 보기 · Claude 스킬
   await page.locator(".settings-btn").click();
   check("설정 창", await until(() => page.locator(".settings").count().then((c) => c === 1)));
   check("설정은 보기부터", (await page.locator(".set-nav button[aria-current]").textContent()) === "보기");
+  check("앱 판은 설정 안에만", /v\d+\.\d+\.\d+/.test((await page.locator(".set-ver").textContent()) ?? "") && (await page.locator(".side-foot").textContent())?.trim() === "설정");
+  check("고르기는 라디오", (await page.locator('.settings .pick input[type="radio"]').count()) >= 6);
   await page.locator(".set-nav button", { hasText: "Claude 스킬" }).click();
   check("Claude 스킬 상태", await until(async () => /설치/.test((await page.locator(".settings").textContent()) ?? "")));
   await page.screenshot({ path: join(SHOTS, "13_설정.png") });
@@ -361,7 +403,7 @@ try {
   await page.screenshot({ path: join(SHOTS, "15_메모카드.png") });
   await page.mouse.move(5, 400);
 
-  // 10-1. 직접 그린 제목 줄 — 창 단추 셋 · 최대화 ↔ 이전 크기 · 왼쪽 판 표시
+  // 10-1. 직접 그린 제목 줄 — 창 단추 셋 · 최대화 ↔ 이전 크기
   check("창 단추 셋", (await page.locator(".winctl button").count()) === 3);
   const maxBtn = page.locator(".winctl button").nth(1);
   const before = await maxBtn.getAttribute("aria-label");
@@ -371,7 +413,6 @@ try {
   await page.screenshot({ path: join(SHOTS, "09_제목줄.png") });
   await maxBtn.click();
   await until(async () => (await maxBtn.getAttribute("aria-label")) === before);
-  check("왼쪽 아래 판 표시", /^v\d+\.\d+\.\d+$/.test((await page.locator(".ver-btn").textContent()) ?? ""));
 
   // 11. 화면 색 — 시스템 → 밝게 → 어둡게. 바탕색이 실제로 바뀌는지 본다.
   const themeBtn = page.locator(".theme-btn");

@@ -3,11 +3,13 @@
 // 목차
 //   [1] 읽기 — 목록 + 문서 묶음을 함께 읽어 「판 접힌 줄」을 만든다 · 폴더 변경 알림
 //       2026.11.11 : 목록을 먼저 그리고 문서 묶음은 뒤에 얹는다 (묶기가 0.12초 안에 끝나면 한 번에). 큰 폴더에서 첫 줄이 묶기를 기다렸다
-//   [1-1] 찾기 — 이 폴더(이름 · 메모 글) · 아래 폴더까지(Shift+Enter) · 문서 안 글까지(Ctrl+Enter, fd-core search) · 색 표시 모아 보기(왼쪽 「색」). 종류 · 색으로도 추린다
+//   [1-1] 찾기 — 이 폴더(이름 · 메모) · 하위 폴더까지(Shift+Enter) · 문서 본문까지(Ctrl+Enter, fd-core search) · 색 표시 모아 보기(왼쪽 「색 표시」) ·
+//         새 파일 모아 보기(왼쪽 「새 파일」). 종류 · 색으로도 추린다
 //   [2] 줄 만들기 — 문서 하나 = 한 줄(최신판), 펼치면 그 자리에 판들 · 새 판 줄
-//       판 규칙이 어긋난 문서는 접혀 있어도 바로 밑에 「문제 줄」(무엇이 어긋났나 + 고칠 동작). 머리의 「문제 N문서」가 그것만 거른다
+//       이름 · 판에 문제가 있는 문서는 접혀 있어도 바로 밑에 「문제 줄」(무엇이 어긋났나 + 고칠 동작). 머리의 「문제 문서 N개」가 그것만 거른다
 //       2026.11.11 : 따로 있던 「점검」 보기를 지우고 목록에 겹쳤다 — 같은 폴더를 다른 표로 두 번 그렸고, 목록과 견줄 수 없었다
 //   [3] 고르기 (클릭 · Ctrl · Shift · 키보드)
+//       2026.11.11 : 설정 「폴더 열기」가 한 번 누르기면 폴더는 누르고 뗄 때 들어간다 (끌기 · Ctrl · Shift 는 그대로 고르기)
 //   [4] 동작 (열기 · 이름 바꾸기 · 휴지통 · 복사/잘라내기/붙여넣기 · 새 폴더 · 오른쪽 메뉴 · 새 판 · 메모 · 색 표시 · 즐겨찾기)
 //       색 표시는 Finder 꼬리표처럼 일곱 색 하나 — 이름 곁 점, 줄에 올리면 나오는 「색」 단추나 Alt+1~7 (Alt+0 지우기)
 //       메모는 이름 바로 곁에 흐린 글로 — 누르면 그 자리에서 고친다 (Ctrl+M). 데이터는 filedesk 가 따로 둔다 (파일에 쓰지 않는다)
@@ -16,7 +18,8 @@
 //   [6] 단축키 — 탐색기와 같게 (손에 익은 동작은 바꾸지 않는다)
 //   [7] 그리기 — 목록(열 너비 · 보일 열은 열 머리에서) 또는 격자(GridView). 메모는 길면 올려 둘 때 카드로, 고칠 때는 떠 있는 칸에서
 //       2026.11.11 : 격자 보기 · 크기(Ctrl+휠) · filedesk 아이콘 · 오른쪽 메뉴에 filedesk 항목(메모 · 색 · 즐겨찾기 · 옆 칸 · 새 판)
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+//   [8] 앱 안 보기 — md · txt · 그림은 셸에 넘기지 않고 이 칸에서 연다 (Viewer). 그동안 목록 단축키는 쉰다
+import { type CSSProperties, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { api, iconUrl, TAG_COLORS, TAG_LABEL, today, type ColKey, type DocFile, type DocGroup, type EditionPlan, type Entry, type Found, type MenuItem, type TagColor, type ViewPrefs } from "./api";
 import AddressBar, { type AddressHandle } from "./AddressBar";
@@ -26,6 +29,8 @@ import { Chevron, FileGlyph, FolderGlyph } from "./glyphs";
 import GridView, { TILE } from "./GridView";
 import SizeLadder, { atStep, LAST_STEP, STEPS, stepOf } from "./SizeLadder";
 import TagMenu, { TagDot } from "./TagMenu";
+import type { ViewTarget } from "./Viewer";
+import { viewKind } from "./viewable";
 import {
   baseName,
   DEFAULT_COLS,
@@ -49,12 +54,15 @@ import {
   type SortKey,
 } from "./util";
 
+// 편집기 · 마크다운 묶음(수백 KB)은 처음 열 때 읽는다 — 켜는 시간에 얹지 않게
+const Viewer = lazy(() => import("./Viewer"));
+
 type Props = {
   tab: Tab;
-  /** 보이는가 — 왼쪽 · 오른쪽 칸에 놓인 탭. */
+  /** 보이는가 — 제 칸의 지금 탭. */
   visible: boolean;
-  /** 나눠 보기에서 놓인 칸. 안 나눴으면 null. */
-  side: 0 | 1 | null;
+  /** 나눠 볼 때 칸 영역 안 자리(left · top · width · height). 안 나눴으면 null. */
+  box: CSSProperties | null;
   /** 키보드를 받는 칸의 탭인가. */
   active: boolean;
   onFocusPane: () => void;
@@ -77,7 +85,7 @@ type Props = {
 };
 
 /** 목록 한 줄. 판 줄(depth 1)은 펼친 문서 아래에 붙는다. 「새 판」 줄은 펼친 문서의 맨 아래. 「문제」 줄은 판 규칙이 어긋난 문서 바로 밑. */
-type DeepScope = "below" | "content" | "tag";
+type DeepScope = "below" | "content" | "tag" | "recent";
 type Deep = { scope: DeepScope; q: string; color?: TagColor; items: Found[] | null; truncated: boolean; scanned: number };
 type EntryRow = { kind: "entry"; e: Entry; depth: 0 | 1; group?: DocGroup; hiddenCount?: number; where?: string };
 type EditionRow = { kind: "edition"; group: DocGroup; source: Entry };
@@ -111,11 +119,28 @@ export default function Pane(p: Props) {
   const [entries, setEntries] = useState<Entry[] | null>(null);
   const [groups, setGroups] = useState<DocGroup[]>([]);
   const [error, setError] = useState("");
-  const [sort, setSort] = useState<Sort>({ key: "name", asc: true });
+  const [sort, setSort] = useState<Sort>(p.view.sort);
+  // 설정에서 기본 정렬을 바꾸면 열린 탭도 따라간다 — 설정 창에서 고른 결과를 바로 보게.
+  useEffect(() => setSort(p.view.sort), [p.view.sort.key, p.view.sort.asc]);
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [focus, setFocus] = useState<string | null>(null);
   const [anchor, setAnchor] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
+  /** 앱 안에서 보는 파일 ([8]). 있으면 목록 자리를 덮는다. 다른 폴더로 가면 닫는다. */
+  const [viewing, setViewing] = useState<ViewTarget | null>(null);
+  /** 보기를 닫아도 되는가 — 보기가 남은 글을 쓰고 답한다. 밖에서 고친 것과 겹쳐 묻는 중이면 false.
+   *  2026.11.11 리뷰 : 다른 폴더로 가거나 왼쪽 「색 표시」 · 「새 파일」을 누르면 이것을 거치지 않고 닫혀, 겹친 채 고친 글이 말없이 버려졌다. */
+  const viewerGuard = useRef<() => Promise<boolean>>(async () => true);
+  /** 보기를 닫고 `then` 을 한다. 닫으면 안 되면(겹침을 묻는 중) 보기를 그대로 두고 아무것도 하지 않는다 — 보기가 무엇을 고를지 보인다. */
+  const leaveViewer = useCallback((then?: () => void) => {
+    void viewerGuard.current().then((ok) => {
+      if (!ok) return;
+      setViewing(null);
+      then?.();
+    });
+  }, []);
+  // 다른 폴더로 가면 닫는다. 겹침을 묻는 중이면 보기를 남긴다 (그 밑의 목록은 이미 새 폴더다).
+  useEffect(() => leaveViewer(), [path, leaveViewer]);
   /** 경로(norm) → 메모 글. */
   const [memos, setMemos] = useState<Map<string, string>>(new Map());
   /** 메모를 고치는 중인 항목과 떠 있는 칸의 자리. */
@@ -133,7 +158,8 @@ export default function Pane(p: Props) {
   const rowH = p.view.dense ? ROW_H_DENSE : ROW_H;
   const [msg, setMsg] = useState<Msg | null>(null);
   /** 판을 접어 보는가 (기본). 끄면 파일을 다 보인다 — Ctrl+Shift+D. */
-  const [fold, setFold] = useState(true);
+  const [fold, setFold] = useState(p.view.foldStart);
+  useEffect(() => setFold(p.view.foldStart), [p.view.foldStart]);
   /** 문제 있는 문서만 보기 (머리의 「문제 N문서」). */
   const [onlyIssues, setOnlyIssues] = useState(false);
   const [open, setOpen] = useState<Set<string>>(new Set());
@@ -148,7 +174,7 @@ export default function Pane(p: Props) {
   const [kind, setKind] = useState<string | null>(null);
   const [colorOnly, setColorOnly] = useState<TagColor | null>(null);
   /** 아래 폴더까지 찾기. 켜져 있으면 목록 대신 찾은 것을 보인다. */
-  /** 이 폴더 밖까지 모아 보기 — 아래 폴더까지(below) · 문서 안 글까지(content) · 색 표시(tag, 모든 폴더). */
+  /** 이 폴더 밖까지 모아 보기 — 하위 폴더까지(below) · 문서 본문까지(content) · 색 표시(tag, 모든 폴더) · 새 파일(recent, 다운로드 · 바탕화면). */
   const [deep, setDeep] = useState<Deep | null>(null);
   /** 방금 펼친 문서 — 그 판 줄만 나타나는 움직임을 준다 (스크롤로 다시 그려지는 줄은 움직이지 않게). */
   const [justOpened, setJustOpened] = useState<{ key: string; at: number } | null>(null);
@@ -307,7 +333,7 @@ export default function Pane(p: Props) {
   const deepQ = deep?.q;
   const deepScope = deep?.scope;
   useEffect(() => {
-    if (deepQ == null || deepScope === "tag") return;
+    if (deepQ == null || deepScope === "tag" || deepScope === "recent") return;
     const q = filter.trim();
     if (!q) return setDeep(null);
     const scope = deepScope as DeepScope;
@@ -339,22 +365,52 @@ export default function Pane(p: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
+  /** 새 파일 모아 보기 — 왼쪽 「새 파일」이 지금 칸에 띄운다. 기록이라 최근 것부터 보이게 정렬을 고친 날 내림으로 바꾸고, 끝내면 원래 정렬로 돌린다. */
+  const sortBefore = useRef<Sort | null>(null);
+  const showRecent = useCallback(
+    (dirs: string[], days: number) => {
+      setDeep({ scope: "recent", q: `최근 ${days}일`, items: null, truncated: false, scanned: 0 });
+      setSort((s) => {
+        if (!sortBefore.current) sortBefore.current = s;
+        return { key: "modified", asc: false };
+      });
+      api
+        .recentFiles(dirs, days)
+        .then((items) => setDeep((d) => (d?.scope === "recent" ? { ...d, items } : d)))
+        .catch(report);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+  useEffect(() => {
+    if (deep?.scope === "recent" || !sortBefore.current) return;
+    setSort(sortBefore.current);
+    sortBefore.current = null;
+  }, [deep?.scope]);
   useEffect(() => {
     if (!p.active) return;
-    const on = (ev: Event) => showTagged((ev as CustomEvent<TagColor>).detail);
+    const on = (ev: Event) => leaveViewer(() => showTagged((ev as CustomEvent<TagColor>).detail));
+    const recent = (ev: Event) =>
+      leaveViewer(() => {
+        const { dirs, days } = (ev as CustomEvent<{ dirs: string[]; days: number }>).detail;
+        showRecent(dirs, days);
+      });
     // 명령 팔레트의 「찾기」 — 찾는 말을 칸에 넣고 그 범위로 찾는다
-    const find = (ev: Event) => {
-      const { q, scope } = (ev as CustomEvent<{ q: string; scope: "below" | "content" }>).detail;
-      setFilter(q);
-      setDeep({ scope, q, items: null, truncated: false, scanned: 0 });
-    };
+    const find = (ev: Event) =>
+      leaveViewer(() => {
+        const { q, scope } = (ev as CustomEvent<{ q: string; scope: "below" | "content" }>).detail;
+        setFilter(q);
+        setDeep({ scope, q, items: null, truncated: false, scanned: 0 });
+      });
     window.addEventListener("fd:tagged", on);
+    window.addEventListener("fd:recent", recent);
     window.addEventListener("fd:search", find);
     return () => {
       window.removeEventListener("fd:tagged", on);
+      window.removeEventListener("fd:recent", recent);
       window.removeEventListener("fd:search", find);
     };
-  }, [p.active, showTagged]);
+  }, [p.active, showTagged, showRecent]);
 
   /** 찾은 것의 메모 — 이 폴더 밖이라 목록 메모(memos)에 없다. */
   const deepMemos = useMemo(() => new Map((deep?.items ?? []).filter((f) => f.memo).map((f) => [norm(f.path), f.memo as string])), [deep]);
@@ -416,11 +472,11 @@ export default function Pane(p: Props) {
       // 색 표시는 모든 폴더에서 모으므로 온 자리를 통째로, 문서 안 글은 맞은 곳 앞뒤를 적는다.
       const rel = (fp: string) => {
         const dir = parentOf(fp) ?? "";
-        if (deep.scope === "tag") return dir;
+        if (deep.scope === "tag" || deep.scope === "recent") return dir;
         return samePath(dir, path) ? "" : dir.slice(path.replace(/\\$/, "").length + 1);
       };
       const whereOf = (f: Found) => [rel(f.path), f.snippet ? `…${f.snippet}…` : ""].filter(Boolean).join(" · ");
-      return sortEntries((deep.items ?? []).filter(passes), sort).map((e): Row => ({ kind: "entry", e, depth: 0, where: whereOf(e) || undefined }));
+      return sortEntries((deep.items ?? []).filter(passes), sort, p.view.dirsFirst).map((e): Row => ({ kind: "entry", e, depth: 0, where: whereOf(e) || undefined }));
     }
     const all = (entries ?? []).filter(passes);
     const q = filter.trim().toLowerCase();
@@ -446,7 +502,7 @@ export default function Pane(p: Props) {
     const byName = q ? visible.filter(has) : visible;
     const matched = onlyIssues ? byName.filter((e) => (groupOf.get(norm(e.path))?.issues.length ?? 0) > 0) : byName;
     const out: Row[] = [];
-    for (const e of sortEntries(matched, sort)) {
+    for (const e of sortEntries(matched, sort, p.view.dirsFirst)) {
       const rep = repOf.get(norm(e.path));
       const g = rep?.group ?? groupOf.get(norm(e.path));
       out.push({ kind: "entry", e, depth: 0, group: g, hiddenCount: rep?.count });
@@ -459,7 +515,7 @@ export default function Pane(p: Props) {
             kind: "entry",
             depth: 1,
             group: rep.group,
-            where: f.inHistory ? "이전판" : "같은 자리",
+            where: f.inHistory ? "「이전판」 폴더" : "이 폴더",
             e: { name: f.name, path: f.path, isDir: false, size: f.size, modified: f.modified, attrs: 0, ext: f.parsed.ext, kind: "" },
           });
         }
@@ -467,7 +523,7 @@ export default function Pane(p: Props) {
       }
     }
     return out;
-  }, [entries, groups, groupOf, issueLead, fold, filter, onlyIssues, sort, open, path, deep, passes, memos]);
+  }, [entries, groups, groupOf, issueLead, fold, filter, onlyIssues, sort, p.view.dirsFirst, open, path, deep, passes, memos]);
 
   /** 고르기 · 키보드가 다니는 줄 (새 판 줄은 건너뛴다). */
   const nav = useMemo(() => rows.filter((r): r is EntryRow => r.kind === "entry"), [rows]);
@@ -506,6 +562,14 @@ export default function Pane(p: Props) {
   // ───────── [3] 고르기 ─────────
 
   const selectedEntries = useMemo(() => nav.filter((r) => sel.has(r.e.path)).map((r) => r.e), [nav, sel]);
+  // 즐겨찾기 독의 「+」 — Ctrl+D 와 같다: 고른 것, 없으면 지금 폴더. 고른 것은 칸만 알아 독이 직접 더하지 못한다
+  useEffect(() => {
+    if (!p.active) return;
+    const pin = () => p.onPin(selectedEntries.length ? selectedEntries.map((x) => ({ path: x.path, isDir: x.isDir })) : [{ path, isDir: true }]);
+    window.addEventListener("fd:pin-here", pin);
+    return () => window.removeEventListener("fd:pin-here", pin);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p.active, p.onPin, selectedEntries, path]);
   const selectedPaths = useCallback(() => selectedEntries.map((e) => e.path), [selectedEntries]);
 
   const selectOnly = (fp: string) => {
@@ -550,6 +614,8 @@ export default function Pane(p: Props) {
 
   const openEntries = (list: Entry[]) => {
     if (list.length === 1 && list[0].isDir) return p.onGo(list[0].path);
+    // 파일 하나를 열 때만 앱 안에서 본다. 여러 개를 고르고 Enter 면 탐색기처럼 모두 기본 앱으로
+    if (list.length === 1 && viewKind(list[0].ext)) return setViewing(list[0]);
     for (const e of list) {
       api
         .openItem(e.path)
@@ -678,10 +744,10 @@ export default function Pane(p: Props) {
       .planEdition(e.path, today())
       .then((pl) =>
         setMsg({
-          text: `새 판 ${pl.newName}${pl.retire.length ? ` · 이전판으로 옮김: ${pl.retire.map(baseName).join(" · ")}` : ""}`,
+          text: `새 판 ${pl.newName}${pl.retire.length ? ` · 「이전판」 폴더로 옮김: ${pl.retire.map(baseName).join(" · ")}` : ""}`,
           actions: [
             { label: "새 판 내기", run: () => doEdition(e), primary: true },
-            { label: "그만두기", run: () => setMsg(null) },
+            { label: "취소", run: () => setMsg(null) },
           ],
         }),
       )
@@ -779,7 +845,7 @@ export default function Pane(p: Props) {
     api
       .retireEditions(path, g.key)
       .then((n) => {
-        say(`지난 판 ${n}개를 이전판으로 옮겼다`, "ok");
+        say(`지난 판 ${n}개를 「이전판」 폴더로 옮겼다`, "ok");
         load(true);
       })
       .catch(report);
@@ -801,7 +867,11 @@ export default function Pane(p: Props) {
 
   // ───────── [5] 끌기 ─────────
 
-  const press = useRef<{ x: number; y: number; entry: Entry; wasSelected: boolean; mods: boolean } | null>(null);
+  const press = useRef<{ x: number; y: number; entry: Entry; wasSelected: boolean; mods: boolean; second: boolean } | null>(null);
+  /** 한 번 누르기로 폴더에 들어간 때. 두 번 누르기가 손에 익은 사람의 둘째 누르기는 새 폴더의 줄에 떨어진다 —
+   *  막지 않으면 그 줄(폴더면 한 단계 더 · 파일이면 열기)까지 간다. */
+  const singleAt = useRef(0);
+  const singleFolder = (e: Entry) => p.view.folderClick === "single" && e.isDir;
 
   useEffect(() => {
     const move = (e: MouseEvent) => {
@@ -815,7 +885,12 @@ export default function Pane(p: Props) {
     const upH = () => {
       const pr = press.current;
       press.current = null;
-      if (pr && pr.wasSelected && !pr.mods) selectOnly(pr.entry.path);
+      if (!pr || pr.mods) return;
+      if (singleFolder(pr.entry)) {
+        if (pr.second) return;
+        singleAt.current = Date.now();
+        openEntries([pr.entry]);
+      } else if (pr.wasSelected) selectOnly(pr.entry.path);
     };
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", upH);
@@ -849,13 +924,21 @@ export default function Pane(p: Props) {
       setFocus(e.path);
       setAnchor(e.path);
     } else if (!wasSelected) selectOnly(e.path);
-    press.current = { x: ev.clientX, y: ev.clientY, entry: e, wasSelected, mods: ev.ctrlKey || ev.shiftKey };
+    press.current = { x: ev.clientX, y: ev.clientY, entry: e, wasSelected, mods: ev.ctrlKey || ev.shiftKey, second: ev.detail >= 2 };
+  };
+
+  /** 두 번 누르기 — 연다. 한 번 누르기로 폴더에 든 바로 뒤의 둘째 누르기는 버린다 (`singleAt`). */
+  const onRowDouble = (ev: React.MouseEvent, e: Entry) => {
+    if ((ev.target as HTMLElement).closest("button")) return;
+    if (singleFolder(e) || Date.now() - singleAt.current < 800) return;
+    openEntries([e]);
   };
 
   // ───────── [6] 단축키 ─────────
 
   useEffect(() => {
-    if (!p.active) return;
+    // 앱 안 보기 중에는 그쪽이 키를 받는다 — 편집기에서 친 Backspace · Delete 가 목록 동작이 되지 않게
+    if (!p.active || viewing) return;
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
       if (t.closest("input, textarea")) return;
@@ -1023,18 +1106,18 @@ export default function Pane(p: Props) {
           className="issue-chip"
           aria-pressed={onlyIssues}
           onClick={() => setOnlyIssues((v) => !v)}
-          title={onlyIssues ? "모든 파일 보기" : "판 규칙이 어긋난 문서만 보기"}
+          title={onlyIssues ? "모든 파일 보기" : "이름 · 판에 문제가 있는 문서만 보기"}
         >
-          문제 {issueLead.size}문서
+          문제 문서 {issueLead.size}개
         </button>
       )}
       <input
         ref={filterRef}
         className={"filter" + (deep ? " deep" : "")}
         value={filter}
-        placeholder={deep?.scope === "content" ? "문서 안 글까지 찾기" : deep?.scope === "below" ? "아래 폴더까지 찾기" : "찾기"}
-        aria-label={deep?.scope === "content" ? "문서 안 글까지 찾기" : deep?.scope === "below" ? "아래 폴더까지 찾기" : "이 폴더에서 찾기"}
-        title={"Ctrl+F — 이 폴더의 이름 · 메모 글에서 찾는다\nShift+Enter — 아래 폴더까지 · Ctrl+Enter — 문서 안 글까지"}
+        placeholder={deep?.scope === "content" ? "문서 본문까지 찾기" : deep?.scope === "below" ? "하위 폴더까지 찾기" : "찾기"}
+        aria-label={deep?.scope === "content" ? "문서 본문까지 찾기" : deep?.scope === "below" ? "하위 폴더까지 찾기" : "이 폴더에서 찾기"}
+        title={"Ctrl+F — 이 폴더의 이름 · 메모에서 찾는다\nShift+Enter — 하위 폴더까지 · Ctrl+Enter — 문서 본문까지"}
         spellCheck={false}
         onChange={(e) => setFilter(e.target.value)}
         onKeyDown={(e) => {
@@ -1097,7 +1180,7 @@ export default function Pane(p: Props) {
         data-path={e.path}
         data-drop={e.isDir ? e.path : undefined}
         onMouseDown={(ev) => onRowDown(ev, e)}
-        onDoubleClick={(ev) => !(ev.target as HTMLElement).closest("button") && openEntries([e])}
+        onDoubleClick={(ev) => onRowDouble(ev, e)}
         onContextMenu={(ev) => {
           ev.stopPropagation();
           itemMenu(e);
@@ -1180,12 +1263,12 @@ export default function Pane(p: Props) {
         )}
         {colOn("date") && (
           <span className="cell date" role="gridcell" title={formatDate(e.modified)}>
-            {relDate(e.modified)}
+            {relDate(e.modified, p.view.dateStyle)}
           </span>
         )}
         {colOn("size") && (
           <span className="cell size" role="gridcell">
-            {formatSize(e)}
+            {formatSize(e, p.view.sizeUnit)}
           </span>
         )}
       </div>
@@ -1223,7 +1306,7 @@ export default function Pane(p: Props) {
         data-drop={e.isDir ? e.path : undefined}
         title={e.name}
         onMouseDown={(ev) => onRowDown(ev, e)}
-        onDoubleClick={(ev) => !(ev.target as HTMLElement).closest("button") && openEntries([e])}
+        onDoubleClick={(ev) => onRowDouble(ev, e)}
         onContextMenu={(ev) => {
           ev.stopPropagation();
           itemMenu(e);
@@ -1236,15 +1319,21 @@ export default function Pane(p: Props) {
             <FolderGlyph size={iconPx} faint={hist} />
           ) : !e.isDir && p.view.icons !== "shell" && !thumb ? (
             <FileGlyph ext={e.ext} size={iconPx} />
-          ) : (
-            <img
-              src={bigIconUrl(e, px, thumb)}
-              alt=""
-              draggable={false}
-              loading="lazy"
-              className={thumb ? "thumb" : undefined}
-              style={{ maxWidth: iconPx, maxHeight: iconPx }}
+          ) : thumb ? (
+            <TileThumb
+              key={bigIconUrl(e, px, true)}
+              src={bigIconUrl(e, px, true)}
+              px={iconPx}
+              fallback={
+                p.view.icons !== "shell" ? (
+                  <FileGlyph ext={e.ext} size={iconPx} />
+                ) : (
+                  <img src={bigIconUrl(e, px, false)} alt="" draggable={false} style={{ maxWidth: iconPx, maxHeight: iconPx }} />
+                )
+              }
             />
+          ) : (
+            <img src={bigIconUrl(e, px, false)} alt="" draggable={false} loading="lazy" style={{ maxWidth: iconPx, maxHeight: iconPx }} />
           )}
           {isStack && g && (
             <span className="tile-stack" title={`판 ${editionCount(g.files)}개 — 목록 보기에서 펼친다`}>
@@ -1252,7 +1341,7 @@ export default function Pane(p: Props) {
             </span>
           )}
           {issue && g && (
-            <span className="tile-issue" title={g.issues.join("\n")} aria-label="판 규칙이 어긋났다">
+            <span className="tile-issue" title={g.issues.join("\n")} aria-label="이름 · 판에 문제가 있다">
               !
             </span>
           )}
@@ -1275,7 +1364,7 @@ export default function Pane(p: Props) {
               {memo.split("\n")[0]}
             </button>
           ) : (
-            !e.isDir && <span className="muted">{formatSize(e)}</span>
+            !e.isDir && <span className="muted">{formatSize(e, p.view.sizeUnit)}</span>
           )}
         </div>
       </div>
@@ -1294,12 +1383,12 @@ export default function Pane(p: Props) {
             <>
               <span className="muted">→</span>
               <b>{pl.newName}</b>
-              <span className="muted" title={pl.retire.join("\n")}>· 이전판으로 옮김: {pl.retire.map(baseName).join(" · ")}</span>
+              <span className="muted" title={pl.retire.join("\n")}>· 「이전판」 폴더로 옮김: {pl.retire.map(baseName).join(" · ")}</span>
               <button className="act primary" onClick={() => doEdition(r.source)}>
                 새 판 내기
               </button>
               <button className="act" onClick={() => setPlan(null)}>
-                그만두기
+                취소
               </button>
             </>
           ) : (
@@ -1308,12 +1397,12 @@ export default function Pane(p: Props) {
                 <button
                   className="act"
                   onClick={() => askEdition(g, r.source)}
-                  title="최신판을 다음 판 이름 · 오늘 날짜로 복사하고 지난 판은 이전판으로"
+                  title="최신판을 다음 판 이름 · 오늘 날짜로 복사하고 지난 판은 「이전판」 폴더로 옮긴다"
                 >
                   새 판…
                 </button>
               ) : (
-                <span className="muted">이름이 「문서명_v판_날짜」 꼴이 아니라 새 판을 낼 수 없다</span>
+                <span className="muted">이름이 「문서명_v판_날짜」 형식이 아니라 새 판을 낼 수 없다</span>
               )}
             </>
           )}
@@ -1332,12 +1421,12 @@ export default function Pane(p: Props) {
         <span className="edition-line">
           {files ? (
             <>
-              <span className="issue-text">이전판으로 옮김: {files.map(baseName).join(" · ")}</span>
+              <span className="issue-text">「이전판」 폴더로 옮김: {files.map(baseName).join(" · ")}</span>
               <button className="act primary" onClick={() => doRetire(g)}>
                 옮기기
               </button>
               <button className="act" onClick={() => setPlan(null)}>
-                그만두기
+                취소
               </button>
             </>
           ) : (
@@ -1346,8 +1435,8 @@ export default function Pane(p: Props) {
                 {g.issues.join(" · ")}
               </span>
               {stale > 0 ? (
-                <button className="act" onClick={() => askRetire(g)} title="옮길 파일을 먼저 보이고, 확인하면 이 폴더의 이전판으로 옮긴다">
-                  지난 판 {stale}개 이전판으로 옮기기
+                <button className="act" onClick={() => askRetire(g)} title="옮길 파일을 먼저 보이고, 확인하면 이 폴더 안 「이전판」 폴더로 옮긴다">
+                  지난 판 {stale}개 「이전판」 폴더로 옮기기
                 </button>
               ) : (
                 r.stack &&
@@ -1367,10 +1456,10 @@ export default function Pane(p: Props) {
   return (
     <section
       ref={sectionRef}
-      className={"pane" + (p.side != null ? ` in-split${p.active ? " focused-pane" : ""}` : "") + (isGrid ? " grid-mode" : "")}
+      className={"pane" + (p.box ? ` in-split${p.active ? " focused-pane" : ""}` : "") + (isGrid ? " grid-mode" : "")}
       hidden={!p.visible}
       aria-label={path}
-      style={{ ["--cols" as string]: colsTemplate, ["--cols-narrow" as string]: narrowCols, gridColumn: p.side === 1 ? 3 : 1, gridRow: 1 }}
+      style={{ ["--cols" as string]: colsTemplate, ["--cols-narrow" as string]: narrowCols, ...p.box }}
       onMouseDownCapture={p.onFocusPane}
     >
       <AddressBar
@@ -1398,14 +1487,16 @@ export default function Pane(p: Props) {
       {(deep || kind || colorOnly || kindCounts.size > 1 || colorCounts.size > 0 || filter.trim()) && (
         <div className="kinds" role="toolbar" aria-label="종류 · 색으로 거르기">
           {deep && (
-            <span className="deep-tag" title={deep.scope === "tag" ? "모든 폴더" : path}>
-              {deep.scope === "tag" ? (
+            <span className="deep-tag" title={deep.scope === "tag" ? "모든 폴더" : deep.scope === "recent" ? "다운로드 · 바탕화면에 새로 생기거나 바뀐 파일" : path}>
+              {deep.scope === "recent" ? (
+                <>새 파일 — 다운로드 · 바탕화면 · {deep.q}</>
+              ) : deep.scope === "tag" ? (
                 <>
                   <TagDot color={deep.color} /> {deep.q} 표시 — 모든 폴더
                 </>
               ) : (
                 <>
-                  {deep.scope === "content" ? "문서 안 글까지" : "아래 폴더까지"} 「{deep.q}」
+                  {deep.scope === "content" ? "문서 본문까지" : "하위 폴더까지"} 「{deep.q}」
                 </>
               )}
               <button className="kind-x" aria-label="모아 보기 끝내기" title="이 폴더로 돌아가기 (Esc)" onClick={() => setDeep(null)}>
@@ -1430,21 +1521,22 @@ export default function Pane(p: Props) {
               <TagDot color={c} /> <span className="kind-n">{colorCounts.get(c) ?? 0}</span>
             </button>
           ))}
-          {filter.trim() && deep?.scope !== "tag" && (
+          {filter.trim() && deep?.scope !== "tag" && deep?.scope !== "recent" && (
             <span className="scope" role="group" aria-label="찾을 범위">
+              {/* 2026.11.11 : 찾은 수는 지금 범위 단추에 붙인다 — 빈 목록이 「없다」를 문장으로 되풀이하지 않게. */}
               <button className="kind" aria-pressed={!deep} onClick={() => setDeep(null)} title="이 폴더의 이름 · 메모">
-                이 폴더
+                이 폴더{!deep && entries && <span className="kind-n">{rows.length}</span>}
               </button>
-              <button className="kind" aria-pressed={deep?.scope === "below"} onClick={() => startDeep("below")} title="아래 폴더 전부의 이름 · 메모 (Shift+Enter)">
-                아래 폴더까지
+              <button className="kind" aria-pressed={deep?.scope === "below"} onClick={() => startDeep("below")} title="하위 폴더 전부의 이름 · 메모 (Shift+Enter)">
+                하위 폴더까지{deep?.scope === "below" && deep.items && <span className="kind-n">{rows.length}</span>}
               </button>
               <button
                 className="kind"
                 aria-pressed={deep?.scope === "content"}
                 onClick={() => startDeep("content")}
-                title="아래 폴더 문서의 본문 글 — hwpx · docx · pptx · xlsx · pdf · txt · md (Ctrl+Enter)"
+                title="하위 폴더까지 문서 본문 — hwpx · docx · pptx · xlsx · pdf · txt · md (Ctrl+Enter)"
               >
-                문서 안 글까지
+                문서 본문까지{deep?.scope === "content" && deep.items && <span className="kind-n">{rows.length}</span>}
               </button>
             </span>
           )}
@@ -1460,7 +1552,7 @@ export default function Pane(p: Props) {
           }}
         >
           {header("name", "이름", 0, "", "오른쪽 단추: 보일 열 고르기")}
-          {colOn("ver") && header(null, "판", 1, "", "점 하나 = 판 하나 · 찬 점 = 같은 자리 · 빈 점 = 이전판 · 오른쪽 끝이 오늘\n규칙대로면 찬 점은 맨 오른쪽 하나")}
+          {colOn("ver") && header(null, "판", 1, "", "점 하나 = 판 하나 · 찬 점 = 이 폴더에 있는 판 · 빈 점 = 「이전판」 폴더에 있는 판 · 오른쪽 끝이 오늘\n잘 정리된 문서는 찬 점이 맨 오른쪽 하나뿐")}
           {colOn("date") && header("modified", "고친 날", 2)}
           {colOn("size") && header("size", "크기", 3, "right")}
         </div>
@@ -1495,7 +1587,7 @@ export default function Pane(p: Props) {
         {error ? (
           <div className="empty error">{error}</div>
         ) : deep && deep.items == null ? (
-          <div className="empty">{deep.scope === "tag" ? "색 표시를 모으는 중…" : deep.scope === "content" ? "문서 안 글을 읽으며 찾는 중…" : "아래 폴더에서 찾는 중…"}</div>
+          <div className="empty">{deep.scope === "recent" ? "새 파일을 모으는 중…" : deep.scope === "tag" ? "색 표시를 모으는 중…" : deep.scope === "content" ? "문서 본문을 읽으며 찾는 중…" : "하위 폴더에서 찾는 중…"}</div>
         ) : entries && rows.length === 0 ? (
           <div className="empty">
             {kind || colorOnly ? (
@@ -1515,24 +1607,32 @@ export default function Pane(p: Props) {
               </>
             ) : deep ? (
               <>
-                {deep.scope === "tag"
+                {deep.scope === "recent"
+                  ? `${deep.q} 동안 새 파일이 없다`
+                  : deep.scope === "tag"
                   ? `${deep.q} 표시를 단 항목이 없다`
                   : deep.scope === "content"
-                    ? `아래 폴더 문서에도 「${deep.q}」이 든 글이 없다`
-                    : `아래 폴더에도 「${deep.q}」이 든 이름 · 메모가 없다`}
+                    ? (
+                      <button className="act" onClick={() => setFilter("")}>
+                        찾는 말 지우기
+                      </button>
+                    )
+                    : (
+                      <>
+                        <button className="act primary" onClick={() => startDeep("content")}>
+                          문서 본문까지 찾기
+                        </button>
+                        <span className="key">Ctrl+Enter</span>
+                      </>
+                    )}
               </>
             ) : filter ? (
+              // 찾는 말은 칸에, 찾은 수(0)는 범위 단추에 이미 있다 — 여기는 범위를 한 칸 넓히는 다음 동작만 둔다
               <>
-                「{filter}」이 든 이름 · 메모가 이 폴더에 없다
                 <button className="act primary" onClick={() => startDeep("below")}>
-                  아래 폴더까지 찾기
+                  하위 폴더까지 찾기
                 </button>
-                <button className="act" onClick={() => startDeep("content")}>
-                  문서 안 글까지
-                </button>
-                <button className="act" onClick={() => setFilter("")}>
-                  지우기
-                </button>
+                <span className="key">Shift+Enter</span>
               </>
             ) : onlyIssues ? (
               <>
@@ -1578,7 +1678,7 @@ export default function Pane(p: Props) {
           {deep
             ? deep.items == null
               ? "찾는 중"
-              : `${deep.scope === "tag" ? "모든 폴더에서" : deep.scope === "content" ? "문서 안 글에서" : "아래 폴더에서"} ${deep.items.length.toLocaleString("ko-KR")}개${deep.truncated ? " (더 있다 — 말을 더 좁힌다)" : ""}`
+              : `${deep.scope === "recent" ? "다운로드 · 바탕화면에서" : deep.scope === "tag" ? "모든 폴더에서" : deep.scope === "content" ? "문서 본문에서" : "하위 폴더에서"} ${deep.items.length.toLocaleString("ko-KR")}개${deep.truncated ? " (더 있다 — 찾을 말을 더 좁힌다)" : ""}`
             : entries
               ? `${entries.length.toLocaleString("ko-KR")}개`
               : "읽는 중"}
@@ -1626,8 +1726,36 @@ export default function Pane(p: Props) {
           onClose={() => setTagMenu(null)}
         />
       )}
+      {viewing && (
+        <Suspense fallback={<div className="viewer" />}>
+          <Viewer
+            target={viewing}
+            siblings={nav.map((r) => r.e)}
+            liveModified={entries?.find((x) => samePath(x.path, viewing.path))?.modified}
+            active={p.active}
+            guardRef={viewerGuard}
+            onPick={(t) => {
+              setViewing(t);
+              if (entries?.some((x) => samePath(x.path, t.path))) selectOnly(t.path);
+            }}
+            onClose={() => {
+              const at = viewing.path;
+              setViewing(null);
+              if (entries?.some((x) => samePath(x.path, at))) selectOnly(at);
+            }}
+          />
+        </Suspense>
+      )}
     </section>
   );
+}
+
+/** 격자 칸의 미리보기 — 셸에 미리보기가 없으면(404) 아이콘 설정대로 그린 그림으로 바꾼다.
+ *  2026.11.11 : 예전에는 셸이 미리보기 대신 아이콘을 줘서, filedesk 아이콘을 골라도 pdf · 영상은 Windows 아이콘이었다. */
+function TileThumb({ src, px, fallback }: { src: string; px: number; fallback: React.ReactNode }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return <>{fallback}</>;
+  return <img src={src} alt="" draggable={false} loading="lazy" className="thumb" style={{ maxWidth: px, maxHeight: px }} onError={() => setFailed(true)} />;
 }
 
 /** 메모 칸 — 줄 아래에 떠서 여러 줄을 쓴다. Enter · 다른 곳 누르기는 저장, Shift+Enter 는 줄바꿈, Esc 는 그만두기. 비우고 저장하면 메모를 뗀다.
@@ -1675,7 +1803,7 @@ function MemoEditor({ at, initial, onCommit, onCancel }: { at: { x: number; y: n
         }}
         onBlur={() => finish(true)}
       />
-      <div className="memo-editor-foot muted">Enter 저장 · Shift+Enter 줄바꿈 · Esc 그만두기</div>
+      <div className="memo-editor-foot muted">Enter 저장 · Shift+Enter 줄바꿈 · Esc 취소</div>
     </div>
   );
 }

@@ -98,20 +98,36 @@ fn file_attrs(_meta: &std::fs::Metadata) -> u32 {
     0
 }
 
-/// 폴더 바로 아래에서 최근 `days` 일 안에 생기거나 바뀐 파일 수 — 왼쪽 「들어온 곳」(다운로드 · 바탕화면)에 보이는 숫자.
-pub fn recent_count(dir: &Path, days: u64) -> usize {
+/// 폴더들 바로 아래에서 최근 `days` 일 안에 생기거나 바뀐 파일 — 왼쪽 「새 파일」(다운로드 · 바탕화면)의 목록. 최근 것부터.
+/// 2026.11.11 : 개수만 내던 것을 목록으로 바꿨다. 숫자만으로는 무엇이 들어왔는지 몰라 결국 폴더를 열어 봐야 했다.
+/// 차례는 만든 때 · 고친 때 중 늦은 쪽이다 — 복사해 온 파일은 고친 때가 옛날 그대로라 고친 때만 보면 맨 아래로 간다.
+/// 숨김 · 시스템 파일과 오피스 임시(`~$…`)는 뺀다. 사람이 받은 파일이 아니다.
+pub fn recent_files(dirs: &[&Path], days: u64) -> Vec<Entry> {
     let since = std::time::SystemTime::now() - std::time::Duration::from_secs(days * 86_400);
-    let Ok(rd) = std::fs::read_dir(dir) else { return 0 };
-    rd.flatten()
-        .filter(|e| {
-            let n = e.file_name();
+    let mut found: Vec<(std::time::SystemTime, Entry)> = Vec::new();
+    for dir in dirs {
+        let Ok(rd) = std::fs::read_dir(dir) else { continue };
+        for item in rd.flatten() {
+            let n = item.file_name();
             let n = n.to_string_lossy();
-            !n.starts_with('.') && !n.starts_with("~$") && !n.eq_ignore_ascii_case("desktop.ini")
-        })
-        .filter_map(|e| e.metadata().ok())
-        .filter(|m| m.is_file())
-        .filter(|m| m.modified().is_ok_and(|t| t >= since) || m.created().is_ok_and(|t| t >= since))
-        .count()
+            if n.starts_with('.') || n.starts_with("~$") || n.eq_ignore_ascii_case("desktop.ini") {
+                continue;
+            }
+            let Ok(meta) = item.metadata() else { continue };
+            if !meta.is_file() {
+                continue;
+            }
+            let at = [meta.modified().ok(), meta.created().ok()].into_iter().flatten().max();
+            let Some(at) = at.filter(|t| *t >= since) else { continue };
+            let e = entry_from(item.path(), n.into_owned(), &meta);
+            if e.attrs & (ATTR_HIDDEN | ATTR_SYSTEM) != 0 {
+                continue;
+            }
+            found.push((at, e));
+        }
+    }
+    found.sort_by(|a, b| b.0.cmp(&a.0));
+    found.into_iter().map(|(_, e)| e).collect()
 }
 
 #[cfg(test)]
@@ -130,6 +146,18 @@ mod tests {
         let f = list.iter().find(|e| !e.is_dir).unwrap();
         assert_eq!(f.ext, "pptx");
         assert_eq!(f.size, 1);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn recent_files_skips_temp_and_folders() {
+        let dir = std::env::temp_dir().join(format!("fd-core-recent-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::write(dir.join("받은.pdf"), b"x").unwrap();
+        std::fs::write(dir.join("~$열린문서.docx"), b"x").unwrap();
+        let got = recent_files(&[dir.as_path()], 3);
+        assert_eq!(got.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["받은.pdf"]);
+        assert!(recent_files(&[dir.join("없는 폴더").as_path()], 3).is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -3,7 +3,12 @@
 Windows 탐색기를 대신해 쓰는 로컬 파일 탐색기. 탐색기가 하는 일(셸 메뉴 · 끌기 · 파일 작업 · 단축키)은 셸에 맡겨 그대로 하고,
 화면은 Windows 모양을 따르지 않고 일의 단위(폴더 → 문서 → 판)로 새로 지었다. 문서 정리(판 묶기 · 사본 · 정본 비교 · 정리 계획)를 더한다.
 화면 색은 왼쪽 아래 단추로 시스템 · 밝게 · 어둡게를 고른다 (기본은 시스템 — Windows 설정을 따른다).
-설정(왼쪽 아래 「설정」 · Ctrl+,): 보기(목록 · 격자 · 격자 크기 · 아이콘 모양 · 미리보기 · 보일 열) · 종류 · 화면 색 · Claude 스킬.
+설정(왼쪽 아래 「설정」 · Ctrl+,): 보기(목록 · 격자 · 격자 크기 · 아이콘 모양 · 미리보기 · 보일 열) ·
+목록(기본 정렬 · 폴더를 위에 · 판 접어 시작 · 고친 날 · 크기 꼴) · 열기(폴더를 두 번 · 한 번 눌러 · 시작 폴더) · 종류 · 화면 색 · Claude 스킬.
+앱 안 보기: md · txt · log 와 그림(png · jpg · gif · webp · bmp · svg · ico · avif)은 열면 그 칸에서 바로 본다.
+마크다운은 옵시디언처럼 렌더된 채로 고치고(커서가 있는 줄만 기호가 드러난다 · 링크는 Ctrl+누르기), 글은 입력이 멈추면 읽은 인코딩(UTF-8 · CP949 …) · 줄바꿈 방식 그대로 저장한다.
+연 사이 다른 곳에서 고쳤으면 덮지 않고 묻는다. 그림은 ←/→ 로 같은 폴더의 그림 · 누르기(Space)로 맞춤 ↔ 원래 크기. Esc 로 목록 · 「기본 앱으로 열기」는 머리에.
+화면 글자의 용어는 `TERMS.md` 한 곳에서 정한다 — 새 글자를 넣을 때 먼저 본다.
 
 설치 파일은 코드 서명이 없어 처음 설치할 때 SmartScreen 이 「Windows의 PC 보호」를 띄운다 — 「추가 정보」 → 「실행」.
 설치한 뒤의 새 판은 앱이 받아 서명(minisign)을 확인하고 깐다.
@@ -12,7 +17,9 @@ Windows 탐색기를 대신해 쓰는 로컬 파일 탐색기. 탐색기가 하�
 
 설치본에는 명령줄 `fd.exe` 가 앱 옆에 함께 깔린다. 설정 → 「Claude 스킬」 → 「설치」(또는 `fd skill install`)를 누르면
 `~/.claude/skills/filedesk/SKILL.md` 가 생기고, Claude Code 가 같은 판 규칙으로 파일을 다룬다 — 판 정리 · 새 판 · 메모 · 색 표시 · 찾기 · 휴지통.
-파일을 바꾸는 명령(`edition` · `retire`)은 `--apply` 없이 계획만 보이고, 지우기는 휴지통으로만 한다. 앱을 새 판으로 올린 뒤에는 스킬도 다시 설치한다.
+파일을 바꾸는 명령(`edition` · `retire`)은 `--apply` 없이 계획만 보이고, 지우기는 휴지통으로만 한다. 이미 깐 스킬은 앱을 켤 때 이 판 · 이 fd.exe 자리에 맞춰 저절로 다시 쓴다 (깔지 않았으면 새로 깔지 않는다).
+Claude 말고 다른 에이전트(Codex 등)는 `fd skill show` 가 내는 본문(fd.exe 절대경로가 들어 있다)을 그 에이전트의 지침 파일에 붙이면 같은 규칙으로 쓴다 —
+명령줄 이름 `fd` 는 흔한 파일 찾기 도구와 겹치니 지침에는 늘 절대경로로 적는다.
 스킬 본문의 정본은 `skills/filedesk/SKILL.md`.
 
 ## 실행
@@ -24,11 +31,12 @@ bun tauri dev                  # 개발 (화면 고치면 바로 반영)
 bun tauri build --no-bundle    # 실행 파일: target/release/filedesk.exe
 ```
 
-앱 시험 (배포판을 띄워 WebView2 디버깅 포트로 조작 · 캡처): `node apps/desktop/e2e/smoke.mjs [캡처 폴더]` — 셸 메뉴 · 앱 밖 끌기는 사람이 본다.
+앱 시험 (배포판을 띄워 WebView2 디버깅 포트로 조작 · 캡처): `node apps/desktop/e2e/smoke.mjs [캡처 폴더]` · 앱 안 보기(md · txt · 그림) `node apps/desktop/e2e/viewer.mjs` — 셸 메뉴 · 앱 밖 끌기는 사람이 본다 (릴리즈 전 목록: `apps/desktop/e2e/manual-check.md`).
 큰 폴더 성능: `node apps/desktop/e2e/perf.mjs [파일 수=20000]` — 켜고 첫 줄까지 · End 키 · 스크롤 프레임 · JS 힙을 잰다.
 
 명령줄 (JSON · 실패하면 표준 오류에 `{"error"}`): `fd ls <폴더>` · `fd docs <폴더> [-r] [--summary]` (문서 단위로 묶기 · 판 · 규칙 어긋남) ·
-`fd edition <파일> [--apply]` (새 판) · `fd retire <폴더> [--doc 키] [--apply]` (지난 판을 이전판으로) · `fd find <폴더> <말>` (이름 · 메모 글, 아래 폴더까지) ·
+`fd edition <파일> [--apply]` (새 판) · `fd retire <폴더> [--doc 키] [--apply]` (지난 판을 이전판으로) · `fd find <폴더> <말>` (이름 · 메모, 하위 폴더까지) ·
+`fd conv <폴더>` (그 폴더가 쓰는 이름 꼴 · 꼴과 다른 이름과 제안) · `fd name <경로> [--to 폴더]` (그 폴더 꼴로 고친 이름 제안) ·
 `fd trash <경로>…` · `fd skill install` ·
 `fd memo ls [폴더]` · `fd memo get|set <경로> [글]` · `fd memo color <경로> <red…gray|none>` (앱과 같은 메모 · 색) ·
 `fd tidy plan --sweep 이름=경로… --keep 정본자리 -o plan.json` → `fd tidy apply plan.json --box 정리함 [--only 이름]` → `fd tidy undo 정리함/manifest.json` (정본이 따로 있는 사본만 · 내용 해시 대조 · 옮기기만 하고 지우지 않는다). `cargo run -p fd-cli -- …`
@@ -36,6 +44,8 @@ bun tauri build --no-bundle    # 실행 파일: target/release/filedesk.exe
 릴리즈 · 업데이트 (docket 과 같은 틀): `tauri.conf.json` 의 `version` 을 올리고 `CHANGELOG.md` 에 `## <판>` 구획을 쓴 뒤 `v<판>` 태그를 밀면
 GitHub Actions(`.github/workflows/release.yml`)가 서명한 설치 파일(NSIS) · `latest.json` 을 릴리즈에 올린다. 설치된 앱은 켤 때 · 한 시간마다 그것을 보고
 제목 줄에 「새 판」을 알린다 (설치는 사용자가 누른다). 서명 키는 `~/.tauri/filedesk.key` (저장소 비밀 `TAURI_SIGNING_PRIVATE_KEY`) — 잃으면 이미 깐 앱이 새 판을 못 받는다.
+키와 그 암호는 이 PC 밖(암호 관리기 등)에 한 부 더 둔다. 그래도 잃었으면 새 키를 만들어(`bun tauri signer generate`) `tauri.conf.json` 의 공개 키 · 저장소 비밀을 바꾸고,
+이미 깐 PC 에는 새 설치 파일을 사람이 한 번 직접 깔게 알린다 — 그 뒤로는 다시 저절로 받는다.
 로컬에서 설치 파일까지: `TAURI_SIGNING_PRIVATE_KEY="$(cat ~/.tauri/filedesk.key)" bun tauri build --config src-tauri/tauri.release.json` (fd.exe 를 함께 넣는다).
 
 앱 아이콘: 원본은 `apps/desktop/src-tauri/icons/source.svg` (폴더 앞판에 판 눈금 — 흐린 점 둘 다음 큰 찬 점: 지난 판들 다음 최신판). 고친 뒤 `node apps/desktop/e2e/render-icon.mjs` → `bun tauri icon src-tauri/icons/source.png -o src-tauri/icons` (android · ios · Square* · 64x64 · icns 는 지운다).
@@ -54,17 +64,17 @@ GitHub Actions(`.github/workflows/release.yml`)가 서명한 설치 파일(NSIS)
 
 | 키 | 동작 |
 | - | - |
-| Enter · 더블클릭 | 열기 (폴더 · 폴더 바로가기는 앱 안에서) |
+| Enter · 더블클릭 | 열기 (폴더 · 폴더 바로가기 · md · txt · 그림은 앱 안에서) |
 | Backspace · Alt+← / Alt+→ · Alt+↑ | 뒤로 / 앞으로 · 위로 |
 | F2 · Delete | 이름 바꾸기 · 휴지통 |
 | Ctrl+C · X · V · Ctrl+A | 복사 · 잘라내기 · 붙여넣기 · 모두 고르기 |
 | Ctrl+Shift+N · Ctrl+Shift+C | 새 폴더 · 경로 복사 |
 | Ctrl+L · Alt+D · F4 · F5 | 주소창 · 새로 고침 |
 | Alt+Enter · Shift+F10 | 속성 · 오른쪽 메뉴 |
-| Ctrl+T · Ctrl+W · Ctrl+Tab · Ctrl+1~9 | 탭 — 나눠 보면 칸마다 제 탭 줄. 탭을 끌어 순서 바꾸기 · 다른 칸의 탭 줄이나 목록에 놓아 그 칸으로 옮기기 · 안 나눴을 때 목록 오른쪽 반에 놓아 나눠 보기 |
-| Ctrl+\ | 나눠 보기 켜기 · 끄기 (칸 사이 줄을 끌어 너비 · 두 번 누르면 반반) |
+| Ctrl+T · Ctrl+W · Ctrl+Tab · Ctrl+1~9 | 탭 — 나눠 보면 칸마다 제 탭 줄. 탭을 끌어 순서 바꾸기 · 칸 가장자리(상하좌우)에 놓아 그쪽으로 나눠 보기(네 칸까지) · 다른 칸의 탭 줄이나 가운데에 놓아 그 칸으로 옮기기 |
+| Ctrl+\ | 오른쪽으로 나누기 · 나눠 있으면 한 칸으로 모으기 (칸 사이 줄을 끌어 너비 · 높이, 두 번 누르면 반반) |
 | Ctrl+H | 숨김 항목 보기 |
-| Ctrl+F · Ctrl+E | 이 폴더에서 거르기 — 이름 · 메모 글 (Esc 지우기) · Shift+Enter 아래 폴더까지 찾기 |
+| Ctrl+F · Ctrl+E | 이 폴더에서 거르기 — 이름 · 메모 글 (Esc 지우기) · Shift+Enter 하위 폴더까지 찾기 |
 | Ctrl+D | 고른 항목(없으면 지금 폴더)을 즐겨찾기에 |
 | Alt+1~7 · Alt+0 | 색 표시 (빨강 · 주황 · 노랑 · 초록 · 파랑 · 보라 · 회색) · 지우기 |
 | Ctrl+휠 | 목록 ↔ 격자 · 격자 크기 |

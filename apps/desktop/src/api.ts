@@ -1,6 +1,6 @@
 // Rust 명령 창구. 인자 이름은 Tauri 규약대로 camelCase (Rust 쪽은 snake_case).
 import { invoke } from "@tauri-apps/api/core";
-import { DEFAULT_KINDS, type KindDef } from "./util";
+import { DEFAULT_KINDS, type KindDef, type Sort } from "./util";
 
 export type Entry = {
   name: string;
@@ -46,9 +46,14 @@ export type SkillStatus = { file: string | null; installed: string | null; curre
 export type DocGroup = { key: string; title: string; files: DocFile[]; issues: string[] };
 export type EditionPlan = { newName: string; newPath: string; retire: string[]; history: string };
 
+/** 저장하는 칸 배치 한 마디 — 칸이면 탭 수 · 보이는 탭(칸 안 순번), 나눔이면 방향 · 앞쪽 몫 · 두 쪽 (`Settings.layout`). */
+export type SavedNode = { tabs: number; cur: number } | { dir: "row" | "col"; ratio: number; a: SavedNode; b: SavedNode };
+
 /** 설정 파일 꼴. 빠진 칸은 기본값으로 채운다 (App.tsx `withDefaults`). */
 export type Settings = {
   pinned: Place[];
+  /** 왼쪽 열 「연결」 — NAS · 공유 폴더(\\서버\공유) 같은 자리. 즐겨찾기와 같은 꼴이고 자리만 다르다. 2026.11.11 더했다. */
+  links: Place[];
   session: { tabs: string[]; active: number };
   cols: number[];
   showHidden: boolean;
@@ -58,8 +63,14 @@ export type Settings = {
    *  session.tabs 는 왼쪽 칸 탭 다음에 오른쪽 칸 탭이 이어진다. 2026.11.11 : 칸마다 탭 묶음을 두면서 `from` 을 더했다 —
    *  없으면(지난 판 설정) 오른쪽 칸은 `right` 탭 하나다. */
   split: { right: number; ratio: number; from?: number } | null;
+  /** 칸 배치 — 칸이면 탭 수 · 보이는 탭(칸 안 순번), 나눔이면 방향(row 좌우 · col 위아래) · 앞쪽 몫 · 두 쪽.
+   *  칸은 왼쪽 · 위부터 session.tabs 를 탭 수만큼 앞에서 가져간다. 한 칸이면 null.
+   *  2026.11.11 : 끌어서 상하좌우로 네 칸까지 나누면서 더했다. 이것을 쓰면 `split` 은 null 로 적는다 (지난 판 설정을 읽을 때만 본다). */
+  layout?: SavedNode | null;
   /** 보기 — 목록 · 격자, 격자 크기, 아이콘 모양, 숨긴 열. */
   view: ViewPrefs;
+  /** 켤 때 열 폴더. 비면 지난번에 열어 둔 탭(나눠 보기까지) 그대로. 2026.11.11 더했다. */
+  start: string;
 };
 
 /** 보기 설정. 모든 탭이 같은 것을 쓴다 — 탭마다 다르면 「왜 여기만 격자지」가 된다. */
@@ -79,9 +90,24 @@ export type ViewPrefs = {
   hiddenCols: ColKey[];
   /** 파일 종류 묶음 — 이름 · 확장자 · 색. 「폴더」 · 「기타」는 고정이라 없다 (util.ts DEFAULT_KINDS). */
   kinds: KindDef[];
+  /** 폴더로 들어가는 누르기 — 두 번(탐색기와 같게) · 한 번. 파일은 어느 쪽이든 두 번 눌러 연다. 2026.11.11 더했다. */
+  folderClick: "double" | "single";
+  /** 새 탭 · 다시 켤 때의 정렬. 열 머리를 눌러 바꾼 정렬은 그 탭에서만 간다. */
+  sort: Sort;
+  /** 폴더를 파일 위에 모은다 (탐색기와 같게). 끄면 고친 날 정렬에서 폴더와 파일이 섞인다. */
+  dirsFirst: boolean;
+  /** 판을 접은 채 시작한다. Ctrl+Shift+D 로 바꾼 것은 그 탭에서만 간다. */
+  foldStart: boolean;
+  /** 왼쪽 열에 「최근 파일」(다운로드 · 바탕화면에 최근 생긴 파일)을 보인다. 2026.11.11 더했다 — 안 보고 싶은 사람이 있다. */
+  recent: boolean;
+  /** 고친 날 — `relative` 오늘 · 어제 · 날짜만 / `absolute` 늘 날짜와 시각. */
+  dateStyle: "relative" | "absolute";
+  /** 크기 — `kb` 탐색기처럼 늘 KB / `auto` 알맞은 단위 (MB · GB). */
+  sizeUnit: "kb" | "auto";
 };
 export type ColKey = "ver" | "date" | "size";
-export const DEFAULT_VIEW: ViewPrefs = { mode: "list", dense: false, size: 1, icons: "shell", iconPack: "", thumbs: true, hiddenCols: [], kinds: DEFAULT_KINDS };
+export const DEFAULT_VIEW: ViewPrefs = { mode: "list", dense: false, size: 1, icons: "shell", iconPack: "", thumbs: true, hiddenCols: [], kinds: DEFAULT_KINDS, folderClick: "double",
+  sort: { key: "name", asc: true }, dirsFirst: true, foldStart: true, dateStyle: "relative", sizeUnit: "kb", recent: true };
 
 /** 오른쪽 메뉴에 얹는 filedesk 항목 (fd-shell menu::AppItem). key 와 label 이 비면 구분선. */
 export type MenuItem = { key?: string; label?: string; checked?: boolean; disabled?: boolean; children?: MenuItem[] };
@@ -123,7 +149,7 @@ export const api = {
   newEdition: (path: string, today: string) => invoke<string>("new_edition", { path, today }),
   loadSettings: () => invoke<Partial<Settings> | null>("load_settings"),
   saveSettings: (value: Settings) => invoke<void>("save_settings", { value }),
-  recentCounts: (paths: string[], days: number) => invoke<number[]>("recent_counts", { paths, days }),
+  recentFiles: (paths: string[], days: number) => invoke<Entry[]>("recent_files", { paths, days }),
   /** 색 표시. null 이면 뗀다. */
   setColor: (path: string, color: TagColor | null) => invoke<Memo | null>("set_color", { path, color }),
   /** 여러 경로의 메모 · 색 (왼쪽 목록 색 점). */

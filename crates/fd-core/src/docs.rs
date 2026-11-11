@@ -11,8 +11,47 @@ use serde::Serialize;
 
 use crate::docname::{DocName, parse};
 
-/// 지난 판을 모아 두는 하위 폴더 이름 (과업 지침).
+/// 지난 판 폴더가 아직 없을 때 새로 만들 이름.
 pub const HISTORY_DIR: &str = "이전판";
+
+/// 지난 판 자리로 알아보는 하위 폴더 이름 (대소문자 무시).
+/// 2026.11.11 : `이전판` 하나만 알던 것을 넓혔다 — 사람마다 · 조직마다 지난 판 폴더 이름이 다르다 (DESIGN [1-1]).
+///              `archive` · `보관` 은 넣지 않는다 — 다 쓴 일을 통째로 두는 자리로 더 많이 써서, 지난 판 옮기기가 그리로 들어가면 놀란다.
+/// 2026.11.11 : 리뷰 뒤 `old` · `_old` · `previous` · `versions` · `history` 를 뺐다 — 진짜 자료 폴더 이름으로도 흔해,
+///              그 안 파일이 지난 판으로 묶이고 새 판 내기가 막히고 지난 판 옮기기가 그리로 들어갔다. 지난 판이라는 뜻이 분명한 이름만 둔다.
+pub const HISTORY_NAMES: &[&str] = &["이전판", "지난판", "구버전", "이전버전", "지난버전", "old versions", "previous versions", "旧版"];
+
+/// 지난 판 폴더 이름인가.
+pub fn is_history_name(name: &str) -> bool {
+    HISTORY_NAMES.iter().any(|h| h.eq_ignore_ascii_case(name))
+}
+
+/// `folder` 에 이미 있는 지난 판 폴더 전부 — 폴더 감시 · 메모 다시 붙이기가 이 폴더들도 본다.
+pub fn history_dirs(folder: &Path) -> Vec<PathBuf> {
+    std::fs::read_dir(folder)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()) && is_history_name(&e.file_name().to_string_lossy()))
+        .map(|e| e.path())
+        .collect()
+}
+
+/// `folder` 의 지난 판 폴더 — 이미 있는 것(알아보는 이름 중 하나)을 쓰고, 없으면 `HISTORY_DIR` 로 만들 자리.
+pub fn history_dir(folder: &Path) -> PathBuf {
+    let found = std::fs::read_dir(folder).ok().and_then(|rd| {
+        let mut names: Vec<String> = rd
+            .flatten()
+            .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| is_history_name(n))
+            .collect();
+        // 둘 이상이면 목록 앞의 이름(이 앱의 기본 쪽)을 쓴다 — 매번 같은 폴더로 가야 한다.
+        names.sort_by_key(|n| HISTORY_NAMES.iter().position(|h| h.eq_ignore_ascii_case(n)));
+        names.into_iter().next()
+    });
+    folder.join(found.as_deref().unwrap_or(HISTORY_DIR))
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -62,7 +101,7 @@ fn read_files(dir: &Path, in_history: bool, recursive: bool, out: &mut Vec<DocFi
         }
         let path = item.path();
         if meta.is_dir() {
-            let is_hist = name == HISTORY_DIR;
+            let is_hist = is_history_name(&name);
             if is_hist || recursive {
                 read_files(&path, in_history || is_hist, recursive, out);
             }
@@ -191,7 +230,7 @@ fn group_issues(files: &[DocFile]) -> Vec<String> {
         if eds.len() > 1 {
             let folder = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             // 2026.11.11 : 「— 최신판 하나만 두고 나머지는 이전판으로」를 뺐다. 화면은 문제 줄 곁의 「지난 판을 이전판으로」 단추가 그 말을 한다.
-            issues.push(format!("「{folder}」에 판이 {}개", eds.len()));
+            issues.push(format!("「{folder}」 폴더에 판이 {}개", eds.len()));
         }
     }
     issues

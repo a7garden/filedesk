@@ -2,6 +2,7 @@
 //! 2026.11.11 : 목록 · 문서 묶기 · 메모. 사본 조회(`fd dupes` · `fd status`)는 2단계 색인과 함께 붙는다.
 //! 2026.11.11 : 에이전트 창구로 키웠다 — 새 판 · 이전판 정리 · 휴지통 · Claude 스킬 설치.
 //! 2026.11.11 : `fd projects` · `fd where` · `fd rules` 를 뺐다 — 일반 탐색기라 「프로젝트」 · 과업 이름 규칙을 두지 않는다.
+//! 2026.11.11 : `fd conv` · `fd name` — 규칙을 정하지 않고 그 폴더가 쓰는 이름 꼴을 읽어 권한다 (fd-core `convention`).
 //!
 //! 약속 (스킬 `skills/filedesk/SKILL.md` 가 이것을 믿는다):
 //! - 성공하면 표준 출력에 JSON 하나, 종료 코드 0.
@@ -30,10 +31,10 @@ enum Cmd {
         #[arg(long)]
         all: bool,
     },
-    /// 파일을 문서 단위로 묶는다 (판 · 날짜 · 최신판 · 규칙 어긋남). 폴더와 그 `이전판/` 을 본다
+    /// 파일을 문서 단위로 묶는다 (판 · 날짜 · 최신판 · 문제). 폴더와 그 `이전판/` 을 본다
     Docs {
         path: PathBuf,
-        /// 아래 폴더 전부
+        /// 하위 폴더 전부
         #[arg(short, long)]
         recursive: bool,
         /// 묶음 대신 세어 본 숫자와 문제 있는 묶음만
@@ -79,6 +80,18 @@ enum Cmd {
         /// 문서 본문까지 (hwpx · docx · pptx · xlsx · pdf · txt · md · csv). 맞은 항목에 `snippet` 이 붙는다
         #[arg(long)]
         content: bool,
+    },
+    /// 폴더 이름 관례 — 이 폴더(모자라면 형제 · 부모)가 쓰는 파일 · 하위 폴더 이름 꼴, 새 폴더 이름 머리, 꼴과 다른 이름과 그 제안. 아무것도 바꾸지 않는다
+    Conv { dir: PathBuf },
+    /// 이름 제안 — 이 파일 · 폴더를 그 자리(또는 `--to` 폴더)의 관례로 다시 지은 이름. 아무것도 바꾸지 않는다
+    Name {
+        path: PathBuf,
+        /// 옮겨 갈 폴더 (기본: 지금 자리)
+        #[arg(long)]
+        to: Option<PathBuf>,
+        /// 날짜 칸을 채울 날 `YYYYMMDD` (기본: 파일 수정 날 · 다른 폴더로 옮기면 오늘)
+        #[arg(long)]
+        date: Option<String>,
     },
     /// 휴지통으로 보낸다 (휴지통에서 되살릴 수 있다). 휴지통에 못 들어가는 자리(NAS 등)는 지우지 않고 멈춘다
     Trash {
@@ -156,6 +169,8 @@ fn main() -> ExitCode {
         Cmd::Edition { file, today, apply } => done(edition(&abs(file), today, apply)),
         Cmd::Retire { dir, doc, apply } => done(retire(&abs(dir), doc.as_deref(), apply)),
         Cmd::Find { dir, query, all, limit, content } => done(find(&abs(dir), &query, all, limit, content)),
+        Cmd::Conv { dir } => done(conv(&abs(dir))),
+        Cmd::Name { path, to, date } => done(name(&abs(path), to.map(abs), date)),
         Cmd::Trash { paths } => done(trash(paths.into_iter().map(abs).collect())),
         Cmd::Skill(k) => done(skill(k)),
     }
@@ -181,6 +196,48 @@ fn done(r: Out) -> ExitCode {
 fn abs(p: PathBuf) -> PathBuf {
     let p = windows_path(p);
     std::path::absolute(&p).unwrap_or(p)
+}
+
+/// 파일의 수정 날 (이 PC 날짜).
+fn modified_date(p: &Path) -> String {
+    std::fs::metadata(p)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| fd_shell::clock::date_of_ms(d.as_millis() as i64))
+        .unwrap_or_else(fd_shell::clock::today)
+}
+
+fn conv(dir: &Path) -> Out {
+    if !dir.is_dir() {
+        return Err(format!("{}: 폴더가 아니다", dir.display()));
+    }
+    let today = fd_shell::clock::today();
+    let conv = fd_core::convention::convention_of(dir);
+    Ok(serde_json::json!({
+        "newFolder": fd_core::convention::new_folder_name_in(dir, &conv, &today),
+        "deviations": fd_core::convention::deviations_in(dir, &conv, modified_date),
+        "convention": conv,
+    }))
+}
+
+fn name(path: &Path, to: Option<PathBuf>, date: Option<String>) -> Out {
+    if !path.exists() {
+        return Err(format!("{}: 없다", path.display()));
+    }
+    let here = path.parent().ok_or("상위 폴더가 없다")?.to_path_buf();
+    let dir = to.unwrap_or_else(|| here.clone());
+    if !dir.is_dir() {
+        return Err(format!("{}: 폴더가 아니다", dir.display()));
+    }
+    let date = match date {
+        Some(t) if t.len() == 8 && t.chars().all(|c| c.is_ascii_digit()) => t,
+        Some(t) => return Err(format!("--date 는 YYYYMMDD 꼴이어야 한다: {t}")),
+        // 제자리 이름 고치기는 그 파일의 날, 다른 폴더로 들이는 것은 들인 날.
+        None if fd_core::convention::same_dir(&dir, &here) => modified_date(path),
+        None => fd_shell::clock::today(),
+    };
+    Ok(serde_json::to_value(fd_core::convention::suggest_for(path, &dir, &date)).expect("직렬화"))
 }
 
 fn edition(file: &Path, today: Option<String>, apply: bool) -> Out {
@@ -213,7 +270,7 @@ fn retire(dir: &Path, doc: Option<&str>, apply: bool) -> Out {
         Some(k) => vec![(k.to_string(), k.to_string(), fd_core::docs::stale_of(dir, k)?)],
         None => fd_core::docs::stale_all(dir),
     };
-    let history = dir.join(fd_core::docs::HISTORY_DIR);
+    let history = fd_core::docs::history_dir(dir);
     let paths: Vec<String> = docs.iter().flat_map(|(_, _, v)| v.iter().cloned()).collect();
     let clash = fd_core::docs::history_collisions(&paths, &history);
     let listing: Vec<_> = docs.iter().map(|(k, t, v)| serde_json::json!({ "key": k, "title": t, "move": v })).collect();

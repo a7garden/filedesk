@@ -1,32 +1,36 @@
-// 왼쪽 — 즐겨찾기 · 색 · 들어온 곳 · 이 PC(드라이브) · 설정.
+// 왼쪽 — 이 PC(바탕화면 · 다운로드 · 문서 · 드라이브) · 연결(NAS · 공유 폴더) · 색 표시 · 최근 파일 · 설정.
 // 탐색기의 「즐겨찾기 + 드라이브」 대신 일의 단위로 묶는다.
 //
 // 목차
-//   [1] 상태 · 불러오기 — 색 점 · 색 개수 · 들어온 파일 수
-//   [2] 끌기 — 즐겨찾기 순서 바꾸기
-//   [3] 즐겨찾기 · 색 · 들어온 곳 · 이 PC · 설정
+//   [1] 상태 · 불러오기 — 색 개수 · 최근 파일 · 연결 더하기
+//   [2] 이 PC · 연결 · 색 표시 · 최근 파일 · 설정
 //
+//   2026.11.11 : 늘 같은 셋(바탕화면 · 다운로드 · 문서)은 세 칸 그림으로 — 고정된 자리라 글 목록으로 읽을 까닭이 없고, 그림 자리를 손이 외운다.
+//                「연결」을 더했다 — NAS · 공유 폴더(\\서버\공유)를 등록해 둔다. 즐겨찾기와 같은 꼴(Place)이고 자리만 다르다.
+//                「새 파일」 → 「최근 파일」, 맨 아래로. 설정(보기 › 보일 것)에서 끈다.
+//   2026.11.11 : 즐겨찾기를 아래 독(FavDock)으로 옮겼다 — 숨어 있다가 마우스를 대면 올라온다.
 //   2026.11.11 : 「고정」 → 「즐겨찾기」. 파일도 더한다 (누르면 연다). 제목에 끌어다 놓으면 더하고, 항목을 끌어 순서를 바꾼다.
 //   2026.11.11 : 「색」 — Finder 꼬리표처럼. 쓰인 색만 개수와 함께, 누르면 모든 폴더에서 그 색 표시를 단 것을 지금 칸에 모아 보인다.
 //   2026.11.11 : 드라이브를 「C: D: E: F:」 한 줄에서 한 줄에 하나로 — 볼륨 이름과 남은 용량 띠. 드라이브가 늘거나 이름이 길어도 줄이 깨지지 않는다.
 //                화면 색 단추는 설정(보기)으로 옮겼다 — 하루에 한 번도 바꾸지 않는 것이 늘 보이는 자리를 차지했다.
 //   2026.11.11 : 「프로젝트」(문서 저장소의 연도별 프로젝트 · 산출물 · 자료 같은 자리)를 뺐다. 일반 파일 탐색기라 폴더에 업무 뜻을 매기지 않는다 —
 //                자주 가는 곳은 즐겨찾기로 둔다.
+//   2026.11.11 : 「들어온 곳」(다운로드 · 바탕화면 + 새 파일 수)을 걷었다. 숫자만으로는 무엇이 들어왔는지 몰라 폴더를 열어 봐야 했고,
+//                「들어온 곳」이라는 묶음도 뜻을 짐작해야 했다. 폴더 셋은 탐색기처럼 「이 PC」 맨 위로, 새 파일은 「새 파일」에 이름 그대로 보인다.
 // 항목마다 [data-drop] — 파일을 끌어다 놓으면 그 자리로 옮긴다.
-import { useCallback, useEffect, useRef, useState } from "react";
-import { getVersion } from "@tauri-apps/api/app";
-import { api, iconUrl, TAG_COLORS, TAG_LABEL, type Drive, type Place, type Places, type TagColor } from "./api";
-import { PIN_DROP } from "./App";
-import { FolderGlyph } from "./glyphs";
-import TagMenu, { TagDot } from "./TagMenu";
-import { checkUpdate } from "./updater";
-import { formatBytes, norm } from "./util";
+import { useCallback, useEffect, useState } from "react";
+import { api, iconUrl, TAG_COLORS, TAG_LABEL, type Drive, type Entry, type Place, type Places, type TagColor, type ViewPrefs } from "./api";
+import { LINK_DROP } from "./App";
+import { FileGlyph, PlaceGlyph } from "./glyphs";
+import { TagDot } from "./TagMenu";
+import { baseName, errText, formatBytes, formatDate, norm, packIconUrl, parentOf } from "./util";
 
 type Props = {
   places: Places | null;
-  pinned: Place[];
-  onUnpin: (path: string) => void;
-  onMovePin: (from: number, to: number) => void;
+  links: Place[];
+  onAddLinks: (paths: string[]) => void;
+  onUnlink: (path: string) => void;
+  view: ViewPrefs;
   current: string;
   onGo: (path: string) => void;
   onGoNewTab: (path: string) => void;
@@ -35,214 +39,185 @@ type Props = {
   onSettings: () => void;
 };
 
-type ColorMenu = { x: number; y: number; path: string; pin?: boolean };
-
-/** 「들어온 곳」에 셀 최근 날 수. */
+/** 「최근 파일」로 볼 최근 날 수. */
 const RECENT_DAYS = 3;
+/** 「최근 파일」에 늘 보이는 수. 넘으면 「N개 모두 보기」로 칸에 띄운다. */
+const FRESH_SHOWN = 5;
 /** 「이 PC」에 늘 보이는 드라이브 수. 넘으면 「N개 더」로 접는다. */
 const DRIVES_SHOWN = 4;
 /** 남은 용량이 이 비율 아래면 띠를 경고색으로. */
 const LOW_SPACE = 0.1;
 
 export default function Sidebar(props: Props) {
-  const { places, pinned, onUnpin, onMovePin, current, onGo, onGoNewTab, onOpenFile, settingsOpen, onSettings } = props;
+  const { places, links, onAddLinks, onUnlink, view, current, onGo, onGoNewTab, onOpenFile, settingsOpen, onSettings } = props;
 
   // ───────── [1] 상태 · 불러오기 ─────────
 
-  const [recent, setRecent] = useState<number[]>([]);
-  const [version, setVersion] = useState("");
-  useEffect(() => {
-    getVersion().then(setVersion).catch(() => {});
-  }, []);
-  /** 경로(norm) → 색. 즐겨찾기 것만. */
-  const [colors, setColors] = useState<Map<string, TagColor>>(new Map());
+  const [fresh, setFresh] = useState<Entry[] | null>(null);
   /** 색마다 단 항목 수 — 「색」 구획. */
   const [tagCounts, setTagCounts] = useState<Map<TagColor, number>>(new Map());
-  const [menu, setMenu] = useState<ColorMenu | null>(null);
   const [moreDrives, setMoreDrives] = useState(false);
+  /** 받은 파일이 쌓이는 곳 — 다운로드 · 바탕화면. 문서 폴더는 사람이 정리해 두는 곳이라 「최근 파일」에 넣지 않는다. */
   const inbox = places ? places.known.filter((k) => k.name !== "문서") : [];
-  const docs = places?.known.find((k) => k.name === "문서");
 
-  // 색 점 — 즐겨찾기 경로의 색을 한 번에 묻는다. 목록에서 색을 바꾸면(fd:colors) 다시 묻는다.
-  const colorPaths = pinned.map((p) => p.path);
-  const colorKey = colorPaths.join("|");
+  // 색 개수 — 목록에서 색을 바꾸면(fd:colors) 다시 센다.
   const loadColors = useCallback(() => {
     api
       .tagged(null)
       .then((items) => {
         const m = new Map<TagColor, number>();
-        // 모은 항목에는 색이 없어 색마다 한 번 더 묻지 않고, 아래 memosOf 결과와 합쳐 센다
+        // 모은 항목에는 색이 없어 색마다 한 번 더 묻지 않고, memosOf 결과로 센다
         return api.memosOf(items.map((e) => e.path)).then((ms) => {
           for (const x of ms) if (x.color) m.set(x.color as TagColor, (m.get(x.color as TagColor) ?? 0) + 1);
           setTagCounts(m);
         });
       })
       .catch(() => {});
-    if (!colorPaths.length) return setColors(new Map());
-    api
-      .memosOf(colorPaths)
-      .then((ms) => setColors(new Map(ms.filter((m) => m.color).map((m) => [norm(m.path), m.color as TagColor]))))
-      .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [colorKey]);
+  }, []);
   useEffect(() => {
     loadColors();
     window.addEventListener("fd:colors", loadColors);
     return () => window.removeEventListener("fd:colors", loadColors);
   }, [loadColors]);
 
-  const pickColor = (path: string, c: TagColor | null) => {
-    setMenu(null);
-    api
-      .setColor(path, c)
-      .then(() => window.dispatchEvent(new CustomEvent("fd:colors")))
-      .catch(() => {});
-  };
-  const openMenu = (e: React.MouseEvent, path: string, pin = false) => {
-    e.preventDefault();
-    setMenu({ x: e.clientX, y: e.clientY, path, pin });
-  };
-
-  // 들어온 곳의 새 파일 수 — 열 때 · 1분마다.
+  // 최근 파일 — 열 때 · 1분마다. 꺼 두었으면 묻지 않는다.
   const inboxKey = inbox.map((p) => p.path).join("|");
   useEffect(() => {
-    if (!inbox.length) return;
-    const run = () => api.recentCounts(inbox.map((p) => p.path), RECENT_DAYS).then(setRecent).catch(() => {});
+    if (!inbox.length || !view.recent) return;
+    const run = () => api.recentFiles(inbox.map((p) => p.path), RECENT_DAYS).then(setFresh).catch(() => {});
     run();
     const t = window.setInterval(run, 60000);
     return () => window.clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inboxKey]);
+  }, [inboxKey, view.recent]);
 
-  // ───────── [2] 끌기 ─────────
-
-  /** 즐겨찾기 끌어 순서 바꾸기 — 누른 항목 · 놓을 자리(그 앞). */
-  const [pinDrag, setPinDrag] = useState<{ from: number; y0: number; on: boolean; over: number | null } | null>(null);
-  const suppressClick = useRef(false);
-  const swallowClick = () => {
-    suppressClick.current = true;
-    window.setTimeout(() => (suppressClick.current = false), 0);
+  // 연결 더하기 — 주소를 받아 열리는지 본 뒤 더한다. 꺼진 NAS 는 몇 초 걸릴 수 있어 「확인 중」을 보인다.
+  const [adding, setAdding] = useState(false);
+  const [addr, setAddr] = useState("");
+  const [addState, setAddState] = useState<{ busy: boolean; err: string }>({ busy: false, err: "" });
+  const submitLink = () => {
+    const raw = addr.trim().replace(/^"(.*)"$/, "$1");
+    const path = raw.length > 3 ? raw.replace(/\\+$/, "") : raw;
+    if (!path) return;
+    setAddState({ busy: true, err: "" });
+    api
+      .dirsOf([path])
+      .then(([ok]) => {
+        if (!ok) return setAddState({ busy: false, err: "열 수 없다 — 주소와 연결 상태를 확인한다" });
+        onAddLinks([path]);
+        setAddr("");
+        setAdding(false);
+        setAddState({ busy: false, err: "" });
+      })
+      .catch((e) => setAddState({ busy: false, err: errText(e) }));
   };
 
-  // 즐겨찾기 끌기 — 6px 넘게 움직이면 끌기, 놓으면 그 자리 앞으로 옮긴다.
-  useEffect(() => {
-    if (!pinDrag) return;
-    const move = (m: MouseEvent) => {
-      setPinDrag((d) => {
-        if (!d) return d;
-        const on = d.on || Math.abs(m.clientY - d.y0) > 6;
-        const el = (document.elementFromPoint(m.clientX, m.clientY) as HTMLElement | null)?.closest<HTMLElement>("[data-pin-index]");
-        let over: number | null = null;
-        if (el) {
-          const r = el.getBoundingClientRect();
-          over = Number(el.dataset.pinIndex) + (m.clientY > r.top + Math.min(r.height, 30) / 2 ? 1 : 0);
-        }
-        return { ...d, on, over: on ? over : null };
-      });
-    };
-    const up = () => {
-      setPinDrag((d) => {
-        if (d?.on) {
-          swallowClick();
-          if (d.over != null) onMovePin(d.from, d.over);
-        }
-        return null;
-      });
-    };
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", up);
-    return () => {
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", up);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pinDrag != null, onMovePin]);
-
-  // ───────── [3] 그리기 ─────────
-
-  const link = (path: string, label: React.ReactNode, cls = "", extra?: React.ReactNode, title?: string) => (
-    <button
-      className={"nav-item " + cls + (norm(path) === norm(current) ? " current" : "")}
-      data-drop={path}
-      title={title ?? path}
-      aria-current={norm(path) === norm(current) ? "page" : undefined}
-      onClick={(e) => (e.ctrlKey ? onGoNewTab(path) : onGo(path))}
-      onMouseDown={(e) => {
-        if (e.button === 1) {
-          e.preventDefault();
-          onGoNewTab(path);
-        }
-      }}
-    >
-      {label}
-      {extra}
-    </button>
-  );
+  // ───────── [2] 그리기 ─────────
 
   const drives = places?.drives ?? [];
   const shownDrives = moreDrives ? drives : drives.slice(0, DRIVES_SHOWN);
   const usedColors = TAG_COLORS.filter((c) => tagCounts.has(c));
+  const here = norm(current);
+  /** 자리로 가는 단추의 공통 — 놓을 자리 · 지금 자리 표시 · Ctrl / 가운데 단추는 새 탭. */
+  const nav = (path: string) => ({
+    "data-drop": path,
+    "aria-current": norm(path) === here ? ("page" as const) : undefined,
+    onClick: (e: React.MouseEvent) => (e.ctrlKey ? onGoNewTab(path) : onGo(path)),
+    onMouseDown: (e: React.MouseEvent) => {
+      if (e.button === 1) {
+        e.preventDefault();
+        onGoNewTab(path);
+      }
+    },
+  });
 
   return (
     <nav className="side" aria-label="위치" data-tauri-drag-region>
-      <section>
-        <h2 className="pin-head" data-drop={PIN_DROP} title="폴더 · 파일을 여기로 끌어다 놓거나 Ctrl+D 로 더한다">
-          즐겨찾기
-        </h2>
-        {pinned.length === 0 && <p className="side-hint">폴더 · 파일을 이 제목 위로 끌어 놓거나 Ctrl+D</p>}
-        <ul className={pinDrag?.on ? "pin-dragging" : undefined}>
-          {pinned.map((p, i) => {
-            const over = pinDrag?.on ? pinDrag.over : null;
-            const line = over === i ? "drop-before" : over === pinned.length && i === pinned.length - 1 ? "drop-after" : undefined;
-            const ext = p.file && p.name.includes(".") ? p.name.slice(p.name.lastIndexOf(".") + 1).toLowerCase() : "";
-            const here = !p.file && norm(p.path) === norm(current);
-            return (
-              <li
-                key={p.path}
-                data-pin-index={i}
-                className={(line ?? "") + (pinDrag?.on && pinDrag.from === i ? " pin-lifted" : "") || undefined}
-                onMouseDown={(e) => {
-                  if (e.button === 0 && !(e.target as HTMLElement).closest(".unpin")) setPinDrag({ from: i, y0: e.clientY, on: false, over: null });
-                }}
-                onClickCapture={(e) => {
-                  if (suppressClick.current) {
-                    e.stopPropagation();
-                    e.preventDefault();
-                  }
-                }}
-              >
-                <div className="row-with-x">
-                  <button
-                    className={"nav-item" + (here ? " current" : "")}
-                    data-drop={p.file ? undefined : p.path}
-                    title={`${p.path}\n${p.file ? "누르면 연다 · " : ""}오른쪽 단추: 색 표시 · 끌어서 순서 바꾸기`}
-                    aria-current={here ? "page" : undefined}
-                    onClick={(e) => (p.file ? onOpenFile(p.path) : e.ctrlKey ? onGoNewTab(p.path) : onGo(p.path))}
-                    onContextMenu={(e) => openMenu(e, p.path, true)}
-                    onMouseDown={(e) => {
-                      if (e.button === 1 && !p.file) {
-                        e.preventDefault();
-                        onGoNewTab(p.path);
-                      }
-                    }}
-                  >
-                    {p.file ? <img src={iconUrl({ isDir: false, ext, path: p.path })} width={16} height={16} alt="" draggable={false} /> : <FolderGlyph />}
-                    <span>{p.name}</span>
-                    <TagDot color={colors.get(norm(p.path))} />
-                  </button>
-                  <button className="unpin" title="즐겨찾기에서 빼기" aria-label={`${p.name} 즐겨찾기에서 빼기`} onClick={() => onUnpin(p.path)}>
-                    ×
-                  </button>
-                </div>
+      {places && (
+        <section>
+          <h2>이 PC</h2>
+          {/* 늘 같은 셋 — 세 칸 그림. 자리가 고정이라 손이 외운다 */}
+          <div className="known-grid">
+            {places.known.map((k) => (
+              <button key={k.path} className={"known-tile" + (norm(k.path) === here ? " current" : "")} title={k.path} {...nav(k.path)}>
+                <PlaceGlyph kind={k.name === "바탕화면" ? "desktop" : k.name === "다운로드" ? "download" : "docs"} />
+                <span>{k.name}</span>
+              </button>
+            ))}
+          </div>
+          <ul className="drive-list">
+            {shownDrives.map((d) => (
+              <li key={d.path}>{driveRow(d, current, onGo, onGoNewTab)}</li>
+            ))}
+            {drives.length > DRIVES_SHOWN && (
+              <li>
+                <button className="side-empty" aria-expanded={moreDrives} onClick={() => setMoreDrives((v) => !v)}>
+                  {moreDrives ? "접기" : `드라이브 ${drives.length - DRIVES_SHOWN}개 더`}
+                </button>
               </li>
-            );
-          })}
-        </ul>
+            )}
+          </ul>
+        </section>
+      )}
+
+      <section>
+        <h2 className="side-head" data-drop={LINK_DROP} title="NAS · 공유 폴더처럼 드라이브 문자 없이 가는 자리 — 폴더를 이 제목으로 끌어다 놓아도 더한다">
+          <span>연결</span>
+          <button className="head-add" aria-label="연결 더하기" aria-expanded={adding} title={"주소로 더하기 (\\\\서버\\공유)"} onClick={() => setAdding((v) => !v)}>
+            +
+          </button>
+        </h2>
+        {adding && (
+          <form
+            className="link-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              submitLink();
+            }}
+          >
+            <input
+              autoFocus
+              value={addr}
+              placeholder={"\\\\NAS\\공유"}
+              aria-label="연결할 주소"
+              spellCheck={false}
+              disabled={addState.busy}
+              onChange={(e) => setAddr(e.target.value)}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === "Escape") {
+                  setAdding(false);
+                  setAddState({ busy: false, err: "" });
+                }
+              }}
+            />
+            <p className={"side-hint" + (addState.err ? " warn" : "")} role="status">
+              {addState.busy ? "확인 중" : addState.err || "Enter 로 더한다 · Esc 로 닫는다"}
+            </p>
+          </form>
+        )}
+        {links.length === 0 && !adding && <p className="side-hint">NAS · 공유 폴더를 + 로 더하거나, 폴더를 제목에 끌어 놓는다</p>}
+        {links.length > 0 && (
+          <ul>
+            {links.map((l) => (
+              <li key={l.path} className="side-row">
+                <button className={"nav-item" + (norm(l.path) === here ? " current" : "")} title={`${l.path}\n가운데 단추 · Ctrl: 새 탭`} {...nav(l.path)}>
+                  <PlaceGlyph kind="net" size={16} />
+                  <span>{l.name}</span>
+                  <span className="count">{hostOf(l.path)}</span>
+                </button>
+                <button className="side-x" title="연결에서 빼기" aria-label={`${l.name} 연결에서 빼기`} onClick={() => onUnlink(l.path)}>
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       {usedColors.length > 0 && (
         <section>
-          <h2 title="목록에서 Alt+1~7 · 오른쪽 단추로 단다">색</h2>
+          <h2 title="목록에서 Alt+1~7 · 오른쪽 단추로 단다">색 표시</h2>
           <ul className="tag-list">
             {usedColors.map((c) => (
               <li key={c}>
@@ -261,36 +236,28 @@ export default function Sidebar(props: Props) {
         </section>
       )}
 
-      {places && (
+      {view.recent && inbox.length > 0 && fresh && (
         <section>
-          <h2 title={`최근 ${RECENT_DAYS}일 안에 들어온 파일 수`}>들어온 곳</h2>
+          <h2 title={`${inbox.map((p) => p.name).join(" · ")}에 최근 ${RECENT_DAYS}일 안에 새로 생기거나 바뀐 파일 — 최근 것부터 · 설정 › 보기에서 끈다`}>최근 파일</h2>
+          {fresh.length === 0 && <p className="side-hint">최근 {RECENT_DAYS}일 동안 없다</p>}
           <ul>
-            {inbox.map((p, i) => (
-              <li key={p.path}>
-                {link(
-                  p.path,
-                  <span>{p.name}</span>,
-                  "",
-                  recent[i] ? <span className="count" aria-label={`최근 ${RECENT_DAYS}일 ${recent[i]}개`}>{recent[i]}</span> : null,
-                )}
+            {fresh.slice(0, FRESH_SHOWN).map((f) => (
+              <li key={f.path}>
+                <button className="nav-item" title={`${f.path}\n고친 날 ${formatDate(f.modified)} · 누르면 연다`} onClick={() => onOpenFile(f.path)}>
+                  {fileIcon(f, view)}
+                  <span>{f.name}</span>
+                  <span className="count">{baseName(parentOf(f.path) ?? "")}</span>
+                </button>
               </li>
             ))}
-            {docs && <li>{link(docs.path, <span>{docs.name}</span>)}</li>}
-          </ul>
-        </section>
-      )}
-
-      {drives.length > 0 && (
-        <section>
-          <h2>이 PC</h2>
-          <ul className="drive-list">
-            {shownDrives.map((d) => (
-              <li key={d.path}>{driveRow(d, current, onGo, onGoNewTab)}</li>
-            ))}
-            {drives.length > DRIVES_SHOWN && (
+            {fresh.length > 0 && (
               <li>
-                <button className="side-empty" aria-expanded={moreDrives} onClick={() => setMoreDrives((v) => !v)}>
-                  {moreDrives ? "접기" : `드라이브 ${drives.length - DRIVES_SHOWN}개 더`}
+                <button
+                  className="side-empty"
+                  title="지금 칸에 목록으로 띄운다 — 옮기기 · 지우기 · 이름 바꾸기를 거기서 한다"
+                  onClick={() => window.dispatchEvent(new CustomEvent("fd:recent", { detail: { dirs: inbox.map((p) => p.path), days: RECENT_DAYS } }))}
+                >
+                  {fresh.length > FRESH_SHOWN ? `${fresh.length}개 모두 보기` : "목록으로 보기"}
                 </button>
               </li>
             )}
@@ -302,35 +269,7 @@ export default function Sidebar(props: Props) {
         <button className="settings-btn" aria-expanded={settingsOpen} title="설정 — 보기 · 종류 · 화면 색 · Claude 스킬 (Ctrl+,)" onClick={onSettings}>
           설정
         </button>
-        {version && (
-          <button className="ver-btn" title="새 판 확인 — 결과는 제목 줄에" onClick={() => checkUpdate(true)}>
-            v{version}
-          </button>
-        )}
       </div>
-      {menu && (
-        <TagMenu
-          x={menu.x}
-          y={menu.y}
-          current={colors.get(norm(menu.path))}
-          onPick={(c) => pickColor(menu.path, c)}
-          onClose={() => setMenu(null)}
-          extra={
-            menu.pin ? (
-              <button
-                className="tag-clear"
-                role="menuitem"
-                onClick={() => {
-                  onUnpin(menu.path);
-                  setMenu(null);
-                }}
-              >
-                즐겨찾기에서 빼기
-              </button>
-            ) : undefined
-          }
-        />
-      )}
     </nav>
   );
 }
@@ -340,7 +279,7 @@ function driveRow(d: Drive, current: string, onGo: (p: string) => void, onGoNewT
   const here = norm(d.path) === norm(current);
   const used = d.total > 0 ? 1 - d.free / d.total : 0;
   const low = d.total > 0 && d.free / d.total < LOW_SPACE;
-  const kindText = d.kind === "network" ? "네트워크" : d.kind === "cd" ? "CD" : d.kind === "removable" ? "이동식" : "";
+  const kindText = d.kind === "network" ? "네트워크" : d.kind === "cd" ? "CD" : d.kind === "removable" ? "이동식 디스크" : "";
   const sizeText = d.total > 0 ? `${formatBytes(d.free)} 남음 / ${formatBytes(d.total)}` : kindText;
   return (
     <button
@@ -366,4 +305,18 @@ function driveRow(d: Drive, current: string, onGo: (p: string) => void, onGoNewT
       )}
     </button>
   );
+}
+
+/** 연결 줄 오른쪽의 흐린 글 — \\서버\공유 면 서버 이름, 그 밖에는 드라이브 문자. */
+function hostOf(path: string): string {
+  const unc = /^[\\/]{2}([^\\/]+)/.exec(path);
+  return unc ? unc[1] : path.slice(0, 2);
+}
+
+/** 최근 파일 줄 그림 — 목록과 같은 아이콘 설정을 따른다. */
+function fileIcon(f: Entry, view: ViewPrefs) {
+  const pack = view.icons === "pack" ? packIconUrl(f) : null;
+  if (pack) return <img src={pack} width={16} height={16} alt="" draggable={false} />;
+  if (view.icons !== "shell") return <FileGlyph ext={f.ext} />;
+  return <img src={iconUrl(f)} width={16} height={16} alt="" draggable={false} />;
 }

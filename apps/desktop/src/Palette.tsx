@@ -10,7 +10,7 @@ import { TagDot } from "./TagMenu";
 
 export type PaletteItem = {
   id: string;
-  group: "자리" | "명령" | "색" | "찾기";
+  group: "위치" | "명령" | "색 표시" | "찾기";
   label: string;
   /** 오른쪽에 흐리게 — 경로 · 단축키. */
   hint?: string;
@@ -49,7 +49,7 @@ function score(label: string, hint: string, q: string): number {
   return total;
 }
 
-const GROUP_ORDER: PaletteItem["group"][] = ["자리", "명령", "색", "찾기"];
+const GROUP_ORDER: PaletteItem["group"][] = ["위치", "명령", "색 표시", "찾기"];
 
 export default function Palette({ items, onSearch, onClose }: { items: PaletteItem[]; onSearch: (q: string, scope: "below" | "content") => void; onClose: () => void }) {
   const [q, setQ] = useState("");
@@ -62,7 +62,7 @@ export default function Palette({ items, onSearch, onClose }: { items: PaletteIt
   const shown = useMemo(() => {
     const colorItems: PaletteItem[] = TAG_COLORS.map((c) => ({
       id: `color:${c}`,
-      group: "색",
+      group: "색 표시",
       label: `${TAG_LABEL[c]} 표시 모아 보기`,
       color: c,
       run: () => window.dispatchEvent(new CustomEvent("fd:tagged", { detail: c })),
@@ -76,8 +76,8 @@ export default function Palette({ items, onSearch, onClose }: { items: PaletteIt
     const query = q.trim();
     if (query) {
       scored.push(
-        { id: "find:below", group: "찾기", label: `아래 폴더까지 「${query}」`, hint: "이름 · 메모", run: () => onSearch(query, "below") },
-        { id: "find:content", group: "찾기", label: `문서 안 글까지 「${query}」`, hint: "hwpx · docx · pptx · xlsx · pdf", run: () => onSearch(query, "content") },
+        { id: "find:below", group: "찾기", label: `하위 폴더까지 「${query}」`, hint: "이름 · 메모", run: () => onSearch(query, "below") },
+        { id: "find:content", group: "찾기", label: `문서 본문까지 「${query}」`, hint: "hwpx · docx · pptx · xlsx · pdf", run: () => onSearch(query, "content") },
       );
     }
     return scored;
@@ -101,7 +101,7 @@ export default function Palette({ items, onSearch, onClose }: { items: PaletteIt
           ref={inputRef}
           className="pal-input"
           value={q}
-          placeholder="자리 · 명령 · 색 — 초성도 된다 (ㅅㄹ → 산림)"
+          placeholder="위치 · 명령 · 색 표시 — 초성으로도 찾는다 (ㅅㄹ → 산림)"
           aria-label="찾을 말"
           aria-controls="pal-list"
           aria-activedescendant={shown[at] ? `pal-${shown[at].id}` : undefined}

@@ -4,6 +4,7 @@
 //!   [1] 공통 — 주 스레드에서 돌리기 · 창 손잡이
 //!   [2] 목록 · 위치 · 주소
 //!   [3] 열기 · 오른쪽 메뉴 · 셸 동사
+//!   [3-1] 앱 안 보기 — 글 파일(md · txt) 읽기 · 쓰기 (`fd-core::textfile`) · 그림은 [9] 아이콘 프로토콜의 `raw:`
 //!   [4] 파일 작업 — 이름 바꾸기 · 휴지통 · 복사/이동 · 새 폴더
 //!   [5] 끌기 (앱 밖으로)
 //!   [6] 폴더 변경 감시
@@ -11,7 +12,7 @@
 //!   [7-1] 메모 — 파일 · 폴더에 붙인 글 · 색 표시 (filedesk 가 관리 · `fd-core::memo`) · 하위 폴더까지 찾기
 //!   [7-2] Claude 스킬 설치 (설정 창)
 //!   [8] 설정 (즐겨찾기 · 열어 둔 탭 · 분할 · 열 너비)
-//!   [8-1] 들어온 곳
+//!   [8-1] 새 파일 (다운로드 · 바탕화면)
 //!   [8-2] 업데이트 — GitHub 릴리즈의 latest.json (tauri-plugin-updater · 화면 쪽 `updater.ts`)
 //!   [9] 아이콘 프로토콜 · 앱 시작
 
@@ -155,6 +156,30 @@ async fn open_item(window: WebviewWindow, path: String) -> CmdResult<Option<Stri
         fd_shell::ops::open(hwnd, &path, &dir).map(|_| None).map_err(|e| e.to_string())
     })
     .await?
+}
+
+// ───────────────────────────── [3-1] 앱 안 보기 ─────────────────────────────
+
+/// 앱 안 편집기로 글 파일을 연다. 인코딩 · 줄끝 · 수정 시각을 함께 돌려주고, 화면은 저장할 때 그대로 되넘긴다.
+#[tauri::command]
+async fn read_text(path: String) -> CmdResult<fd_core::textfile::TextFile> {
+    tauri::async_runtime::spawn_blocking(move || fd_core::textfile::read(Path::new(&path))).await.map_err(|e| e.to_string())?
+}
+
+/// 고친 글을 쓴다. 연 뒤 밖에서 바뀌었으면 `changed` 로 거절한다 (화면이 다시 읽을지 덮어쓸지 묻는다).
+/// 덮어쓰기는 `modified` 에 지금 수정 시각을 넣어 다시 부른다.
+#[tauri::command]
+async fn write_text(path: String, text: String, encoding: fd_core::textfile::Encoding, crlf: bool, modified: i64) -> CmdResult<i64> {
+    tauri::async_runtime::spawn_blocking(move || fd_core::textfile::write(Path::new(&path), &text, encoding, crlf, modified))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// 지금 수정 시각 (ms) — 덮어쓰기 전에 다시 잰다.
+#[tauri::command]
+fn modified_of(path: String) -> CmdResult<i64> {
+    let t = std::fs::metadata(&path).and_then(|m| m.modified()).map_err(|e| e.to_string())?;
+    Ok(t.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0))
 }
 
 fn pick_out(p: MenuPick) -> String {
@@ -322,8 +347,10 @@ fn watch_dirs(app: AppHandle, state: tauri::State<'_, WatchState>, dirs: Vec<Str
         .into_iter()
         .map(PathBuf::from)
         .flat_map(|d| {
-            let h = d.join(fd_core::docs::HISTORY_DIR);
-            if h.is_dir() { vec![d, h] } else { vec![d] }
+            // 2026.11.11 : 지난 판 폴더 이름이 여럿이 되어(`이전판` · `지난판` · `old versions` …) 이름 하나로 찾지 않는다.
+            let mut v = fd_core::docs::history_dirs(&d);
+            v.push(d);
+            v
         })
         .collect();
     let mut have = state.dirs.lock().unwrap();
@@ -359,7 +386,7 @@ fn plan_edition(path: String, today: String) -> CmdResult<fd_core::edition::Edit
 async fn new_edition(window: WebviewWindow, path: String, today: String) -> CmdResult<String> {
     let hwnd = owner(&window)?;
     let plan = fd_core::edition::plan(Path::new(&path), &today)?;
-    let fd_core::edition::EditionPlan { source, new_name, new_path, retire, history } = plan;
+    let fd_core::edition::EditionPlan { source, new_name, new_path, retire, history, .. } = plan;
     let out = on_sta(move || fd_shell::ops::new_edition(hwnd, &source, &new_name, &retire, &history)).await?;
     match out.map_err(|e| e.to_string())? {
         Outcome::Done => Ok(new_path),
@@ -385,7 +412,7 @@ async fn retire_editions(window: WebviewWindow, dir: String, key: String) -> Cmd
     if paths.is_empty() {
         return Err("옮길 지난 판이 없다".into());
     }
-    let history = Path::new(&paths[0]).parent().ok_or("상위 폴더가 없다")?.join(fd_core::docs::HISTORY_DIR).to_string_lossy().into_owned();
+    let history = fd_core::docs::history_dir(Path::new(&paths[0]).parent().ok_or("상위 폴더가 없다")?).to_string_lossy().into_owned();
     let n = paths.len();
     let out = on_sta(move || fd_shell::ops::retire(hwnd, &paths, &history)).await?;
     match out.map_err(|e| e.to_string())? {
@@ -419,7 +446,9 @@ async fn memos_in(dir: String) -> CmdResult<Vec<fd_core::memo::Memo>> {
         let mut s = fd_core::memo::MemoStore::load(&file)?;
         if !s.strays().is_empty() {
             let mut found = Vec::new();
-            for d in [PathBuf::from(&dir), Path::new(&dir).join(fd_core::docs::HISTORY_DIR)] {
+            let mut dirs = fd_core::docs::history_dirs(Path::new(&dir));
+            dirs.push(PathBuf::from(&dir));
+            for d in dirs {
                 for item in std::fs::read_dir(&d).into_iter().flatten().flatten() {
                     let p = item.path().to_string_lossy().into_owned();
                     if let Some(id) = fd_shell::fileid::file_id(&p) {
@@ -526,14 +555,18 @@ async fn tagged(color: Option<String>) -> CmdResult<Vec<fd_core::list::Entry>> {
 }
 
 /// 아이콘 팩에 쓸 수 있는 그림 꼴과 그 MIME.
-fn pack_mime(file: &str) -> Option<&'static str> {
+/// 그림 꼴 (화면 `viewable.ts` 의 IMAGE_EXTS 와 같아야 한다). WebView2 가 그대로 그리는 것만.
+fn image_mime(file: &str) -> Option<&'static str> {
     let ext = Path::new(file).extension()?.to_string_lossy().to_lowercase();
     Some(match ext.as_str() {
         "svg" => "image/svg+xml",
         "png" => "image/png",
         "ico" => "image/x-icon",
         "webp" => "image/webp",
-        "jpg" | "jpeg" => "image/jpeg",
+        "jpg" | "jpeg" | "jfif" => "image/jpeg",
+        "gif" => "image/gif",
+        "bmp" => "image/bmp",
+        "avif" => "image/avif",
         _ => return None,
     })
 }
@@ -551,7 +584,7 @@ fn icon_pack(dir: String) -> CmdResult<std::collections::HashMap<String, String>
     let mut out: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     for item in rd.flatten() {
         let path = item.path().to_string_lossy().into_owned();
-        if pack_mime(&path).is_none() {
+        if image_mime(&path).is_none() {
             continue;
         }
         let Some(stem) = item.path().file_stem().map(|s| s.to_string_lossy().to_lowercase()) else { continue };
@@ -602,10 +635,24 @@ fn skill_status() -> SkillStatus {
 
 #[tauri::command]
 fn install_skill() -> CmdResult<SkillStatus> {
-    let fd = fd_exe().ok_or("앱 폴더에 fd.exe 가 없다 — 설치본(릴리즈의 setup.exe)으로 깔아야 함께 들어온다")?;
+    let fd = fd_exe().ok_or("앱 폴더에 fd.exe 가 없다 — 설치 파일(릴리스의 setup.exe)로 깔아야 함께 깔린다")?;
     let file = fd_core::skill::default_file().ok_or("USERPROFILE 이 없다")?;
     fd_core::skill::install(&file, &fd)?;
     Ok(skill_status())
+}
+
+/// 켤 때 — 이미 깐 스킬이 이 판 · 이 fd.exe 자리와 다르면 다시 쓴다. 깔지 않은 사람에게는 새로 깔지 않는다.
+/// 2026.11.11 : 앱만 새 판으로 올리고 스킬을 잊으면 에이전트가 옛 명령 · 옛 경로를 불렀다. 판이 같아도 설치 자리가 바뀌면 경로가 어긋나서 본문째 견준다.
+/// 2026.11.11 리뷰 : 판 · 경로가 같으면 손대지 않는다 (사람이 고친 스킬을 지키려고). 저장소의 빌드(`target\…`)로 켰을 때는 쓰지 않는다 —
+///              개발판을 한 번 켜기만 해도 설치된 스킬이 `target\debug\fd.exe` 를 가리켰다.
+fn refresh_skill() {
+    let (Some(fd), Some(file)) = (fd_exe(), fd_core::skill::default_file()) else { return };
+    if fd.components().any(|c| c.as_os_str().eq_ignore_ascii_case("target")) {
+        return;
+    }
+    if fd_core::skill::needs_refresh(&file, &fd) {
+        let _ = fd_core::skill::install(&file, &fd);
+    }
 }
 
 // ───────────────────────────── [8] 설정 ─────────────────────────────
@@ -635,14 +682,21 @@ fn save_settings(app: AppHandle, value: serde_json::Value) -> CmdResult<()> {
     std::fs::rename(&tmp, &p).map_err(|e| e.to_string())
 }
 
-// ───────────────────────────── [8-1] 들어온 곳 ─────────────────────────────
+// ───────────────────────────── [8-1] 새 파일 ─────────────────────────────
 
-/// 들어온 곳(다운로드 · 바탕화면)마다 최근 `days` 일 새 파일 수.
+/// 다운로드 · 바탕화면에 최근 `days` 일 새로 생기거나 바뀐 파일, 최근 것부터 — 왼쪽 「새 파일」 · 칸의 「새 파일 모두 보기」.
 #[tauri::command]
-async fn recent_counts(paths: Vec<String>, days: u64) -> CmdResult<Vec<usize>> {
-    tauri::async_runtime::spawn_blocking(move || paths.iter().map(|p| fd_core::list::recent_count(Path::new(p), days)).collect())
-        .await
-        .map_err(|e| e.to_string())
+async fn recent_files(paths: Vec<String>, days: u64) -> CmdResult<Vec<fd_core::list::Entry>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let dirs: Vec<&Path> = paths.iter().map(Path::new).collect();
+        let mut out = fd_core::list::recent_files(&dirs, days);
+        for e in &mut out {
+            e.kind = fd_shell::icon::type_name(&e.ext, e.is_dir);
+        }
+        out
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 // ───────────────────────────── [9] 아이콘 프로토콜 · 앱 시작 ─────────────────────────────
@@ -674,11 +728,12 @@ fn update_installable() -> bool {
     std::env::current_exe().ok().and_then(|exe| exe.parent().map(|d| d.join("uninstall.exe").is_file())).unwrap_or(false)
 }
 
-/// 릴리즈 페이지를 기본 브라우저로. https 주소만 연다 — 화면에서 온 글로 아무 프로그램이나 띄우지 않게.
+/// 릴리즈 페이지 · 마크다운 안 링크를 기본 브라우저로. 웹 주소만 연다 — 화면에서 온 글로 아무 프로그램이나 띄우지 않게.
+/// 2026.11.11 : https → http · https. 앱 안 마크다운 보기의 링크가 http 인 것도 많다.
 #[tauri::command]
 async fn open_url(window: WebviewWindow, url: String) -> CmdResult<()> {
-    if !url.starts_with("https://") {
-        return Err("https 주소만 연다".into());
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err("웹 주소(http · https)만 연다".into());
     }
     let hwnd = owner(&window)?;
     on_sta(move || fd_shell::ops::open(hwnd, &url, "").map_err(|e| e.to_string())).await?
@@ -689,16 +744,24 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(WatchState::default())
+        .setup(|_| {
+            std::thread::spawn(refresh_skill);
+            Ok(())
+        })
         // 화면은 `http://fdicon.localhost/<키>` 로 아이콘을 받는다. 키 꼴은 fd_shell::icon::icon_png.
         .register_asynchronous_uri_scheme_protocol("fdicon", |_ctx, req, responder| {
             let key = percent_decode(req.uri().path().trim_start_matches('/'));
-            // 아이콘 팩(`pack:<그림 파일 경로>`) — 사용자가 고른 폴더의 그림을 그대로 준다. 그림 꼴만 (화면이 아무 파일이나 읽어 가지 않게).
-            if let Some(file) = key.strip_prefix("pack:") {
-                let resp = match pack_mime(file).and_then(|mime| std::fs::read(file).ok().map(|b| (mime, b))) {
-                    Some((mime, bytes)) => tauri::http::Response::builder().header("Content-Type", mime).header("Cache-Control", "no-cache").body(bytes),
-                    None => tauri::http::Response::builder().status(404).body(Vec::new()),
-                };
-                responder.respond(resp.expect("응답"));
+            // 아이콘 팩(`pack:<그림 파일 경로>`) — 사용자가 고른 폴더의 그림을 그대로 준다.
+            // 앱 안 그림 보기 · 마크다운 속 그림(`raw:<경로>`)도 같다. 그림 꼴만 (화면이 아무 파일이나 읽어 가지 않게).
+            // 큰 사진(수십 MB)을 읽는 동안 다른 요청이 막히지 않게 따로 읽는다.
+            if let Some(file) = key.strip_prefix("pack:").or_else(|| key.strip_prefix("raw:")).map(str::to_owned) {
+                std::thread::spawn(move || {
+                    let resp = match image_mime(&file).and_then(|mime| std::fs::read(&file).ok().map(|b| (mime, b))) {
+                        Some((mime, bytes)) => tauri::http::Response::builder().header("Content-Type", mime).header("Cache-Control", "no-cache").body(bytes),
+                        None => tauri::http::Response::builder().status(404).body(Vec::new()),
+                    };
+                    responder.respond(resp.expect("응답"));
+                });
                 return;
             }
             std::thread::spawn(move || {
@@ -719,6 +782,9 @@ pub fn run() {
             places,
             resolve_input,
             open_item,
+            read_text,
+            write_text,
+            modified_of,
             context_menu,
             background_menu,
             shell_verb,
@@ -747,7 +813,7 @@ pub fn run() {
             open_url,
             load_settings,
             save_settings,
-            recent_counts,
+            recent_files,
         ])
         .run(tauri::generate_context!())
         .expect("filedesk 를 시작하지 못했다");

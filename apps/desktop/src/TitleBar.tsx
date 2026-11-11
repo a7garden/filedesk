@@ -76,8 +76,8 @@ function UpdateChip() {
     };
   }, [open]);
 
-  if (s.phase === "checking") return <span className="upd muted">새 판 확인 중…</span>;
-  if (s.phase === "latest") return <span className="upd muted">최신 판이다</span>;
+  if (s.phase === "checking") return <span className="upd muted">업데이트 확인 중…</span>;
+  if (s.phase === "latest") return <span className="upd muted">최신 버전이다</span>;
   if (s.phase === "error" && s.manual)
     return (
       <button className="upd warn" title={s.error} onClick={() => checkUpdate(true)}>
@@ -86,29 +86,29 @@ function UpdateChip() {
     );
   if (s.phase === "downloading") {
     const pct = s.progress.total ? Math.round((s.progress.done / s.progress.total) * 100) : null;
-    return <span className="upd">새 판 받는 중{pct != null ? ` ${pct}%` : "…"}</span>;
+    return <span className="upd">업데이트 받는 중{pct != null ? ` ${pct}%` : "…"}</span>;
   }
   if (s.phase !== "available" || !s.update) return null;
   const u = s.update;
   return (
     <div className="upd-wrap" ref={box}>
       <button className="upd new" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        새 판 {u.version}
+        새 버전 {u.version}
       </button>
       {open && (
-        <div className="upd-panel" role="dialog" aria-label={`새 판 ${u.version}`}>
+        <div className="upd-panel" role="dialog" aria-label={`새 버전 ${u.version}`}>
           <b>
             {u.currentVersion} → {u.version}
           </b>
           {u.body && <div className="upd-notes">{u.body}</div>}
           <div className="upd-acts">
             {s.installable ? (
-              <button className="act primary" onClick={() => installUpdate()} title="받아서 설치하면 앱이 꺼졌다 새 판으로 다시 켜진다">
+              <button className="act primary" onClick={() => installUpdate()} title="받아서 설치하면 앱이 꺼졌다 새 버전으로 다시 켜진다">
                 설치하고 다시 켜기
               </button>
             ) : (
-              <button className="act primary" onClick={openReleases} title="설치본이 아니라 스스로 바꿔 끼울 수 없다 — 릴리즈 페이지에서 받는다">
-                릴리즈 페이지 열기
+              <button className="act primary" onClick={openReleases} title="설치 파일(setup.exe)로 깐 앱이 아니라 스스로 업데이트하지 못한다 — 릴리스 페이지에서 받는다">
+                릴리스 페이지 열기
               </button>
             )}
             <button

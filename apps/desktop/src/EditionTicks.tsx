@@ -56,11 +56,11 @@ function editions(files: DocFile[]): Ed[] {
   return eds;
 }
 
-/** 글로 읽는 요약 — 「v3 11-01 · 3판 · 같은 자리 1 · 이전판 2」. */
+/** 글로 읽는 요약 — 「v3 11-01 · 3판 · 이 폴더 1 · 「이전판」 폴더 2」. */
 function summary(eds: Ed[]): string {
   const here = eds.filter((e) => e.here).length;
   const latest = eds.filter((e) => e.here).at(-1) ?? eds.at(-1);
-  return [latest?.label, `${eds.length}판`, `같은 자리 ${here}`, `이전판 ${eds.length - here}`].filter(Boolean).join(" · ");
+  return [latest?.label, `${eds.length}판`, `이 폴더 ${here}`, `「이전판」 폴더 ${eds.length - here}`].filter(Boolean).join(" · ");
 }
 
 export default function EditionTicks({ files, lo, hi }: { files: DocFile[]; lo: number; hi: number }) {

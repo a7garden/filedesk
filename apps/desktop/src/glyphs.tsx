@@ -1,25 +1,24 @@
 // 자체 그림. 폴더는 셸의 노란 아이콘 대신 이것을 쓴다 — 파일 아이콘은 설정에 따라 셸 것 · FileGlyph · 아이콘 팩.
 import type { ReactNode } from "react";
 
+/** 폴더 — 뒤판(귀 달린 판)과 앞판 두 겹을 채워 그린다. 색은 styles.css 의 --folder-back · --folder-front.
+ *  2026.11.11 : 선 그림 → 채운 그림 (사용자 요청). 선으로는 목록에서 파일 그림보다 가벼워 폴더가 묻혔다. */
 export function FolderGlyph({ faint = false, size = 16 }: { faint?: boolean; size?: number }) {
   return (
-    <svg className={"glyph" + (faint ? " faint" : "")} width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
-      <path
-        d="M1.75 4.25c0-.69.56-1.25 1.25-1.25h3.1l1.4 1.5H13c.69 0 1.25.56 1.25 1.25v6.5c0 .69-.56 1.25-1.25 1.25H3c-.69 0-1.25-.56-1.25-1.25z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.25"
-        strokeLinejoin="round"
-      />
+    <svg className={"glyph folder-glyph" + (faint ? " faint" : "")} width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M1.5 3.6c0-.6.5-1.1 1.1-1.1h3.3c.32 0 .62.14.83.38L7.9 4.1h5.5c.6 0 1.1.5 1.1 1.1v7.2c0 .6-.5 1.1-1.1 1.1H2.6c-.6 0-1.1-.5-1.1-1.1z" fill="var(--folder-back)" />
+      <path d="M1.5 6.4c0-.6.5-1.1 1.1-1.1h10.8c.6 0 1.1.5 1.1 1.1v6c0 .6-.5 1.1-1.1 1.1H2.6c-.6 0-1.1-.5-1.1-1.1z" fill="var(--folder-front)" />
     </svg>
   );
 }
 
 // ───────── filedesk 파일 아이콘 ─────────
-// 형식 색으로 칠한 종이 + 흰 상징. 상징은 형식을 누구나 알아보는 일반 기호다 (한글 「한」 · 마크다운 M↓ · 표의 칸 · 재생 단추 …).
+// 흰 종이에 형식 색을 엷게 깔고, 테두리 · 접힌 귀 · 상징을 형식 색으로. 상징은 형식을 누구나 알아보는 일반 기호다 (한글 「한」 · 마크다운 M↓ · 표의 칸 · 재생 단추 …).
 // 상표 로고는 쓰지 않는다 — 공개 저장소이고, 로고는 작은 크기에서 뭉개진다.
 // 2026.11.11 : 종류(문서 · 표 · 발표 …)마다 색 띠 하나만 칠하던 것을 형식마다 다른 그림으로. 색 띠로는 md · pdf · hwp 가
 //   모두 「문서」 색이라 가려지지 않았다. 종류 설정(이름 · 확장자 묶음)은 거르기용이라 그림과 따로 간다.
+// 2026.11.11 : 종이 전체를 형식 색으로 칠하고 흰 상징을 얹던 것을 흰 종이 + 색 상징으로 (사용자 요청 — 색 덩어리가 목록에서 너무 셌다).
+//   pdf · 한글처럼 글자가 상징인 것만 색 딱지에 흰 글자로 둔다 — 색 글자로는 작은 크기에서 종이 바탕에 묻힌다.
 
 type Sym = "lines" | "han" | "md" | "grid" | "csv" | "slide" | "pdf" | "image" | "play" | "note" | "zip" | "code" | "braces" | "hash" | "db" | "term" | "link" | "font" | "blank";
 type Fmt = { color: string; sym: Sym };
@@ -47,17 +46,22 @@ def("exe msi bat cmd ps1 sh appx", "#475569", "term");
 def("lnk url", "#0e7c86", "link");
 def("ttf otf woff woff2", "#5b5f97", "font");
 
-const W = "#fff";
-/** 상징 — 32 칸 기준, 종이 몸통(가로 7~25 · 세로 9~28) 가운데에 놓는다. */
-function symbol(s: Sym): ReactNode {
+/** 딱지 — 글자 상징의 바탕. 종이 아래쪽에 형식 색으로 칠한다. */
+const badge = (W: string) => <rect x="8" y="15" width="16" height="10" rx="2" fill={W} />;
+
+/** 상징 — 32 칸 기준, 종이 몸통(가로 7~25 · 세로 9~28) 가운데에 놓는다. `W` 는 형식 색. */
+function symbol(s: Sym, W: string): ReactNode {
   switch (s) {
     case "lines":
       return <path d="M11 14h10M11 18h10M11 22h7" stroke={W} strokeWidth="1.8" strokeLinecap="round" />;
     case "han":
       return (
-        <text x="16" y="23.4" textAnchor="middle" fontSize="11.5" fontWeight="800" fill={W} fontFamily="Pretendard, 'Malgun Gothic', sans-serif">
-          한
-        </text>
+        <>
+          {badge(W)}
+          <text x="16" y="23.4" textAnchor="middle" fontSize="9" fontWeight="800" fill="var(--icon-paper)" fontFamily="Pretendard, 'Malgun Gothic', sans-serif">
+            한
+          </text>
+        </>
       );
     case "md":
       return <path d="M9.5 23v-7.5l3 3.6 3-3.6V23M20.5 15.5V23M18 20.5l2.5 2.6 2.5-2.6" fill="none" stroke={W} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />;
@@ -80,9 +84,12 @@ function symbol(s: Sym): ReactNode {
       );
     case "pdf":
       return (
-        <text x="16" y="22.4" textAnchor="middle" fontSize="7.6" fontWeight="800" letterSpacing="0.2" fill={W} fontFamily="Pretendard, system-ui, sans-serif">
-          PDF
-        </text>
+        <>
+          {badge(W)}
+          <text x="16" y="22.6" textAnchor="middle" fontSize="7" fontWeight="800" letterSpacing="0.2" fill="var(--icon-paper)" fontFamily="Pretendard, system-ui, sans-serif">
+            PDF
+          </text>
+        </>
       );
     case "image":
       return (
@@ -151,20 +158,59 @@ function symbol(s: Sym): ReactNode {
   }
 }
 
+/** 자리 그림 — 바탕화면 · 다운로드 · 문서 · 네트워크. 폴더 그림과 같은 굵기의 선으로, 왼쪽 열 「이 PC」 칸 · 「연결」 줄에 쓴다.
+ *  2026.11.11 : 셸 아이콘(작은 16px 비트맵)을 키우면 흐려져 따로 그렸다. */
+export function PlaceGlyph({ kind, size = 20 }: { kind: "desktop" | "download" | "docs" | "net"; size?: number }) {
+  const p = { fill: "none", stroke: "currentColor", strokeWidth: 1.25, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+  return (
+    <svg className="glyph" width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
+      {kind === "desktop" && (
+        <>
+          <rect x="1.75" y="2.5" width="12.5" height="8.5" rx="1.25" {...p} />
+          <path d="M6 13.5h4M8 11v2.5" {...p} />
+        </>
+      )}
+      {kind === "download" && (
+        <>
+          <path d="M8 2v7.5M5 6.75 8 9.75l3-3" {...p} />
+          <path d="M2.25 10.5v1.75c0 .69.56 1.25 1.25 1.25h9c.69 0 1.25-.56 1.25-1.25V10.5" {...p} />
+        </>
+      )}
+      {kind === "docs" && (
+        <>
+          <path d="M4 1.75h5.25l2.75 2.75v9.25c0 .28-.22.5-.5.5h-7.5a.5.5 0 0 1-.5-.5v-11.5c0-.28.22-.5.5-.5z" {...p} />
+          <path d="M6 7.5h4M6 10h4" {...p} />
+        </>
+      )}
+      {kind === "net" && (
+        <>
+          <rect x="2" y="2.25" width="12" height="4.5" rx="1" {...p} />
+          <rect x="2" y="8.25" width="12" height="4.5" rx="1" {...p} />
+          <path d="M4.5 4.5h.01M4.5 10.5h.01" {...p} strokeWidth={1.75} />
+        </>
+      )}
+    </svg>
+  );
+}
+
 /** filedesk 파일 아이콘. 모르는 형식은 흐린 빈 종이에, 크면(40px 넘게) 확장자를 쓴다. */
 export function FileGlyph({ ext, size = 16 }: { ext: string; size?: number }) {
   const x = ext.toLowerCase();
   const f = FMT[x];
-  const color = f?.color ?? "var(--faint)";
-  const label = size > 40 ? x.slice(0, 5).toUpperCase() : "";
+  // 어둡게에서는 형식 색을 흰색 쪽으로 한 단 밝힌다 — md · 코드 · 실행 파일의 짙은 회색이 어두운 바탕에 묻혔다.
+  const tone = f ? `light-dark(${f.color}, color-mix(in srgb, ${f.color} 60%, #fff))` : "var(--muted)";
+  const color = "currentColor";
+  const label = size > 40 && !f ? x.slice(0, 5).toUpperCase() : "";
+  const paper = "M7.5 2.75h11.25l6.5 6.5v18.75c0 .83-.67 1.5-1.5 1.5h-16.25c-.83 0-1.5-.67-1.5-1.5V4.25c0-.83.67-1.5 1.5-1.5z";
   return (
-    <svg className="glyph file-glyph" width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
-      {/* 종이 — 접힌 귀퉁이는 같은 색을 조금 어둡게 */}
-      <path d="M7.5 2.5h11.5l6 6v19.5c0 .8-.7 1.5-1.5 1.5h-16c-.8 0-1.5-.7-1.5-1.5V4c0-.8.7-1.5 1.5-1.5z" fill={color} />
-      <path d="M19 2.5v4.5c0 .8.7 1.5 1.5 1.5H25z" fill="#000" opacity="0.22" />
-      {f ? symbol(f.sym) : null}
-      {label && !f && (
-        <text x="16" y="21" textAnchor="middle" fontSize="6" fontWeight="700" fill={W} fontFamily="Pretendard, system-ui, sans-serif">
+    <svg className="glyph file-glyph" width={size} height={size} viewBox="0 0 32 32" aria-hidden="true" style={{ color: tone }}>
+      {/* 종이 — 흰 바탕에 형식 색을 엷게 한 겹, 테두리도 형식 색 */}
+      <path d={paper} fill="var(--icon-paper)" />
+      <path d={paper} fill={color} fillOpacity="0.1" stroke={color} strokeOpacity="0.55" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M18.75 2.75v5c0 .83.67 1.5 1.5 1.5h5z" fill={color} fillOpacity="0.45" />
+      {f ? symbol(f.sym, color) : null}
+      {label && (
+        <text x="16" y="23" textAnchor="middle" fontSize="6" fontWeight="700" fill={color} fontFamily="Pretendard, system-ui, sans-serif">
           {label}
         </text>
       )}

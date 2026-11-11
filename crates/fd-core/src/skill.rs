@@ -28,6 +28,14 @@ pub fn installed_version(file: &Path) -> Option<String> {
     })
 }
 
+/// 켤 때 다시 쓸 것인가 — 이미 깐 스킬의 판이 이 판과 다르거나, 본문에 이 fd.exe 경로가 없을 때만.
+/// 2026.11.11 리뷰 : 본문이 조금이라도 다르면 켤 때마다 덮어써서, 사람이 고친 스킬이 사라졌다. 같은 판 · 같은 경로면 손대지 않는다.
+pub fn needs_refresh(file: &Path, fd: &Path) -> bool {
+    let Ok(now) = std::fs::read_to_string(file) else { return false };
+    let path = fd.to_string_lossy().replace('\\', "/");
+    installed_version(file).as_deref() != Some(env!("CARGO_PKG_VERSION")) || !now.contains(&path)
+}
+
 /// 설치한다. 돌려주는 값은 바꿔 쓴 것인지(이미 있었는지).
 pub fn install(file: &Path, fd: &Path) -> Result<bool, String> {
     if let Some(d) = file.parent() {
@@ -50,6 +58,10 @@ mod tests {
         let f = std::env::temp_dir().join(format!("fd-skill-{}", std::process::id())).join("SKILL.md");
         assert!(!install(&f, Path::new("fd.exe")).unwrap());
         assert_eq!(installed_version(&f).as_deref(), Some(env!("CARGO_PKG_VERSION")));
+        // 같은 판 · 같은 경로면 사람이 고친 것을 두고, 경로가 바뀌면 다시 쓴다.
+        std::fs::write(&f, render(Path::new("fd.exe")) + "\n내가 더한 줄\n").unwrap();
+        assert!(!needs_refresh(&f, Path::new("fd.exe")));
+        assert!(needs_refresh(&f, Path::new(r"C:\other\fd.exe")));
         let _ = std::fs::remove_dir_all(f.parent().unwrap());
     }
 }

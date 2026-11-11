@@ -66,11 +66,11 @@ const collator = new Intl.Collator("ko", { numeric: true, sensitivity: "base" })
 export type SortKey = "name" | "modified" | "kind" | "size";
 export type Sort = { key: SortKey; asc: boolean };
 
-/** 탐색기처럼 폴더를 먼저, 이름은 숫자를 숫자로 비교한다 (「v2」 < 「v10」). */
-export function sortEntries(list: Entry[], sort: Sort): Entry[] {
+/** 탐색기처럼 폴더를 먼저(설정 「폴더를 위에」), 이름은 숫자를 숫자로 비교한다 (「v2」 < 「v10」). */
+export function sortEntries(list: Entry[], sort: Sort, dirsFirst = true): Entry[] {
   const dir = sort.asc ? 1 : -1;
   return [...list].sort((a, b) => {
-    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+    if (dirsFirst && a.isDir !== b.isDir) return a.isDir ? -1 : 1;
     let c = 0;
     switch (sort.key) {
       case "modified":
@@ -98,9 +98,10 @@ export function formatDate(ms: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-/** 탐색기 자세히 보기와 같은 꼴: KB 올림 · 천 단위 쉼표. */
-export function formatSize(e: Entry): string {
+/** `kb` 는 탐색기 자세히 보기와 같은 꼴: KB 올림 · 천 단위 쉼표. `auto` 는 알맞은 단위 (설정 「크기」). */
+export function formatSize(e: Entry, unit: "kb" | "auto" = "kb"): string {
   if (e.isDir) return "";
+  if (unit === "auto") return formatBytes(e.size);
   return `${Math.ceil(e.size / 1024).toLocaleString("ko-KR")}KB`;
 }
 
@@ -120,9 +121,10 @@ export function errText(e: unknown): string {
   return typeof e === "string" ? e : e instanceof Error ? e.message : String(e);
 }
 
-/** 목록의 날짜 — 가까운 것은 말로, 먼 것은 짧게. 정확한 시각은 title 로. */
-export function relDate(ms: number): string {
+/** 목록의 날짜 — 가까운 것은 말로, 먼 것은 짧게. 정확한 시각은 title 로. 설정 「고친 날」이 `absolute` 면 늘 날짜와 시각. */
+export function relDate(ms: number, style: "relative" | "absolute" = "relative"): string {
   if (!ms) return "";
+  if (style === "absolute") return formatDate(ms);
   const d = new Date(ms);
   const now = new Date();
   const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();

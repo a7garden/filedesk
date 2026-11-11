@@ -4,7 +4,7 @@
 //!
 //! 2026.11.11 : 격자 보기용 큰 그림 — `i:<크기>:<경로>` 큰 아이콘 · `t:<크기>:<경로>` 미리보기(그림 · pdf · 영상은 내용).
 //! IShellItemImageFactory 가 탐색기 「큰 아이콘」 보기와 같은 그림을 준다. 미리보기는 느릴 수 있어 아이콘과 다른 스레드에서 뽑고,
-//! 수천 장이 될 수 있어 여기서 기억하지 않는다 (화면 쪽 브라우저 캐시가 맡는다).
+//! 수천 장이 될 수 있어 여기서 기억하지 않는다 (화면 쪽 브라우저 캐시가 맡는다). 미리보기가 없으면 404 — 화면이 아이콘으로 바꿔 그린다.
 
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
@@ -17,7 +17,7 @@ use windows::Win32::Graphics::Gdi::{
 use windows::Win32::Storage::FileSystem::{FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_NORMAL, FILE_FLAGS_AND_ATTRIBUTES};
 use windows::Win32::UI::Shell::{
     IShellItemImageFactory, SHCreateItemFromParsingName, SHFILEINFOW, SHGFI_FLAGS, SHGFI_ICON, SHGFI_SMALLICON,
-    SHGFI_TYPENAME, SHGFI_USEFILEATTRIBUTES, SHGetFileInfoW, SIIGBF_ICONONLY, SIIGBF_RESIZETOFIT,
+    SHGFI_TYPENAME, SHGFI_USEFILEATTRIBUTES, SHGetFileInfoW, SIIGBF_ICONONLY, SIIGBF_RESIZETOFIT, SIIGBF_THUMBNAILONLY,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     DI_NORMAL, DestroyIcon, DrawIconEx, GetIconInfo, GetSystemMetrics, HICON, ICONINFO, SM_CXSMICON,
@@ -98,7 +98,8 @@ fn spawn_worker(name: &str) -> Mutex<std::sync::mpsc::Sender<IconJob>> {
             let _com = crate::com::ComGuard::sta();
             for (key, reply) in rx {
                 // 못 그리면 확장자 없는 일반 파일 아이콘으로 (오프라인 NAS · 지워진 바로가기 대상 등).
-                let png = extract(&key).or_else(|| extract("e:"));
+                // 미리보기(`t:`)는 바꿔치지 않는다 — 비워 돌려야 화면이 설정대로(셸 · filedesk · 팩) 그림을 고른다.
+                let png = if key.starts_with("t:") { extract(&key) } else { extract(&key).or_else(|| extract("e:")) };
                 let _ = reply.send(png);
             }
         })
@@ -124,11 +125,13 @@ fn cache_key(key: &str) -> String {
     key.to_string()
 }
 
-/// 큰 그림 (IShellItemImageFactory). `icon_only` 면 아이콘, 아니면 미리보기(없으면 셸이 아이콘을 준다).
+/// 큰 그림 (IShellItemImageFactory). `icon_only` 면 아이콘, 아니면 미리보기만 — 없으면 None.
+/// 2026.11.11 : 미리보기에 THUMBNAILONLY 를 붙였다. 붙이지 않으면 미리보기 처리기가 없는 pdf 에 셸이 아이콘을 대신 줘서,
+///   「filedesk 아이콘」을 골라도 격자 보기의 pdf · 영상만 Windows 아이콘으로 남았다.
 fn big_image(path: &str, size: i32, icon_only: bool) -> Option<Vec<u8>> {
     let size = size.clamp(16, 256);
     let f: IShellItemImageFactory = unsafe { SHCreateItemFromParsingName(&HSTRING::from(path), None) }.ok()?;
-    let flags = if icon_only { SIIGBF_RESIZETOFIT | SIIGBF_ICONONLY } else { SIIGBF_RESIZETOFIT };
+    let flags = if icon_only { SIIGBF_RESIZETOFIT | SIIGBF_ICONONLY } else { SIIGBF_RESIZETOFIT | SIIGBF_THUMBNAILONLY };
     let hbm = unsafe { f.GetImage(SIZE { cx: size, cy: size }, flags) }.ok()?;
     let png = unsafe { bitmap_to_png(hbm) };
     unsafe {
