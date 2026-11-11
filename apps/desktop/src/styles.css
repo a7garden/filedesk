@@ -296,44 +296,11 @@ button:disabled {
   flex: none;
   color: var(--muted);
 }
-/* 들어온 파일 수는 배경 정보다 — 연도 옆 사업 수와 같은 흐린 숫자. 채운 강조색이면 늘 화면에서 가장 진해 고른 줄 · 주 동작과 다툰다 */
+/* 들어온 파일 수는 배경 정보다 — 흐린 숫자. 채운 강조색이면 늘 화면에서 가장 진해 고른 줄 · 주 동작과 다툰다 */
 .count {
   margin-left: auto;
   color: var(--muted);
   font-size: 11.5px;
-}
-.project-name {
-  font-weight: 600;
-  color: var(--ink);
-}
-.side .areas {
-  margin: 2px 0 0 10px;
-}
-/* 자리 역할 = 왼쪽 표시선 모양: 정본 실선 · 받은 것 점선 · 보관 흐린 실선 · 글은 선 없이 흐리게 */
-.area {
-  padding-left: 16px;
-  height: 26px;
-}
-.area::before {
-  content: "";
-  position: absolute;
-  left: 6px;
-  top: 6px;
-  bottom: 6px;
-  border-left: 2px solid transparent;
-}
-.area.role-canon::before {
-  border-left-color: var(--accent);
-}
-.area.role-received::before {
-  border-left: 2px dashed var(--ink-2);
-}
-.area.role-archive,
-.area.role-notes {
-  color: var(--muted);
-}
-.area.role-archive::before {
-  border-left-color: var(--faint);
 }
 .row-with-x {
   position: relative;
@@ -355,30 +322,13 @@ button:disabled {
   background: var(--hover);
   color: var(--ink);
 }
-.drives {
+/* 아래 — 설정 · 판. 화면 색은 설정 안으로 옮겼다 */
+.side-foot {
   margin-top: auto;
   display: flex;
-  flex-wrap: wrap;
-  gap: 2px;
-  padding: 0 2px;
-}
-.drives .nav-item {
-  width: auto;
-  height: 24px;
-  padding: 0 8px;
-  font-size: 12px;
-  color: var(--muted);
-}
-.theme-btn {
-  margin-left: auto;
-  display: flex;
   align-items: center;
-  gap: 5px;
-  height: 24px;
-  padding: 0 8px;
-  border-radius: 5px;
-  font-size: 12px;
-  color: var(--muted);
+  justify-content: space-between;
+  padding: 0 2px;
 }
 .ver-btn {
   height: 24px;
@@ -391,9 +341,55 @@ button:disabled {
   background: var(--hover);
   color: var(--ink-2);
 }
-.theme-btn:hover {
-  background: var(--hover);
+
+/* 이 PC — 한 줄에 드라이브 하나: 문자 · 볼륨 이름(남는 너비, 길면 줄임) · 남은 용량. 줄 밑바닥에 쓴 만큼 찬 띠.
+   띠는 용량을 말하는 유일한 그림이라 늘 흐리게, 남은 것이 10% 아래일 때만 경고색 — 그때만 눈에 띄면 된다 */
+.drive-list .nav-item.drive {
+  height: 32px;
+  gap: 6px;
+  padding-bottom: 3px;
+}
+.drive-letter {
+  flex: none;
+  width: 22px;
+  font: 600 11.5px/1 ui-monospace, "Cascadia Mono", Consolas, monospace;
+  color: var(--muted);
+}
+.nav-item.drive.current .drive-letter {
   color: var(--ink);
+}
+.drive-label {
+  flex: 1;
+  min-width: 0;
+}
+.drive-free {
+  flex: none;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.drive-free.low {
+  color: var(--warn);
+}
+.drive-bar {
+  position: absolute;
+  left: 36px;
+  right: 8px;
+  bottom: 4px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--line);
+  overflow: hidden;
+}
+.drive-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--ink-2);
+  opacity: 0.45;
+}
+.drive-bar.low > span {
+  background: var(--warn);
+  opacity: 1;
 }
 
 /* ── 화면 ── */
@@ -486,28 +482,6 @@ button:disabled {
 .crumb-sep {
   color: var(--faint);
   padding: 0 1px;
-}
-.role-tag {
-  flex: none;
-  margin-left: 10px;
-  padding: 1px 8px;
-  border-radius: 9px;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--ink-2);
-  box-shadow: inset 0 0 0 1px var(--line);
-}
-.role-tag.role-canon {
-  color: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--accent);
-}
-/* 고치지 않는 자리: 점선 테두리로 (색 말고 모양) */
-.role-tag.role-received,
-.role-tag.role-archive,
-.role-tag.role-history {
-  box-shadow: none;
-  border: 1px dashed var(--ink-2);
-  padding: 0 7px;
 }
 .path-input {
   flex: 1;
@@ -708,6 +682,9 @@ body.col-resizing * {
   height: 30px;
   padding: 0 16px 0 8px;
   border-radius: 6px;
+}
+.list.dense .row {
+  height: 24px;
 }
 .row:hover {
   background: var(--hover);
@@ -1041,87 +1018,23 @@ body.col-resizing * {
   }
 }
 
-/* 사업: 연도 → 사업 → (지금 사업만) 자리 */
-.side-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 2px;
-}
-.side-head h2 {
-  margin-bottom: 0;
-}
-.side-add {
-  padding: 2px 8px;
-  border-radius: 5px;
-  font-size: 11.5px;
+.side-empty {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 3px 12px;
+  border-radius: 6px;
+  font-size: 12px;
   color: var(--muted);
 }
-.side-add:hover {
+button.side-empty:hover {
   background: var(--hover);
   color: var(--accent);
-}
-.side-new {
-  padding: 2px 4px 6px;
-}
-.side-new input {
-  width: 100%;
-  height: 28px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 6px;
-  background: var(--raise);
-  box-shadow: inset 0 0 0 1.5px var(--accent);
-  color: var(--ink);
-  font: inherit;
-  outline: none;
-  user-select: text;
-}
-.side-err {
-  padding: 4px 4px 0;
-  font-size: 12px;
-  color: var(--warn);
-}
-.year-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  height: 26px;
-  padding: 0 8px;
-  border-radius: 6px;
-  color: var(--muted);
-  font-size: 12.5px;
-  font-weight: 600;
-}
-.year-btn:hover {
-  background: var(--hover);
-  color: var(--ink);
-}
-.year-count {
-  margin-left: auto;
-  font-weight: 400;
-  font-size: 11.5px;
-}
-.year > ul {
-  margin-left: 8px;
-}
-.nav-item.project .project-name {
-  font-weight: 500;
-}
-.nav-item.project.current .project-name,
-.nav-item.project:hover .project-name {
-  color: var(--ink);
-}
-.side-empty {
-  padding: 2px 12px;
-  font-size: 12px;
-  color: var(--muted);
 }
 
 /* ── 나눠 보기 ──
    2026.11.11 : 두 칸을 나란히. 칸 사이 줄을 끌어 너비를 바꾸고(두 번 누르면 반반), 키보드를 받는 칸은 위 가장자리에 강조 한 가닥.
-   탭을 끌어 목록 왼쪽 · 오른쪽 반에 놓으면 그 칸에 연다 — 놓을 자리는 반쪽 덮개로 미리 보인다. */
+   칸마다 탭 줄이 따로 있고, 탭을 다른 칸의 탭 줄 · 목록으로 끌면 그 칸으로 옮긴다 — 놓을 자리는 끼울 줄 · 칸 덮개로 미리 보인다. */
 .panes.split {
   position: relative;
   display: grid;
@@ -1169,23 +1082,17 @@ body.resizing,
 body.resizing * {
   cursor: col-resize !important;
 }
+/* 목록에 놓을 때의 덮개 — 자리 · 너비는 받는 칸을 따라 App 이 준다 */
 .split-drop {
   position: absolute;
   top: 6px;
   bottom: 6px;
-  width: calc(50% - 9px);
   border-radius: 8px;
   background: var(--sel);
   box-shadow: inset 0 0 0 1.5px var(--accent);
   pointer-events: none;
   z-index: 5;
   animation: fade-in 0.12s ease-out;
-}
-.split-drop.side-0 {
-  left: 6px;
-}
-.split-drop.side-1 {
-  right: 6px;
 }
 .split-btn {
   align-self: center;
@@ -1205,25 +1112,39 @@ body.resizing * {
 .split-btn:hover {
   background: var(--hover);
 }
-/* 나눠 보기에서 칸에 놓인 탭: 왼쪽 칸은 왼쪽 반 · 오른쪽 칸은 오른쪽 반이 찬 작은 네모 */
-.tab-side {
+/* 나눠 보면 탭 줄이 칸 너비대로 갈라진다 — 왼쪽 줄은 왼쪽 칸 너비(App 이 flex-basis 로 준다), 사이 5px 은 칸 사이 줄의 연장,
+   오른쪽 줄은 남은 자리. 지금 칸이 아닌 줄의 보이는 탭은 밑줄을 옅게 — 어느 칸이 키보드를 받는지 탭 줄에서도 읽힌다 */
+.tabs.strip-0 {
+  flex-grow: 0;
+  flex-shrink: 0;
+}
+.tabs-gap {
   flex: none;
-  width: 10px;
-  height: 8px;
+  width: 5px;
+  position: relative;
+  cursor: col-resize;
+}
+.tabs-gap::after {
+  content: "";
+  position: absolute;
+  top: 8px;
+  bottom: 0;
+  left: 2px;
+  width: 1px;
+  background: var(--line);
+}
+.tab.cur {
+  color: var(--ink-2);
+}
+.tab.cur::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 0;
+  height: 2px;
   border-radius: 2px;
-  box-shadow: inset 0 0 0 1px var(--faint);
-}
-.tab.side-0 .tab-side {
-  background: linear-gradient(90deg, var(--faint) 50%, transparent 50%);
-}
-.tab.side-1 .tab-side {
-  background: linear-gradient(90deg, transparent 50%, var(--faint) 50%);
-}
-.tab.active.side-0 .tab-side {
-  background: linear-gradient(90deg, var(--accent) 50%, transparent 50%);
-}
-.tab.active.side-1 .tab-side {
-  background: linear-gradient(90deg, transparent 50%, var(--accent) 50%);
+  background: var(--faint);
 }
 .tab.dragging {
   opacity: 0.4;
@@ -1234,6 +1155,20 @@ body.resizing * {
   left: -2px;
   top: 8px;
   bottom: 8px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+}
+/* 탭 줄 끝에 놓을 자리 — 「+」 앞에 한 가닥 */
+.tab-add {
+  position: relative;
+}
+.tabs.drop-end .tab-add::before {
+  content: "";
+  position: absolute;
+  left: -3px;
+  top: 2px;
+  bottom: 2px;
   width: 2px;
   border-radius: 1px;
   background: var(--accent);
@@ -1285,6 +1220,12 @@ body.resizing * {
   color: var(--ink);
   box-shadow: inset 0 0 0 1px var(--focus);
 }
+/* 종류 색 — 설정 「종류」에서 정한 색. 거르기 단추에서 그 종류를 알아보게 */
+.kind-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+}
 .kind-n {
   color: var(--muted);
   font-size: 11.5px;
@@ -1292,8 +1233,17 @@ body.resizing * {
 .kind-color {
   padding: 0 8px;
 }
-.deep-btn {
-  color: var(--accent);
+/* 찾을 범위 — 찾는 말이 있을 때만 줄 오른쪽 끝에. 이 폴더 → 아래 폴더 → 문서 안 글은 넓어지는 한 축이라 붙여 둔다 */
+.scope {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 14px;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.scope .kind {
+  height: 22px;
 }
 .deep-tag {
   display: inline-flex;
@@ -1439,8 +1389,9 @@ body.resizing * {
   cursor: grabbing !important;
 }
 
-/* ── 설정 창 ──
-   2026.11.11 : 왼쪽 아래에 뜨던 작은 판 → 가운데 대화 창 (왼쪽 목차 · 오른쪽 내용). 보기 설정이 늘어 한 판에 다 담기지 않았다. */
+/* ── 설정 ──
+   2026.11.11 : 왼쪽 아래에 뜨던 작은 판 → 가운데 대화 창 (왼쪽 목차 · 오른쪽 내용). 보기 설정이 늘어 한 판에 다 담기지 않았다.
+   2026.11.11 : 칸을 넘기던 것을 한 장으로 — 목차는 지금 읽는 구획을 따라가고, 설정마다 결과를 곁에 그린다. */
 .settings-btn {
   font-size: 12px;
   color: var(--muted);
@@ -1462,8 +1413,8 @@ body.resizing * {
   animation: fade-in 0.14s ease-out;
 }
 .settings {
-  width: min(720px, calc(100vw - 48px));
-  height: min(560px, calc(100vh - 64px));
+  width: min(860px, calc(100vw - 48px));
+  height: min(680px, calc(100vh - 64px));
   display: grid;
   grid-template-columns: 168px 1fr;
   border-radius: 12px;
@@ -1495,7 +1446,7 @@ body.resizing * {
   background: var(--hover);
   color: var(--ink);
 }
-.set-nav button[aria-current] {
+.set-nav button[aria-current="location"] {
   background: var(--sel);
   color: var(--ink);
   font-weight: 600;
@@ -1515,7 +1466,14 @@ body.resizing * {
 .set-body {
   position: relative;
   overflow-y: auto;
-  padding: 6px 24px 20px;
+  padding: 6px 28px 40vh;
+}
+/* 구획 사이는 선 대신 여백 — 머리 글자가 구획을 묶는다 */
+.set-body > section {
+  padding-bottom: 22px;
+}
+.set-body > section + section {
+  border-top: 1px solid var(--line);
 }
 .set-close {
   position: absolute;
@@ -1535,43 +1493,8 @@ body.resizing * {
   margin: 14px 0 12px;
   font-size: 14px;
 }
-.set-row {
-  display: grid;
-  grid-template-columns: 120px 1fr;
-  align-items: center;
-  gap: 4px 12px;
-  margin-bottom: 14px;
-}
-.set-row .set-hint {
-  grid-column: 2;
-  font-size: 12px;
-}
 .set-label {
   font-size: 13px;
-}
-.seg {
-  display: inline-flex;
-  justify-self: start;
-  padding: 2px;
-  border-radius: 8px;
-  background: var(--paper);
-  box-shadow: inset 0 0 0 1px var(--line);
-}
-.seg button {
-  height: 28px;
-  padding: 0 12px;
-  border-radius: 6px;
-  color: var(--ink-2);
-  font-size: 12.5px;
-}
-.seg button:hover {
-  color: var(--ink);
-}
-.seg button.on {
-  background: var(--raise);
-  color: var(--ink);
-  font-weight: 600;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), inset 0 0 0 1px var(--line);
 }
 .set-check {
   display: flex;
@@ -1581,10 +1504,6 @@ body.resizing * {
   font-size: 13px;
   cursor: pointer;
 }
-.set-check.inline {
-  display: inline-flex;
-  margin: 0 12px 0 0;
-}
 .set-check input {
   accent-color: var(--accent);
   width: 15px;
@@ -1592,12 +1511,6 @@ body.resizing * {
 }
 .set-check .set-hint {
   font-size: 12px;
-}
-.set-cols {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px;
 }
 .set-path {
   margin: 0 0 8px;
@@ -1608,26 +1521,6 @@ body.resizing * {
 .set-note {
   margin: 0 0 10px;
   font-size: 12.5px;
-}
-.set-field {
-  display: grid;
-  gap: 4px;
-  margin-bottom: 10px;
-}
-.set-field textarea {
-  font: inherit;
-  font-size: 12.5px;
-  color: var(--ink);
-  background: var(--paper);
-  border: 0;
-  border-radius: 6px;
-  box-shadow: inset 0 0 0 1px var(--line);
-  padding: 6px 8px;
-  resize: vertical;
-}
-.set-field textarea:focus {
-  outline: none;
-  box-shadow: inset 0 0 0 1.5px var(--focus);
 }
 .set-acts {
   display: flex;
@@ -1641,19 +1534,26 @@ body.resizing * {
   color: var(--warn);
 }
 
-/* 종류 편집 — 한 줄: 색 · 이름 · 확장자(남는 너비) · 위 · 아래 · 빼기. 겹친 확장자 알림은 그 아래 줄 전체 */
+/* 종류 편집 — 한 줄: 색 · 이름 · 확장자 칩(남는 너비, 넘치면 줄바꿈) · 위 · 아래 · 빼기.
+   칩은 종류 색을 왼쪽 가는 띠로만 — 칩마다 색을 칠하면 줄 전체가 시끄럽다. 끌어 놓을 줄은 바탕과 테두리로 */
 .kind-edit {
   display: grid;
-  gap: 6px;
+  gap: 4px;
   margin-bottom: 12px;
 }
 .kind-edit-row {
   display: grid;
-  grid-template-columns: 26px 110px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 6px;
+  grid-template-columns: 26px 104px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  padding: 4px;
+  border-radius: 8px;
 }
-.kind-edit-row input:not([type="color"]) {
+.kind-edit-row.drop {
+  background: var(--sel);
+  box-shadow: inset 0 0 0 1.5px var(--focus);
+}
+.kind-name {
   font: inherit;
   font-size: 12.5px;
   height: 28px;
@@ -1665,12 +1565,73 @@ body.resizing * {
   box-shadow: inset 0 0 0 1px var(--line);
   padding: 0 8px;
 }
-.kind-edit-row input:not([type="color"]):focus {
+.kind-name:focus,
+.ext-add:focus {
   outline: none;
   box-shadow: inset 0 0 0 1.5px var(--focus);
 }
-.kind-exts {
-  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+.ext-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-height: 28px;
+  align-items: center;
+}
+.ext-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 22px;
+  padding: 0 2px 0 7px;
+  border-radius: 5px;
+  background: var(--paper);
+  box-shadow: inset 2px 0 0 var(--kc), inset 0 0 0 1px var(--line);
+  font: 12px/1 ui-monospace, "Cascadia Mono", Consolas, monospace;
+  color: var(--ink-2);
+  cursor: grab;
+  user-select: none;
+}
+.ext-chip.lost {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+.ext-chip.lifted {
+  opacity: 0.35;
+}
+.ext-chip button {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  color: var(--faint);
+  font-size: 12px;
+}
+.ext-chip button:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.ext-add {
+  width: 84px;
+  height: 22px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--ink);
+  font: 12px/1 ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+.ext-ghost {
+  position: fixed;
+  z-index: 80;
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: var(--raise);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18), inset 0 0 0 1px var(--line);
+  font: 12px/1 ui-monospace, "Cascadia Mono", Consolas, monospace;
+  pointer-events: none;
+}
+.kind-edit.dragging,
+.kind-edit.dragging * {
+  cursor: grabbing !important;
 }
 .kind-swatch {
   width: 26px;
@@ -1704,11 +1665,6 @@ body.resizing * {
 }
 .kind-edit-acts .icon-btn:disabled {
   opacity: 0.3;
-}
-.kind-edit-warn {
-  grid-column: 2 / -1;
-  font-size: 11.5px;
-  color: var(--warn);
 }
 
 /* ── 격자 보기 ──
@@ -1839,33 +1795,50 @@ body.resizing * {
 }
 
 /* 아래 띠의 보기 단추 — 목록 · 격자, 격자면 크기 막대 */
-.view-switch {
+/* 크기 사다리 — 지금 칸 이름 + 눈금 여섯. 목록 두 칸과 격자 네 칸 사이에 가는 틈(.seam)을 두어 바뀌는 경계가 보이게.
+   지금 칸만 바탕이 차고, 나머지는 흐린 모양 — 눈금 모양이 곧 그 칸에서 보일 모양이다 */
+.ladder {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 1px;
   margin-left: auto;
 }
-.view-switch button {
-  width: 26px;
+.ladder-label {
+  min-width: 6.5em;
+  margin-right: 6px;
+  text-align: right;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.ladder-tick {
+  width: 24px;
   height: 22px;
   border-radius: 5px;
-  color: var(--muted);
+  color: var(--faint);
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
-.view-switch button:hover {
+.ladder-tick.seam {
+  margin-left: 7px;
+  position: relative;
+}
+.ladder-tick.seam::before {
+  content: "";
+  position: absolute;
+  left: -5px;
+  top: 5px;
+  bottom: 5px;
+  width: 1px;
+  background: var(--line);
+}
+.ladder-tick:hover {
   background: var(--hover);
   color: var(--ink);
 }
-.view-switch button[aria-pressed="true"] {
+.ladder-tick.on {
   color: var(--accent);
   background: var(--sel);
-}
-.view-switch input[type="range"] {
-  width: 84px;
-  margin: 0 6px;
-  accent-color: var(--accent);
 }
 
 /* ── 메모 카드 · 메모 칸 ──
@@ -2012,10 +1985,6 @@ body.resizing * {
 .msg {
   animation: slide-down 0.16s ease-out;
 }
-.year-list,
-.side .areas {
-  animation: fade-in 0.16s ease-out;
-}
 .row {
   transition: background-color 0.08s ease;
 }
@@ -2047,4 +2016,223 @@ body.resizing * {
   .row .cell.ver {
     display: none;
   }
+}
+
+/* ── 명령 팔레트 (Ctrl+K) ──
+   2026.11.11 : 위 가운데에 뜨는 한 칸. 묶음 이름은 왼쪽 좁은 열에 묶음이 바뀔 때만 — 줄마다 꼬리표를 달지 않는다 */
+.pal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+  background: rgba(0, 0, 0, 0.12);
+  animation: fade-in 0.12s ease-out;
+}
+.palette {
+  width: min(620px, calc(100vw - 32px));
+  max-height: 64vh;
+  display: flex;
+  flex-direction: column;
+  border-radius: 10px;
+  background: var(--raise);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22), inset 0 0 0 1px var(--line);
+  overflow: hidden;
+  animation: pop-in 0.12s ease-out;
+}
+.pal-input {
+  height: 46px;
+  padding: 0 16px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+  outline: none;
+  user-select: text;
+}
+.pal-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+}
+.pal-item {
+  display: grid;
+  grid-template-columns: 44px auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 10px 0 4px;
+  border-radius: 6px;
+  color: var(--ink-2);
+  cursor: default;
+}
+.pal-item:not(:has(.tag-dot)) {
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+}
+.pal-item.gap {
+  margin-top: 6px;
+}
+.pal-item.at {
+  background: var(--sel);
+  color: var(--ink);
+}
+.pal-group {
+  font-size: 11px;
+  color: var(--muted);
+  text-align: right;
+}
+.pal-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pal-hint {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.pal-empty {
+  padding: 12px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.pal-foot {
+  padding: 6px 14px;
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* 설정 한 줄 — 왼쪽 이름 · 오른쪽 조작과 그 결과 */
+.set-line {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.set-line > .set-label {
+  padding-top: 4px;
+}
+.set-hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+.link-btn {
+  color: var(--accent);
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+/* 목록 열 — 목록 머리를 줄여 그린 것. 켠 열은 진하게, 끈 열은 흐리게 지운 줄 */
+.col-preview {
+  display: flex;
+  height: 30px;
+  align-items: stretch;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px var(--line);
+  overflow: hidden;
+  max-width: 420px;
+}
+.col-chip {
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  color: var(--ink-2);
+  border-left: 1px solid var(--line);
+}
+.col-chip.fixed {
+  flex: 1;
+  border-left: 0;
+  color: var(--muted);
+}
+.col-chip[aria-pressed="false"] {
+  color: var(--faint);
+  text-decoration: line-through;
+}
+.col-chip:hover {
+  background: var(--hover);
+}
+/* 화면 색 — 작은 창 셋. 고른 것만 테두리 */
+.theme-pick {
+  display: flex;
+  gap: 12px;
+}
+.theme-card {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 8px 8px 6px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.theme-card .mini-window {
+  border-radius: 5px;
+  box-shadow: 0 0 0 1px var(--line);
+}
+.theme-card:hover {
+  background: var(--hover);
+}
+.theme-card.on {
+  color: var(--ink);
+  font-weight: 600;
+}
+.theme-card.on .mini-window {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+/* 아이콘 — 방식마다 한 줄: 이름 · 표본 그림 · 설명. 같은 표본을 위아래로 견준다 */
+.icon-pick {
+  display: grid;
+  gap: 4px;
+}
+.icon-row {
+  display: grid;
+  grid-template-columns: 84px auto minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  text-align: left;
+  color: var(--ink-2);
+}
+.icon-row:hover {
+  background: var(--hover);
+}
+.icon-row.on {
+  background: var(--sel);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--focus);
+}
+.icon-row-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+.icon-row-samples {
+  display: flex;
+  gap: 8px;
+}
+.icon-sample {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+}
+.icon-row-hint {
+  font-size: 12px;
+}
+.pack-box {
+  margin: 10px 0 0 10px;
+}
+.pack-box code {
+  font-size: 11.5px;
 }

@@ -1,27 +1,29 @@
-// 왼쪽 — 프로젝트(문서 저장소의 연도별 프로젝트) · 즐겨찾기 · 들어온 곳 · 드라이브 · 화면 색 · 설정 · 판(누르면 새 판 확인).
+// 왼쪽 — 즐겨찾기 · 색 · 들어온 곳 · 이 PC(드라이브) · 설정.
 // 탐색기의 「즐겨찾기 + 드라이브」 대신 일의 단위로 묶는다.
-//   프로젝트: 올해는 펼쳐 두고 지난 해는 접는다. 지금 있는 프로젝트만 그 자리(산출물 · 자료 …)를 펼친다 — 다른 프로젝트의 자리까지 깔면 길어진다.
-//   2026.11.11 : 화면 말 「사업」 → 「프로젝트」 (사업은 회사 일에만 맞는 말이라). 저장소 안 폴더 이름 `사업\` 은 그대로다.
+//
+// 목차
+//   [1] 상태 · 불러오기 — 색 점 · 색 개수 · 들어온 파일 수
+//   [2] 끌기 — 즐겨찾기 순서 바꾸기
+//   [3] 즐겨찾기 · 색 · 들어온 곳 · 이 PC · 설정
+//
 //   2026.11.11 : 「고정」 → 「즐겨찾기」. 파일도 더한다 (누르면 연다). 제목에 끌어다 놓으면 더하고, 항목을 끌어 순서를 바꾼다.
-//   2026.11.11 : 프로젝트 · 즐겨찾기에 오른쪽 단추 → 색 표시 (Finder 꼬리표처럼). 색은 메모와 같은 자리에 둔다 (fd-core memo).
-//   자리 역할은 왼쪽 끝 표시 모양으로 말한다 (정본 실선 · 받은 것 점선 · 보관 흐림). 글자 이름도 title 에 둔다.
+//   2026.11.11 : 「색」 — Finder 꼬리표처럼. 쓰인 색만 개수와 함께, 누르면 모든 폴더에서 그 색 표시를 단 것을 지금 칸에 모아 보인다.
+//   2026.11.11 : 드라이브를 「C: D: E: F:」 한 줄에서 한 줄에 하나로 — 볼륨 이름과 남은 용량 띠. 드라이브가 늘거나 이름이 길어도 줄이 깨지지 않는다.
+//                화면 색 단추는 설정(보기)으로 옮겼다 — 하루에 한 번도 바꾸지 않는 것이 늘 보이는 자리를 차지했다.
+//   2026.11.11 : 「프로젝트」(문서 저장소의 연도별 프로젝트 · 산출물 · 자료 같은 자리)를 뺐다. 일반 파일 탐색기라 폴더에 업무 뜻을 매기지 않는다 —
+//                자주 가는 곳은 즐겨찾기로 둔다.
 // 항목마다 [data-drop] — 파일을 끌어다 놓으면 그 자리로 옮긴다.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import { api, iconUrl, type Area, type PinnedInfo, type Place, type Places, type StoreYear, type TagColor, type Theme } from "./api";
+import { api, iconUrl, TAG_COLORS, TAG_LABEL, type Drive, type Place, type Places, type TagColor } from "./api";
 import { PIN_DROP } from "./App";
-import { Chevron, FolderGlyph, ThemeGlyph } from "./glyphs";
+import { FolderGlyph } from "./glyphs";
 import TagMenu, { TagDot } from "./TagMenu";
 import { checkUpdate } from "./updater";
-import { baseName, errText, norm, ROLE_LABEL } from "./util";
+import { formatBytes, norm } from "./util";
 
 type Props = {
   places: Places | null;
-  /** 설정을 다 읽었는가 — 읽기 전에는 「저장소를 정하지 않았다」를 띄우지 않는다. */
-  loaded: boolean;
-  /** 프로젝트 단위 문서 저장소. 빈 글자면 아직 정하지 않았다. */
-  storeRoot: string;
-  onStoreRoot: (p: string) => void;
   pinned: Place[];
   onUnpin: (path: string) => void;
   onMovePin: (from: number, to: number) => void;
@@ -29,68 +31,53 @@ type Props = {
   onGo: (path: string) => void;
   onGoNewTab: (path: string) => void;
   onOpenFile: (path: string) => void;
-  theme: Theme;
-  onTheme: (t: Theme) => void;
   settingsOpen: boolean;
   onSettings: () => void;
 };
 
 type ColorMenu = { x: number; y: number; path: string; pin?: boolean };
 
-/** 화면 색 단추가 도는 차례와 이름. */
-const THEMES: Theme[] = ["system", "light", "dark"];
-const THEME_LABEL: Record<Theme, string> = { system: "시스템", light: "밝게", dark: "어둡게" };
-
 /** 「들어온 곳」에 셀 최근 날 수. */
 const RECENT_DAYS = 3;
-const THIS_YEAR = String(new Date().getFullYear());
-
-const within = (path: string, root: string) => {
-  const p = norm(path);
-  const r = norm(root);
-  return p === r || p.startsWith(r.endsWith("\\") ? r : r + "\\");
-};
+/** 「이 PC」에 늘 보이는 드라이브 수. 넘으면 「N개 더」로 접는다. */
+const DRIVES_SHOWN = 4;
+/** 남은 용량이 이 비율 아래면 띠를 경고색으로. */
+const LOW_SPACE = 0.1;
 
 export default function Sidebar(props: Props) {
-  const { places, loaded, storeRoot, onStoreRoot, pinned, onUnpin, onMovePin, current, onGo, onGoNewTab, onOpenFile, theme, onTheme, settingsOpen, onSettings } = props;
-  const [years, setYears] = useState<StoreYear[]>([]);
-  const [openYears, setOpenYears] = useState<Set<string>>(new Set([THIS_YEAR]));
+  const { places, pinned, onUnpin, onMovePin, current, onGo, onGoNewTab, onOpenFile, settingsOpen, onSettings } = props;
+
+  // ───────── [1] 상태 · 불러오기 ─────────
+
   const [recent, setRecent] = useState<number[]>([]);
-  /** 즐겨찾기 중 과업 루트(산출물이 있는 폴더)와 그 자리 — 저장소 밖 과업 루트도 자리로 바로 가게. */
-  const [pinInfo, setPinInfo] = useState<PinnedInfo[]>([]);
-  useEffect(() => {
-    api
-      .pinnedInfo(pinned.filter((p) => !p.file).map((p) => p.path))
-      .then(setPinInfo)
-      .catch(() => setPinInfo([]));
-  }, [pinned]);
-  const pinAreas = (path: string): Area[] => pinInfo.find((i) => norm(i.path) === norm(path))?.areas ?? [];
   const [version, setVersion] = useState("");
   useEffect(() => {
     getVersion().then(setVersion).catch(() => {});
   }, []);
-  const [adding, setAdding] = useState(false);
-  const [addErr, setAddErr] = useState("");
-  const addRef = useRef<HTMLInputElement>(null);
-  /** 경로(norm) → 색. 프로젝트 · 즐겨찾기 것만. */
+  /** 경로(norm) → 색. 즐겨찾기 것만. */
   const [colors, setColors] = useState<Map<string, TagColor>>(new Map());
+  /** 색마다 단 항목 수 — 「색」 구획. */
+  const [tagCounts, setTagCounts] = useState<Map<TagColor, number>>(new Map());
   const [menu, setMenu] = useState<ColorMenu | null>(null);
-  /** 즐겨찾기 끌어 순서 바꾸기 — 누른 항목 · 놓을 자리(그 앞). */
-  const [pinDrag, setPinDrag] = useState<{ from: number; y0: number; on: boolean; over: number | null } | null>(null);
-  const suppressClick = useRef(false);
+  const [moreDrives, setMoreDrives] = useState(false);
   const inbox = places ? places.known.filter((k) => k.name !== "문서") : [];
   const docs = places?.known.find((k) => k.name === "문서");
 
-  const loadStore = useCallback(() => {
-    if (!storeRoot) return setYears([]);
-    api.storeProjects(storeRoot).then(setYears).catch(() => setYears([]));
-  }, [storeRoot]);
-  useEffect(loadStore, [loadStore]);
-
-  // 색 점 — 프로젝트 · 즐겨찾기 경로의 색을 한 번에 묻는다. 목록에서 색을 바꾸면(fd:colors) 다시 묻는다.
-  const colorPaths = [...years.flatMap((y) => y.projects.map((p) => p.path)), ...pinned.map((p) => p.path)];
+  // 색 점 — 즐겨찾기 경로의 색을 한 번에 묻는다. 목록에서 색을 바꾸면(fd:colors) 다시 묻는다.
+  const colorPaths = pinned.map((p) => p.path);
   const colorKey = colorPaths.join("|");
   const loadColors = useCallback(() => {
+    api
+      .tagged(null)
+      .then((items) => {
+        const m = new Map<TagColor, number>();
+        // 모은 항목에는 색이 없어 색마다 한 번 더 묻지 않고, 아래 memosOf 결과와 합쳐 센다
+        return api.memosOf(items.map((e) => e.path)).then((ms) => {
+          for (const x of ms) if (x.color) m.set(x.color as TagColor, (m.get(x.color as TagColor) ?? 0) + 1);
+          setTagCounts(m);
+        });
+      })
+      .catch(() => {});
     if (!colorPaths.length) return setColors(new Map());
     api
       .memosOf(colorPaths)
@@ -116,6 +103,27 @@ export default function Sidebar(props: Props) {
     setMenu({ x: e.clientX, y: e.clientY, path, pin });
   };
 
+  // 들어온 곳의 새 파일 수 — 열 때 · 1분마다.
+  const inboxKey = inbox.map((p) => p.path).join("|");
+  useEffect(() => {
+    if (!inbox.length) return;
+    const run = () => api.recentCounts(inbox.map((p) => p.path), RECENT_DAYS).then(setRecent).catch(() => {});
+    run();
+    const t = window.setInterval(run, 60000);
+    return () => window.clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inboxKey]);
+
+  // ───────── [2] 끌기 ─────────
+
+  /** 즐겨찾기 끌어 순서 바꾸기 — 누른 항목 · 놓을 자리(그 앞). */
+  const [pinDrag, setPinDrag] = useState<{ from: number; y0: number; on: boolean; over: number | null } | null>(null);
+  const suppressClick = useRef(false);
+  const swallowClick = () => {
+    suppressClick.current = true;
+    window.setTimeout(() => (suppressClick.current = false), 0);
+  };
+
   // 즐겨찾기 끌기 — 6px 넘게 움직이면 끌기, 놓으면 그 자리 앞으로 옮긴다.
   useEffect(() => {
     if (!pinDrag) return;
@@ -135,8 +143,7 @@ export default function Sidebar(props: Props) {
     const up = () => {
       setPinDrag((d) => {
         if (d?.on) {
-          suppressClick.current = true;
-          window.setTimeout(() => (suppressClick.current = false), 0);
+          swallowClick();
           if (d.over != null) onMovePin(d.from, d.over);
         }
         return null;
@@ -151,34 +158,15 @@ export default function Sidebar(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pinDrag != null, onMovePin]);
 
-  // 지금 있는 프로젝트의 해는 펼친다 (지난 해 프로젝트로 들어갔을 때).
-  useEffect(() => {
-    for (const y of years) {
-      if (y.projects.some((p) => within(current, p.path))) {
-        setOpenYears((s) => (s.has(y.year) ? s : new Set(s).add(y.year)));
-      }
-    }
-  }, [current, years]);
+  // ───────── [3] 그리기 ─────────
 
-  // 들어온 곳의 새 파일 수 — 열 때 · 1분마다.
-  const inboxKey = inbox.map((p) => p.path).join("|");
-  useEffect(() => {
-    if (!inbox.length) return;
-    const run = () => api.recentCounts(inbox.map((p) => p.path), RECENT_DAYS).then(setRecent).catch(() => {});
-    run();
-    const t = window.setInterval(run, 60000);
-    return () => window.clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inboxKey]);
-
-  const link = (path: string, label: React.ReactNode, cls = "", extra?: React.ReactNode, title?: string, colorable = false) => (
+  const link = (path: string, label: React.ReactNode, cls = "", extra?: React.ReactNode, title?: string) => (
     <button
       className={"nav-item " + cls + (norm(path) === norm(current) ? " current" : "")}
       data-drop={path}
       title={title ?? path}
       aria-current={norm(path) === norm(current) ? "page" : undefined}
       onClick={(e) => (e.ctrlKey ? onGoNewTab(path) : onGo(path))}
-      onContextMenu={colorable ? (e) => openMenu(e, path) : undefined}
       onMouseDown={(e) => {
         if (e.button === 1) {
           e.preventDefault();
@@ -187,124 +175,16 @@ export default function Sidebar(props: Props) {
       }}
     >
       {label}
-      {colorable && <TagDot color={colors.get(norm(path))} />}
       {extra}
     </button>
   );
 
-  const createProject = (name: string) => {
-    api
-      .createProject(storeRoot, THIS_YEAR, name)
-      .then((p) => {
-        setAdding(false);
-        setAddErr("");
-        loadStore();
-        onGo(p);
-      })
-      .catch((e) => setAddErr(errText(e)));
-  };
-
-  const toggleYear = (y: string) =>
-    setOpenYears((s) => {
-      const n = new Set(s);
-      if (n.has(y)) n.delete(y);
-      else n.add(y);
-      return n;
-    });
-
-  const inStoreProject = years.some((y) => y.projects.some((p) => within(current, p.path)));
-  const hasThisYear = years.some((y) => y.year === THIS_YEAR);
-  const shownYears: StoreYear[] = hasThisYear ? years : [{ year: THIS_YEAR, projects: [] }, ...years];
-
-  const areaList = (areas: Area[]) => (
-    <ul className="areas">
-      {areas.map((a) => (
-        <li key={a.path}>{link(a.path, <span>{a.name}</span>, `area role-${a.role}`, undefined, `${a.name} · ${ROLE_LABEL[a.role]}`)}</li>
-      ))}
-    </ul>
-  );
+  const drives = places?.drives ?? [];
+  const shownDrives = moreDrives ? drives : drives.slice(0, DRIVES_SHOWN);
+  const usedColors = TAG_COLORS.filter((c) => tagCounts.has(c));
 
   return (
     <nav className="side" aria-label="위치" data-tauri-drag-region>
-      {loaded && !storeRoot && (
-        <section>
-          <div className="side-head">
-            <h2>프로젝트</h2>
-          </div>
-          <p className="side-hint">
-            문서 저장소를 정하면 연도별 프로젝트가 여기 보인다.
-            <button className="act" onClick={() => onStoreRoot(current)} title={current}>
-              지금 폴더로 정하기
-            </button>
-          </p>
-        </section>
-      )}
-      {storeRoot && (
-        <section>
-          <div className="side-head">
-            <h2 title={storeRoot}>프로젝트</h2>
-            <button
-              className="side-add"
-              title={`${THIS_YEAR}년 새 프로젝트 — 산출물 · 자료 · 아카이브 자리를 만든다`}
-              onClick={() => {
-                setAdding(true);
-                setAddErr("");
-                requestAnimationFrame(() => addRef.current?.focus());
-              }}
-            >
-              + 새 프로젝트
-            </button>
-          </div>
-          {adding && (
-            <div className="side-new">
-              <input
-                ref={addRef}
-                placeholder={`${THIS_YEAR} 프로젝트 이름`}
-                aria-label="새 프로젝트 이름"
-                aria-invalid={!!addErr}
-                spellCheck={false}
-                onKeyDown={(e) => {
-                  e.stopPropagation();
-                  if (e.key === "Enter") createProject((e.target as HTMLInputElement).value);
-                  if (e.key === "Escape") setAdding(false);
-                }}
-                onBlur={(e) => !e.target.value && setAdding(false)}
-              />
-              {addErr && <div className="side-err">{addErr}</div>}
-            </div>
-          )}
-          {shownYears.map((y) => {
-            const open = openYears.has(y.year);
-            return (
-              <div key={y.year} className="year">
-                <button className="year-btn" aria-expanded={open} onClick={() => toggleYear(y.year)}>
-                  <Chevron open={open} />
-                  <span>{y.year}</span>
-                  <span className="year-count">{y.projects.length}</span>
-                </button>
-                {open && (
-                  <ul className="year-list">
-                    {y.projects.map((p) => {
-                      const here = within(current, p.path);
-                      return (
-                        <li key={p.path}>
-                          {link(p.path, <span className="project-name">{p.name}</span>, "project", undefined, `${p.path}\n오른쪽 단추: 색 표시`, true)}
-                          {here && p.areas.length > 0 && areaList(p.areas)}
-                        </li>
-                      );
-                    })}
-                    {y.projects.length === 0 && <li className="side-empty">아직 프로젝트가 없다</li>}
-                  </ul>
-                )}
-              </div>
-            );
-          })}
-          <ul>
-            <li>{link(`${storeRoot}\\공통`, <span>공통</span>, "", undefined, "회사 공용 — 양식 · 솔루션 · 가이드")}</li>
-          </ul>
-        </section>
-      )}
-
       <section>
         <h2 className="pin-head" data-drop={PIN_DROP} title="폴더 · 파일을 여기로 끌어다 놓거나 Ctrl+D 로 더한다">
           즐겨찾기
@@ -312,7 +192,6 @@ export default function Sidebar(props: Props) {
         {pinned.length === 0 && <p className="side-hint">폴더 · 파일을 이 제목 위로 끌어 놓거나 Ctrl+D</p>}
         <ul className={pinDrag?.on ? "pin-dragging" : undefined}>
           {pinned.map((p, i) => {
-            const areas = p.file ? [] : pinAreas(p.path);
             const over = pinDrag?.on ? pinDrag.over : null;
             const line = over === i ? "drop-before" : over === pinned.length && i === pinned.length - 1 ? "drop-after" : undefined;
             const ext = p.file && p.name.includes(".") ? p.name.slice(p.name.lastIndexOf(".") + 1).toLowerCase() : "";
@@ -355,13 +234,32 @@ export default function Sidebar(props: Props) {
                     ×
                   </button>
                 </div>
-                {/* 프로젝트와 같게: 지금 그 과업 안에 있을 때만 자리를 펼친다. 저장소 프로젝트 안이면 그쪽이 펼치므로 겹쳐 펼치지 않는다 */}
-                {areas.length > 0 && within(current, p.path) && !inStoreProject && areaList(areas)}
               </li>
             );
           })}
         </ul>
       </section>
+
+      {usedColors.length > 0 && (
+        <section>
+          <h2 title="목록에서 Alt+1~7 · 오른쪽 단추로 단다">색</h2>
+          <ul className="tag-list">
+            {usedColors.map((c) => (
+              <li key={c}>
+                <button
+                  className="nav-item"
+                  title={`${TAG_LABEL[c]} 표시를 단 것 — 모든 폴더에서 모아 보기`}
+                  onClick={() => window.dispatchEvent(new CustomEvent("fd:tagged", { detail: c }))}
+                >
+                  <TagDot color={c} />
+                  <span>{TAG_LABEL[c]}</span>
+                  <span className="count">{tagCounts.get(c)}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {places && (
         <section>
@@ -382,20 +280,26 @@ export default function Sidebar(props: Props) {
         </section>
       )}
 
-      <section className="drives">
-        {places?.drives.map((d) => (
-          <span key={d.path}>{link(d.path, <span>{baseName(d.path)}</span>, "drive", undefined, d.name)}</span>
-        ))}
-        <button
-          className="theme-btn"
-          title="화면 색 — 누를 때마다 시스템 → 밝게 → 어둡게"
-          aria-label={`화면 색: ${THEME_LABEL[theme]}`}
-          onClick={() => onTheme(THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length])}
-        >
-          <ThemeGlyph theme={theme} />
-          {THEME_LABEL[theme]}
-        </button>
-        <button className="settings-btn" aria-expanded={settingsOpen} title="설정 — 보기 · 문서 저장소 · 이름 규칙 · Claude 스킬 (Ctrl+,)" onClick={onSettings}>
+      {drives.length > 0 && (
+        <section>
+          <h2>이 PC</h2>
+          <ul className="drive-list">
+            {shownDrives.map((d) => (
+              <li key={d.path}>{driveRow(d, current, onGo, onGoNewTab)}</li>
+            ))}
+            {drives.length > DRIVES_SHOWN && (
+              <li>
+                <button className="side-empty" aria-expanded={moreDrives} onClick={() => setMoreDrives((v) => !v)}>
+                  {moreDrives ? "접기" : `드라이브 ${drives.length - DRIVES_SHOWN}개 더`}
+                </button>
+              </li>
+            )}
+          </ul>
+        </section>
+      )}
+
+      <div className="side-foot">
+        <button className="settings-btn" aria-expanded={settingsOpen} title="설정 — 보기 · 종류 · 화면 색 · Claude 스킬 (Ctrl+,)" onClick={onSettings}>
           설정
         </button>
         {version && (
@@ -403,7 +307,7 @@ export default function Sidebar(props: Props) {
             v{version}
           </button>
         )}
-      </section>
+      </div>
       {menu && (
         <TagMenu
           x={menu.x}
@@ -428,5 +332,38 @@ export default function Sidebar(props: Props) {
         />
       )}
     </nav>
+  );
+}
+
+/** 드라이브 한 줄 — 문자 · 볼륨 이름 · 남은 용량, 그 밑에 쓴 만큼 찬 띠. 용량을 모르면(네트워크 · CD) 띠 없이 종류만. */
+function driveRow(d: Drive, current: string, onGo: (p: string) => void, onGoNewTab: (p: string) => void) {
+  const here = norm(d.path) === norm(current);
+  const used = d.total > 0 ? 1 - d.free / d.total : 0;
+  const low = d.total > 0 && d.free / d.total < LOW_SPACE;
+  const kindText = d.kind === "network" ? "네트워크" : d.kind === "cd" ? "CD" : d.kind === "removable" ? "이동식" : "";
+  const sizeText = d.total > 0 ? `${formatBytes(d.free)} 남음 / ${formatBytes(d.total)}` : kindText;
+  return (
+    <button
+      className={"nav-item drive" + (here ? " current" : "")}
+      data-drop={d.path}
+      title={`${d.label} (${d.path.slice(0, 2)})\n${sizeText}`}
+      aria-current={here ? "page" : undefined}
+      onClick={(e) => (e.ctrlKey ? onGoNewTab(d.path) : onGo(d.path))}
+      onMouseDown={(e) => {
+        if (e.button === 1) {
+          e.preventDefault();
+          onGoNewTab(d.path);
+        }
+      }}
+    >
+      <span className="drive-letter">{d.path.slice(0, 2)}</span>
+      <span className="drive-label">{d.label}</span>
+      <span className={"drive-free" + (low ? " low" : "")}>{d.total > 0 ? `${formatBytes(d.free)}` : kindText}</span>
+      {d.total > 0 && (
+        <span className={"drive-bar" + (low ? " low" : "")} aria-hidden="true">
+          <span style={{ width: `${Math.round(used * 100)}%` }} />
+        </span>
+      )}
+    </button>
   );
 }

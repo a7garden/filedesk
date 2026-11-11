@@ -1,24 +1,28 @@
-// 설정 창 — 왼쪽 아래 「설정」 · Ctrl+, 로 연다. 왼쪽 목차 · 오른쪽 내용.
+// 설정 — 왼쪽 아래 「설정」 · Ctrl+, · 명령 팔레트로 연다.
 //
-//   보기       목록 · 격자 · 격자 크기 · 아이콘 모양 · 그림 미리보기 · 보일 열 · 숨김 파일 · 화면 색
-//   종류       목록 위 거르기 · 아이콘 색의 묶음. 이름 · 확장자 · 색을 고치고 더한다
-//   문서 저장소 연도별 프로젝트가 있는 자리
-//   이름 규칙   판마다 붙었다 빠졌다 하는 말 (name-rules.json)
+// 목차 (한 장으로 이어진다 · 왼쪽 목차는 지금 읽는 자리를 따라간다)
+//   보기       크기 사다리 · 보일 열 · 숨김 파일 · 격자 미리보기
+//   화면 색     시스템 · 밝게 · 어둡게 — 작은 창 그림으로 고른다
+//   아이콘      Windows · filedesk · 아이콘 팩 — 같은 파일 몇 개가 셋에서 어떻게 보이는지 나란히
+//   종류       목록 위 종류 · 아이콘 색의 묶음. 확장자 칩을 다른 종류로 끌어 옮긴다
 //   Claude 스킬 앱 옆 fd.exe 를 부르는 안내서를 `~/.claude/skills/filedesk` 에 쓴다
 //
-//   2026.11.11 : 이름 규칙은 설정 파일(`name-rules.json`)을 손으로 고쳐야 했다 — 규칙이 비면 「…_프로젝트명_v1」 같은 판이
-//   한 문서로 묶이지 않는데, 쓰는 사람은 그 까닭을 알 길이 없었다. 여기서 한 줄에 하나씩 고친다.
-//   보기 설정은 바꾸는 즉시 목록에 쓰고 저장한다 — 「저장」 단추는 글을 고치는 이름 규칙에만 둔다.
+//   2026.11.11 : 칸을 넘기는 대화 창(왼쪽 목차 · 오른쪽 입력 칸)을 한 장으로 바꿨다. 칸을 넘기면 다른 설정이 보이지 않아
+//   「어디 있었지」를 찾아 목차를 눌러 봐야 했고, 입력 칸만으로는 바꾼 결과를 알 수 없었다. 이제 설정마다 그 결과를 그 자리에 그린다.
+//   화면 색 단추를 왼쪽 아래에서 여기로 옮겼다.
+//   설정은 바꾸는 즉시 목록에 쓰고 저장한다 — 「저장」 단추가 없다.
+//   2026.11.11 : 「문서 저장소」(연도별 프로젝트) · 「이름 규칙」(판을 묶을 때 뗄 과업 이름 · 사람 이름 · 상태어)을 뺐다.
+//                일반 파일 탐색기에 한 과업에만 맞는 설정이었다 — 상태어는 고정 목록, 작성자 꼬리는 이름 꼴로 추정한다 (fd-core docname).
 import { useEffect, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import { api, type ColKey, type NameRules, type SkillStatus, type Theme, type ViewPrefs } from "./api";
+import { api, iconUrl, type ColKey, type SkillStatus, type Theme, type ViewPrefs } from "./api";
+import { FileGlyph, FolderGlyph } from "./glyphs";
+import SizeLadder from "./SizeLadder";
 import { checkUpdate } from "./updater";
 import { DEFAULT_KINDS, errText, KIND_PALETTE, type KindDef, parseExts } from "./util";
 
 type Props = {
-  storeRoot: string;
   current: string;
-  onStoreRoot: (p: string) => void;
   view: ViewPrefs;
   setView: (f: (v: ViewPrefs) => ViewPrefs) => void;
   showHidden: boolean;
@@ -29,37 +33,40 @@ type Props = {
   onClose: () => void;
 };
 
-type Section = "view" | "kinds" | "store" | "rules" | "skill";
-const SECTIONS: { key: Section; label: string }[] = [
-  { key: "view", label: "보기" },
-  { key: "kinds", label: "종류" },
-  { key: "store", label: "문서 저장소" },
-  { key: "rules", label: "이름 규칙" },
-  { key: "skill", label: "Claude 스킬" },
-];
-export const SIZE_LABEL = ["작게", "보통", "크게", "아주 크게"];
-const COL_LABEL: Record<ColKey, string> = { ver: "판", date: "고친 날", size: "크기" };
+const SECTIONS = [
+  { id: "view", label: "보기" },
+  { id: "theme", label: "화면 색" },
+  { id: "icons", label: "아이콘" },
+  { id: "kinds", label: "종류" },
+  { id: "skill", label: "Claude 스킬" },
+] as const;
+type SectionId = (typeof SECTIONS)[number]["id"];
 
-const lines = (v: string) => v.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+/** 아이콘 견주기에 쓰는 표본 — 폴더 · 한글 · 표 · 발표 · PDF · 마크다운 · 그림. */
+const SAMPLES: { name: string; ext: string; isDir: boolean }[] = [
+  { name: "보고", ext: "", isDir: true },
+  { name: "검토의견서.hwpx", ext: "hwpx", isDir: false },
+  { name: "현황.xlsx", ext: "xlsx", isDir: false },
+  { name: "중간보고.pptx", ext: "pptx", isDir: false },
+  { name: "회신.pdf", ext: "pdf", isDir: false },
+  { name: "README.md", ext: "md", isDir: false },
+  { name: "현장.png", ext: "png", isDir: false },
+];
 
 export default function SettingsPanel(props: Props) {
-  const { storeRoot, current, onStoreRoot, view, setView, showHidden, setShowHidden, theme, setTheme, resetCols, onClose } = props;
-  const box = useRef<HTMLDivElement>(null);
-  const [section, setSection] = useState<Section>("view");
-  const [rules, setRules] = useState<{ projectNames: string; people: string; statusWords: string } | null>(null);
-  const [saved, setSaved] = useState<"" | "saved" | string>("");
+  const { current, view, setView, showHidden, setShowHidden, theme, setTheme, resetCols, onClose } = props;
+  const body = useRef<HTMLDivElement>(null);
+  const [at, setAt] = useState<SectionId>("view");
   const [skill, setSkill] = useState<SkillStatus | null>(null);
   const [skillMsg, setSkillMsg] = useState("");
   const [version, setVersion] = useState("");
+  /** 아이콘 팩 폴더에서 찾은 그림 — 이름 → 경로. */
+  const [packMap, setPackMap] = useState<Record<string, string> | null>(null);
+  const [packErr, setPackErr] = useState("");
 
   useEffect(() => {
-    api
-      .nameRules()
-      .then((r) => setRules({ projectNames: r.projectNames.join("\n"), people: r.people.join("\n"), statusWords: r.statusWords.join("\n") }))
-      .catch((e) => setSaved(errText(e)));
     api.skillStatus().then(setSkill).catch(() => {});
     getVersion().then(setVersion).catch(() => {});
-    box.current?.querySelector<HTMLButtonElement>(".set-nav button[aria-current]")?.focus();
   }, []);
 
   useEffect(() => {
@@ -73,18 +80,39 @@ export default function SettingsPanel(props: Props) {
     return () => window.removeEventListener("keydown", esc, true);
   }, [onClose]);
 
-  const saveRules = () => {
-    if (!rules) return;
-    const r: NameRules = { projectNames: lines(rules.projectNames), people: lines(rules.people), statusWords: lines(rules.statusWords) };
+  // 목차가 지금 읽는 구획을 따라간다 — 본문 위 끝에서 96px 안으로 머리가 올라온 마지막 구획 (목차를 눌러 옮긴 구획과 같게).
+  useEffect(() => {
+    const el = body.current;
+    if (!el) return;
+    const on = () => {
+      const top = el.getBoundingClientRect().top + 96;
+      let cur: SectionId = "view";
+      for (const s of SECTIONS) {
+        const h = el.querySelector<HTMLElement>(`#set-${s.id}`);
+        if (h && h.getBoundingClientRect().top <= top) cur = s.id;
+      }
+      // 끝까지 내리면 마지막 구획 — 마지막 구획이 짧으면 머리가 위쪽까지 올라오지 못한다
+      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 2) cur = SECTIONS[SECTIONS.length - 1].id;
+      setAt(cur);
+    };
+    el.addEventListener("scroll", on, { passive: true });
+    return () => el.removeEventListener("scroll", on);
+  }, []);
+  const jump = (id: SectionId) => body.current?.querySelector(`#set-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  useEffect(() => {
+    if (!view.iconPack) return setPackMap(null);
     api
-      .saveNameRules(r)
-      .then(() => {
-        setSaved("saved");
-        // 열린 목록이 새 규칙으로 다시 묶이게 한다 (Pane [1] 이 지금 폴더를 다시 읽는다).
-        window.dispatchEvent(new CustomEvent("fd:rules"));
+      .iconPack(view.iconPack)
+      .then((m) => {
+        setPackMap(m);
+        setPackErr("");
       })
-      .catch((e) => setSaved(errText(e)));
-  };
+      .catch((e) => {
+        setPackMap(null);
+        setPackErr(errText(e));
+      });
+  }, [view.iconPack]);
 
   const installSkill = () => {
     setSkillMsg("");
@@ -97,40 +125,6 @@ export default function SettingsPanel(props: Props) {
       .catch((e) => setSkillMsg(errText(e)));
   };
 
-  const field = (key: keyof NonNullable<typeof rules>, label: string, hint: string) => (
-    <label className="set-field">
-      <span className="set-label">
-        {label} <span className="muted">{hint}</span>
-      </span>
-      <textarea
-        rows={4}
-        spellCheck={false}
-        value={rules?.[key] ?? ""}
-        disabled={!rules}
-        onChange={(e) => {
-          setSaved("");
-          setRules((r) => (r ? { ...r, [key]: e.target.value } : r));
-        }}
-        onKeyDown={(e) => e.stopPropagation()}
-      />
-    </label>
-  );
-
-  /** 둘 이상 중 하나 고르기 — 단추 묶음 (라디오와 같은 뜻). */
-  const choice = <T extends string | number>(label: string, value: T, options: { v: T; label: string }[], set: (v: T) => void, hint?: string) => (
-    <div className="set-row">
-      <span className="set-label">{label}</span>
-      <div className="seg" role="radiogroup" aria-label={label}>
-        {options.map((o) => (
-          <button key={String(o.v)} role="radio" aria-checked={value === o.v} className={value === o.v ? "on" : ""} onClick={() => set(o.v)}>
-            {o.label}
-          </button>
-        ))}
-      </div>
-      {hint && <span className="muted set-hint">{hint}</span>}
-    </div>
-  );
-
   const check = (label: string, on: boolean, set: (v: boolean) => void, hint?: string) => (
     <label className="set-check">
       <input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} />
@@ -139,15 +133,33 @@ export default function SettingsPanel(props: Props) {
     </label>
   );
 
+  const colOn = (c: ColKey) => !view.hiddenCols.includes(c);
+  const toggleCol = (c: ColKey) => setView((v) => ({ ...v, hiddenCols: v.hiddenCols.includes(c) ? v.hiddenCols.filter((x) => x !== c) : [...v.hiddenCols, c] }));
   const skillOld = skill?.installed && skill.installed !== skill.current;
+
+  /** 아이콘 방식 하나의 견본 — 표본을 그 방식으로. 팩에 없는 것은 filedesk 그림 (목록과 같은 규칙). */
+  const iconSample = (mode: ViewPrefs["icons"]) =>
+    SAMPLES.map((s) => {
+      const e = { isDir: s.isDir, ext: s.ext, path: s.name };
+      let pic: React.ReactNode;
+      const packFile = mode === "pack" && packMap ? (s.isDir ? packMap.folder : (packMap[s.ext] ?? packMap[kindIdOf(s.ext) ?? ""] ?? packMap.file)) : undefined;
+      if (packFile) pic = <img src={`http://fdicon.localhost/${encodeURIComponent(`pack:${packFile}`)}`} width={22} height={22} alt="" style={{ objectFit: "contain" }} />;
+      else if (mode === "shell") pic = s.isDir ? <FolderGlyph size={22} /> : <img src={iconUrl(e)} width={22} height={22} alt="" />;
+      else pic = s.isDir ? <FolderGlyph size={22} /> : <FileGlyph ext={s.ext} size={22} />;
+      return (
+        <span key={s.name} className="icon-sample" title={s.name}>
+          {pic}
+        </span>
+      );
+    });
 
   return (
     <div className="set-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="settings" ref={box} role="dialog" aria-modal="true" aria-label="설정">
+      <div className="settings" role="dialog" aria-modal="true" aria-label="설정">
         <nav className="set-nav" aria-label="설정 목차">
           <h2>설정</h2>
           {SECTIONS.map((s) => (
-            <button key={s.key} aria-current={section === s.key ? "page" : undefined} onClick={() => setSection(s.key)}>
+            <button key={s.id} aria-current={at === s.id ? "location" : undefined} onClick={() => jump(s.id)}>
               {s.label}
             </button>
           ))}
@@ -158,112 +170,127 @@ export default function SettingsPanel(props: Props) {
             </button>
           </div>
         </nav>
-        <div className="set-body">
+        <div className="set-body" ref={body}>
           <button className="set-close" aria-label="설정 닫기" title="닫기 (Esc)" onClick={onClose}>
             ×
           </button>
-          {section === "view" && (
-            <section>
-              <h3>보기</h3>
-              {choice("파일 보기", view.mode, [{ v: "list", label: "목록" }, { v: "grid", label: "격자" }], (mode) => setView((v) => ({ ...v, mode })), "목록 아래 단추 · Ctrl+휠로도 바꾼다")}
-              {choice(
-                "격자 크기",
-                view.size,
-                SIZE_LABEL.map((label, i) => ({ v: i, label })),
-                (size) => setView((v) => ({ ...v, size })),
-              )}
-              {choice(
-                "아이콘",
-                view.icons,
-                [
-                  { v: "shell", label: "Windows" },
-                  { v: "filedesk", label: "filedesk" },
-                ],
-                (icons) => setView((v) => ({ ...v, icons })),
-                "filedesk — 종류마다 색이 다른 단순한 그림",
-              )}
-              {check("그림 · PDF · 영상은 격자에서 내용을 미리 보인다", view.thumbs, (thumbs) => setView((v) => ({ ...v, thumbs })))}
-              <div className="set-row">
-                <span className="set-label">목록에 보일 열</span>
-                <div className="set-cols">
-                  {(Object.keys(COL_LABEL) as ColKey[]).map((c) => (
-                    <label key={c} className="set-check inline">
-                      <input
-                        type="checkbox"
-                        checked={!view.hiddenCols.includes(c)}
-                        onChange={(e) =>
-                          setView((v) => ({ ...v, hiddenCols: e.target.checked ? v.hiddenCols.filter((x) => x !== c) : [...v.hiddenCols, c] }))
-                        }
-                      />
-                      <span>{COL_LABEL[c]}</span>
-                    </label>
+
+          <section id="set-view" aria-labelledby="h-view">
+            <h3 id="h-view">보기</h3>
+            <div className="set-line">
+              <span className="set-label">크기</span>
+              <div>
+                <SizeLadder view={view} setView={setView} />
+                <p className="muted set-hint">목록 아래 줄에 같은 눈금이 있다 · Ctrl+휠 · Ctrl+= / −</p>
+              </div>
+            </div>
+            <div className="set-line">
+              <span className="set-label">목록 열</span>
+              <div>
+                {/* 목록 머리 모양 그대로 — 열 이름을 눌러 켜고 끈다. 이름 열은 늘 있다 */}
+                <div className="col-preview" role="group" aria-label="목록에 보일 열">
+                  <span className="col-chip fixed">이름</span>
+                  {(
+                    [
+                      ["ver", "판"],
+                      ["date", "고친 날"],
+                      ["size", "크기"],
+                    ] as [ColKey, string][]
+                  ).map(([c, l]) => (
+                    <button key={c} className="col-chip" aria-pressed={colOn(c)} onClick={() => toggleCol(c)} title={colOn(c) ? `${l} 열 숨기기` : `${l} 열 보이기`}>
+                      {l}
+                    </button>
                   ))}
-                  <button className="act" onClick={resetCols} title="열 머리 사이 줄을 끌어 바꾼 너비를 처음대로">
-                    열 너비 처음대로
-                  </button>
                 </div>
-                <span className="muted set-hint">열 머리 사이를 끌어 너비를 바꾼다 · 두 번 누르면 그 열만 처음대로 · 열 머리 오른쪽 단추로도 고른다</span>
-              </div>
-              {check("숨김 · 시스템 파일도 보인다", showHidden, setShowHidden, "Ctrl+H")}
-              {choice(
-                "화면 색",
-                theme,
-                [
-                  { v: "system", label: "시스템" },
-                  { v: "light", label: "밝게" },
-                  { v: "dark", label: "어둡게" },
-                ],
-                setTheme,
-              )}
-            </section>
-          )}
-
-          {section === "kinds" && <KindsEditor kinds={view.kinds} set={(kinds) => setView((v) => ({ ...v, kinds }))} />}
-
-          {section === "store" && (
-            <section>
-              <h3>문서 저장소</h3>
-              <p className="muted set-note">연도별 프로젝트 폴더(`사업\연도\프로젝트`)가 있는 자리. 정하면 왼쪽에 프로젝트가 보인다.</p>
-              <p className="set-path" title={storeRoot}>
-                {storeRoot || <span className="muted">정하지 않았다</span>}
-              </p>
-              <div className="set-acts">
-                <button className="act primary" onClick={() => onStoreRoot(current)} title={current}>
-                  지금 폴더로 정하기
-                </button>
-                {storeRoot && (
-                  <button className="act" onClick={() => onStoreRoot("")}>
-                    비우기
+                <p className="muted set-hint">
+                  눌러서 켜고 끈다 · 너비는 목록 머리 사이 줄을 끈다 ·{" "}
+                  <button className="link-btn" onClick={resetCols}>
+                    너비 처음대로
                   </button>
-                )}
+                </p>
               </div>
-              <p className="muted set-note">지금 폴더: {current}</p>
-            </section>
-          )}
+            </div>
+            <div className="set-line">
+              <span className="set-label">보일 것</span>
+              <div>
+                {check("숨김 · 시스템 파일", showHidden, setShowHidden, "Ctrl+H")}
+                {check("격자에서 그림 · PDF · 영상의 내용 미리보기", view.thumbs, (thumbs) => setView((v) => ({ ...v, thumbs })))}
+              </div>
+            </div>
+          </section>
 
-          {section === "rules" && (
-            <section>
-              <h3>이름 규칙</h3>
-              <p className="muted set-note">판마다 붙었다 빠졌다 하는 말 — 문서 이름에서 떼고 한 문서로 묶는다. 한 줄에 하나.</p>
-              {field("projectNames", "프로젝트 이름", "…_예시과업_v1.6")}
-              {field("people", "사람 이름", "…_홍길동")}
-              {field("statusWords", "상태어", "최종 · 수정본 — 판을 가리지 못해 알린다")}
-              <div className="set-acts">
-                <button className="act primary" disabled={!rules} onClick={saveRules}>
-                  저장
+          <section id="set-theme" aria-labelledby="h-theme">
+            <h3 id="h-theme">화면 색</h3>
+            <div className="theme-pick" role="radiogroup" aria-label="화면 색">
+              {(
+                [
+                  ["system", "시스템", "Windows 설정(밝게 · 어둡게)을 따른다"],
+                  ["light", "밝게", "밝게"],
+                  ["dark", "어둡게", "어둡게"],
+                ] as [Theme, string, string][]
+              ).map(([t, l, hint]) => (
+                <button key={t} role="radio" aria-checked={theme === t} className={"theme-card" + (theme === t ? " on" : "")} onClick={() => setTheme(t)} title={hint}>
+                  <MiniWindow theme={t} />
+                  <span>{l}</span>
                 </button>
-                {saved === "saved" ? <span className="muted">저장했다 · 목록에 바로 쓴다</span> : saved && <span className="warn-text">{saved}</span>}
-              </div>
-            </section>
-          )}
+              ))}
+            </div>
+          </section>
 
-          {section === "skill" && (
-            <section>
-              <h3>Claude 스킬</h3>
-              <p className="muted set-note">
-                Claude Code 가 filedesk 명령줄(fd)로 판 정리 · 새 판 · 메모 · 색 표시 · 찾기 · 휴지통을 다루게 한다. 파일을 바꾸기 전에는 늘 계획을 먼저 보인다.
-              </p>
-              <p className="set-path">
+          <section id="set-icons" aria-labelledby="h-icons">
+            <h3 id="h-icons">아이콘</h3>
+            <div className="icon-pick" role="radiogroup" aria-label="아이콘">
+              {(
+                [
+                  ["shell", "Windows", "탐색기와 같은 그림 — 깔린 프로그램을 따른다"],
+                  ["filedesk", "filedesk", "형식마다 그린 그림 — 깔린 프로그램과 상관없이 같다"],
+                  ["pack", "아이콘 팩", "고른 폴더의 그림 — 없는 것은 filedesk 그림"],
+                ] as [ViewPrefs["icons"], string, string][]
+              ).map(([m, l, hint]) => (
+                <button key={m} role="radio" aria-checked={view.icons === m} className={"icon-row" + (view.icons === m ? " on" : "")} onClick={() => setView((v) => ({ ...v, icons: m }))}>
+                  <span className="icon-row-name">{l}</span>
+                  <span className="icon-row-samples">{iconSample(m)}</span>
+                  <span className="muted icon-row-hint">{hint}</span>
+                </button>
+              ))}
+            </div>
+            {view.icons === "pack" && (
+              <div className="pack-box">
+                <p className="set-path" title={view.iconPack}>
+                  {view.iconPack || <span className="muted">팩 폴더를 정하지 않았다</span>}
+                </p>
+                <div className="set-acts">
+                  <button className="act primary" onClick={() => setView((v) => ({ ...v, iconPack: current }))} title={current}>
+                    지금 폴더로 정하기
+                  </button>
+                  {view.iconPack && (
+                    <button className="act" onClick={() => setView((v) => ({ ...v, iconPack: "" }))}>
+                      비우기
+                    </button>
+                  )}
+                  {packErr && <span className="warn-text">{packErr}</span>}
+                </div>
+                <p className="muted set-note">
+                  폴더에 그림(svg · png · ico · webp)을 두고 이름을 확장자(<code>pdf.svg</code>) · 종류(<code>doc.png</code>) · <code>folder</code> · <code>file</code> 로 짓는다.
+                  확장자 → 종류 → file 차례로 찾는다.
+                  {packMap && ` 찾은 그림 ${Object.keys(packMap).length}개${Object.keys(packMap).length ? ` — ${Object.keys(packMap).sort().slice(0, 12).join(" · ")}${Object.keys(packMap).length > 12 ? " …" : ""}` : ""}`}
+                </p>
+              </div>
+            )}
+          </section>
+
+          <section id="set-kinds" aria-labelledby="h-kinds">
+            <h3 id="h-kinds">종류</h3>
+            <KindsEditor kinds={view.kinds} set={(kinds) => setView((v) => ({ ...v, kinds }))} />
+          </section>
+
+          <section id="set-skill" aria-labelledby="h-skill">
+            <h3 id="h-skill">Claude 스킬</h3>
+            <p className="muted set-note">
+              Claude Code 가 filedesk 명령줄(fd)로 판 정리 · 새 판 · 메모 · 색 표시 · 찾기 · 휴지통을 다루게 한다. 파일을 바꾸기 전에는 늘 계획을 먼저 보인다.
+            </p>
+            <div className="set-acts">
+              <span className="set-path">
                 {skill == null
                   ? "확인 중…"
                   : skill.installed
@@ -271,32 +298,64 @@ export default function SettingsPanel(props: Props) {
                       ? `설치됨 (${skill.installed}) — 앱은 ${skill.current}. 다시 설치하면 새 명령이 들어간다`
                       : `설치됨 (${skill.installed})`
                     : "설치 안 됨"}
-              </p>
-              <div className="set-acts">
-                <button
-                  className={"act" + (!skill?.installed || skillOld ? " primary" : "")}
-                  disabled={!skill?.hasCli}
-                  title={skill?.hasCli ? (skill.file ?? "") : "설치본(릴리즈의 setup.exe)으로 깔아야 fd.exe 가 함께 들어온다"}
-                  onClick={installSkill}
-                >
-                  {skill?.installed ? "다시 설치" : "설치"}
-                </button>
-                {!skill?.hasCli && skill && <span className="muted">설치본에서만 된다</span>}
-              </div>
-              {skillMsg && <p className="set-note">{skillMsg}</p>}
-              {skill?.file && <p className="muted set-note">자리: {skill.file}</p>}
-            </section>
-          )}
+              </span>
+              <button
+                className={"act" + (!skill?.installed || skillOld ? " primary" : "")}
+                disabled={!skill?.hasCli}
+                title={skill?.hasCli ? (skill.file ?? "") : "설치본(릴리즈의 setup.exe)으로 깔아야 fd.exe 가 함께 들어온다"}
+                onClick={installSkill}
+              >
+                {skill?.installed ? "다시 설치" : "설치"}
+              </button>
+              {!skill?.hasCli && skill && <span className="muted">설치본에서만 된다</span>}
+            </div>
+            {skillMsg && <p className="set-note">{skillMsg}</p>}
+            {skill?.file && <p className="muted set-note">자리: {skill.file}</p>}
+          </section>
         </div>
       </div>
     </div>
   );
 }
 
-/** 종류 편집 — 한 줄에 종류 하나: 색 · 이름 · 확장자 · 순서 · 빼기. 바꾸는 즉시 목록에 쓴다 (보기 설정과 같다).
- *  확장자 칸은 고치는 동안 글 그대로 두고, 칸을 떠날 때 목록으로 맞춘다 — 쓰는 도중에 빈칸 · 점이 지워지면 글을 쓸 수 없다. */
+/** 표본 확장자의 기본 종류 id — 아이콘 팩 견본이 「종류 이름 그림」을 찾을 때. */
+const kindIdOf = (ext: string) => DEFAULT_KINDS.find((k) => k.exts.includes(ext))?.id;
+
+/** 작은 창 그림 — 화면 색 고르기. 시스템은 왼쪽 밝게 · 오른쪽 어둡게 반반. */
+function MiniWindow({ theme }: { theme: Theme }) {
+  const L = { bg: "#f7f7f5", side: "#ecebe7", line: "#d9d8d3", ink: "#3a3a38" };
+  const D = { bg: "#1f2023", side: "#2a2b2f", line: "#3b3c41", ink: "#d6d6d3" };
+  const c = theme === "dark" ? D : L;
+  return (
+    <svg width="76" height="48" viewBox="0 0 76 48" aria-hidden="true" className="mini-window">
+      <defs>
+        <clipPath id={`mw-${theme}`}>
+          <rect width="76" height="48" rx="5" />
+        </clipPath>
+      </defs>
+      <g clipPath={`url(#mw-${theme})`}>
+        <rect width="76" height="48" fill={c.bg} />
+        <rect width="18" height="48" fill={c.side} />
+        {theme === "system" && <rect x="38" width="38" height="48" fill={D.bg} />}
+        {[10, 18, 26, 34].map((y) => (
+          <g key={y}>
+            <rect x="22" y={y} width={theme === "system" ? 14 : 48} height="3" rx="1.5" fill={c.line} />
+            {theme === "system" && <rect x="40" y={y} width="30" height="3" rx="1.5" fill={D.line} />}
+          </g>
+        ))}
+        <rect x="22" y="4" width="24" height="3" rx="1.5" fill={c.ink} />
+      </g>
+    </svg>
+  );
+}
+
+/** 종류 편집 — 한 줄에 종류 하나: 색 · 이름 · 확장자 칩 · 순서 · 빼기. 바꾸는 즉시 목록에 쓴다.
+ *  확장자는 칩 하나가 하나 — 칩을 다른 종류 줄로 끌어 옮기고, × 로 빼고, 줄 끝 칸에 적어 더한다 (빈칸 · 쉼표로 여럿).
+ *  2026.11.11 : 한 줄 글 칸이던 것을 칩으로. 글 칸에서는 「pptx 를 발표에서 문서로」가 두 칸을 고치는 일이었다.
+ *  끌기는 마우스 움직임으로 짠다 — Tauri 가 창 밖 파일 끌기를 받으려고 웹 끌기(HTML5 DnD)를 막아 두었다. */
 function KindsEditor({ kinds, set }: { kinds: KindDef[]; set: (k: KindDef[]) => void }) {
-  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [adding, setAdding] = useState<Record<string, string>>({});
+  const [drag, setDrag] = useState<{ ext: string; from: string; x: number; y: number; on: boolean; over: string | null } | null>(null);
   const owner = new Map<string, string>();
   for (const k of kinds) for (const x of k.exts) if (!owner.has(x)) owner.set(x, k.id);
   const put = (i: number, patch: Partial<KindDef>) => set(kinds.map((k, j) => (j === i ? { ...k, ...patch } : k)));
@@ -307,73 +366,126 @@ function KindsEditor({ kinds, set }: { kinds: KindDef[]; set: (k: KindDef[]) => 
     [n[i], n[j]] = [n[j], n[i]];
     set(n);
   };
-  const add = () => {
+  const addKind = () => {
     const id = `k${Date.now().toString(36)}`;
     set([...kinds, { id, label: "새 종류", exts: [], color: KIND_PALETTE[kinds.length % KIND_PALETTE.length] }]);
-    setTimeout(() => document.querySelector<HTMLInputElement>(`[data-kind="${id}"]`)?.select(), 0);
+    setTimeout(() => document.querySelector<HTMLInputElement>(`[data-kind-name="${id}"]`)?.select(), 0);
   };
-  const commit = (i: number, id: string) => {
-    if (draft[id] == null) return;
-    put(i, { exts: parseExts(draft[id]) });
-    setDraft(({ [id]: _, ...rest }) => rest);
+  const addExts = (i: number, id: string) => {
+    const xs = parseExts(adding[id] ?? "");
+    if (!xs.length) return;
+    // 다른 종류에 있던 확장자는 그쪽에서 빼고 여기로 — 「더하기」가 곧 「옮기기」
+    set(kinds.map((k, j) => (j === i ? { ...k, exts: [...k.exts.filter((x) => !xs.includes(x)), ...xs] } : { ...k, exts: k.exts.filter((x) => !xs.includes(x)) })));
+    setAdding((a) => ({ ...a, [id]: "" }));
   };
+  const moveExt = (ext: string, from: string, to: string) => {
+    if (from === to) return;
+    set(kinds.map((k) => (k.id === from ? { ...k, exts: k.exts.filter((x) => x !== ext) } : k.id === to ? { ...k, exts: [...k.exts.filter((x) => x !== ext), ext] } : k)));
+  };
+
+  useEffect(() => {
+    if (!drag) return;
+    const mv = (m: MouseEvent) =>
+      setDrag((d) => {
+        if (!d) return d;
+        const on = d.on || Math.hypot(m.clientX - d.x, m.clientY - d.y) > 4;
+        const row = (document.elementFromPoint(m.clientX, m.clientY) as HTMLElement | null)?.closest<HTMLElement>("[data-kind-row]");
+        return { ...d, on, x: on ? m.clientX : d.x, y: on ? m.clientY : d.y, over: row?.dataset.kindRow ?? null };
+      });
+    const up = () =>
+      setDrag((d) => {
+        if (d?.on && d.over) moveExt(d.ext, d.from, d.over);
+        return null;
+      });
+    window.addEventListener("mousemove", mv);
+    window.addEventListener("mouseup", up);
+    return () => {
+      window.removeEventListener("mousemove", mv);
+      window.removeEventListener("mouseup", up);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drag != null, kinds]);
+
   return (
-    <section>
-      <h3>종류</h3>
-      <p className="muted set-note">목록 위 「종류」 거르기와 filedesk 아이콘의 색 띠가 이 묶음을 쓴다. 확장자는 빈칸으로 나눈다. 「폴더」와, 어디에도 없는 확장자가 가는 「기타」는 늘 있다.</p>
-      <div className="kind-edit" role="list">
-        {kinds.map((k, i) => {
-          // 앞 종류가 이미 가진 확장자 — 이 종류에서는 효과가 없다
-          const lost = k.exts.filter((x) => owner.get(x) !== k.id);
-          return (
-            <div className="kind-edit-row" role="listitem" key={k.id}>
-              <input type="color" className="kind-swatch" value={k.color} aria-label={`${k.label} 색`} onChange={(e) => put(i, { color: e.target.value })} />
+    <>
+      <p className="muted set-note">목록 위 종류 거르기가 이 묶음을 쓴다. 확장자 칩을 다른 종류로 끌어 옮긴다. 「폴더」와, 어디에도 없는 확장자가 가는 「기타」는 늘 있다.</p>
+      <div className={"kind-edit" + (drag?.on ? " dragging" : "")} role="list">
+        {kinds.map((k, i) => (
+          <div className={"kind-edit-row" + (drag?.on && drag.over === k.id && drag.from !== k.id ? " drop" : "")} role="listitem" key={k.id} data-kind-row={k.id}>
+            <input type="color" className="kind-swatch" value={k.color} aria-label={`${k.label} 색`} onChange={(e) => put(i, { color: e.target.value })} />
+            <input
+              className="kind-name"
+              data-kind-name={k.id}
+              value={k.label}
+              aria-label="종류 이름"
+              onChange={(e) => put(i, { label: e.target.value })}
+              onBlur={(e) => !e.target.value.trim() && put(i, { label: "이름 없음" })}
+              onKeyDown={(e) => e.stopPropagation()}
+            />
+            <div className="ext-chips">
+              {k.exts.map((x) => {
+                const lost = owner.get(x) !== k.id;
+                return (
+                  <span
+                    key={x}
+                    className={"ext-chip" + (lost ? " lost" : "") + (drag?.on && drag.ext === x && drag.from === k.id ? " lifted" : "")}
+                    style={{ ["--kc" as string]: k.color }}
+                    title={lost ? `${x} — 위 종류에 이미 있어 여기서는 쓰이지 않는다` : `${x} — 끌어서 다른 종류로`}
+                    onMouseDown={(e) => {
+                      if (e.button === 0 && !(e.target as HTMLElement).closest("button")) setDrag({ ext: x, from: k.id, x: e.clientX, y: e.clientY, on: false, over: null });
+                    }}
+                  >
+                    {x}
+                    <button aria-label={`${x} 빼기`} onClick={() => put(i, { exts: k.exts.filter((y) => y !== x) })}>
+                      ×
+                    </button>
+                  </span>
+                );
+              })}
               <input
-                className="kind-name"
-                data-kind={k.id}
-                value={k.label}
-                aria-label="종류 이름"
-                onChange={(e) => put(i, { label: e.target.value })}
-                onBlur={(e) => !e.target.value.trim() && put(i, { label: "이름 없음" })}
-                onKeyDown={(e) => e.stopPropagation()}
-              />
-              <input
-                className="kind-exts"
+                className="ext-add"
                 spellCheck={false}
-                value={draft[k.id] ?? k.exts.join(" ")}
-                placeholder="확장자 — 예: hwp docx"
-                aria-label={`${k.label} 확장자`}
-                onChange={(e) => setDraft((d) => ({ ...d, [k.id]: e.target.value }))}
-                onBlur={() => commit(i, k.id)}
+                value={adding[k.id] ?? ""}
+                placeholder="+ 확장자"
+                aria-label={`${k.label}에 확장자 더하기`}
+                onChange={(e) => setAdding((a) => ({ ...a, [k.id]: e.target.value }))}
+                onBlur={() => addExts(i, k.id)}
                 onKeyDown={(e) => {
                   e.stopPropagation();
-                  if (e.key === "Enter") commit(i, k.id);
+                  if (e.key === "Enter" || e.key === " " || e.key === ",") {
+                    e.preventDefault();
+                    addExts(i, k.id);
+                  }
                 }}
               />
-              <span className="kind-edit-acts">
-                <button className="icon-btn" aria-label="위로" title="위로 — 확장자가 겹치면 위 종류가 갖는다" disabled={i === 0} onClick={() => move(i, -1)}>
-                  ↑
-                </button>
-                <button className="icon-btn" aria-label="아래로" title="아래로" disabled={i === kinds.length - 1} onClick={() => move(i, 1)}>
-                  ↓
-                </button>
-                <button className="icon-btn" aria-label={`${k.label} 빼기`} title="빼기 — 이 확장자들은 「기타」가 된다" onClick={() => set(kinds.filter((_, j) => j !== i))}>
-                  ×
-                </button>
-              </span>
-              {lost.length > 0 && <span className="kind-edit-warn">{lost.join(" ")} — 위 종류에 이미 있어 여기서는 쓰이지 않는다</span>}
             </div>
-          );
-        })}
+            <span className="kind-edit-acts">
+              <button className="icon-btn" aria-label="위로" title="위로 — 확장자가 겹치면 위 종류가 갖는다" disabled={i === 0} onClick={() => move(i, -1)}>
+                ↑
+              </button>
+              <button className="icon-btn" aria-label="아래로" title="아래로" disabled={i === kinds.length - 1} onClick={() => move(i, 1)}>
+                ↓
+              </button>
+              <button className="icon-btn" aria-label={`${k.label} 빼기`} title="종류 빼기 — 이 확장자들은 「기타」가 된다" onClick={() => set(kinds.filter((_, j) => j !== i))}>
+                ×
+              </button>
+            </span>
+          </div>
+        ))}
       </div>
+      {drag?.on && (
+        <span className="ext-ghost" style={{ left: drag.x + 10, top: drag.y + 6 }} aria-hidden="true">
+          {drag.ext}
+        </span>
+      )}
       <div className="set-acts">
-        <button className="act primary" onClick={add}>
+        <button className="act primary" onClick={addKind}>
           종류 더하기
         </button>
         <button className="act" onClick={() => set(DEFAULT_KINDS)} title="문서 · 표 · 발표 · PDF · 그림 · 영상 · 소리 · 압축 · 코드">
           처음대로
         </button>
       </div>
-    </section>
+    </>
   );
 }

@@ -1,6 +1,6 @@
 //! 왼쪽 위치 목록 · 경로 풀기 · 키 상태.
 
-use windows::Win32::Storage::FileSystem::{GetDriveTypeW, GetLogicalDrives, GetVolumeInformationW};
+use windows::Win32::Storage::FileSystem::{GetDiskFreeSpaceExW, GetDriveTypeW, GetLogicalDrives, GetVolumeInformationW};
 use windows::Win32::System::Com::CoTaskMemFree;
 use windows::Win32::System::Environment::ExpandEnvironmentStringsW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_CONTROL, VK_SHIFT};
@@ -32,8 +32,27 @@ fn known(id: &GUID) -> Option<String> {
     }
 }
 
+/// 드라이브 한 칸 — 왼쪽 「이 PC」 줄이 문자 · 볼륨 이름 · 남은 용량 띠로 그린다.
+#[derive(Debug, Clone)]
+pub struct Drive {
+    /// `C:\`
+    pub path: String,
+    /// 볼륨 이름. 없으면 종류 이름(로컬 디스크 · 이동식 디스크 …).
+    pub label: String,
+    /// `fixed` · `removable` · `network` · `cd`
+    pub kind: &'static str,
+    /// 바이트. 모르면 0 — 네트워크 · CD 는 묻지 않는다 (연결이 끊긴 네트워크 드라이브는 몇십 초 멈춘다).
+    pub total: u64,
+    pub free: u64,
+}
+
 /// 드라이브 목록. 이름은 탐색기처럼 「볼륨 이름 (C:)」.
 pub fn drives() -> Vec<Place> {
+    drive_details().into_iter().map(|d| Place { name: format!("{} ({})", d.label, &d.path[..2]), path: d.path }).collect()
+}
+
+/// 드라이브 목록과 용량.
+pub fn drive_details() -> Vec<Drive> {
     let mask = unsafe { GetLogicalDrives() };
     (0..26u8)
         .filter(|i| mask & (1 << i) != 0)
@@ -49,9 +68,22 @@ pub fn drives() -> Vec<Place> {
                 _ => "로컬 디스크",
             };
             let shown = if label.is_empty() { fallback.to_string() } else { label };
-            Place { name: format!("{shown} ({}:)", (b'A' + i) as char), path: root }
+            let kind = match kind {
+                2 => "removable",
+                4 => "network",
+                5 => "cd",
+                _ => "fixed",
+            };
+            let (total, free) = if kind == "fixed" || kind == "removable" { space(&root) } else { (0, 0) };
+            Drive { path: root, label: shown, kind, total, free }
         })
         .collect()
+}
+
+fn space(root: &str) -> (u64, u64) {
+    let (mut free, mut total) = (0u64, 0u64);
+    let ok = unsafe { GetDiskFreeSpaceExW(&HSTRING::from(root), Some(&mut free), Some(&mut total), None) };
+    if ok.is_err() { (0, 0) } else { (total, free) }
 }
 
 fn volume_label(root: &str) -> String {

@@ -6,11 +6,11 @@ pub mod docs;
 pub mod edition;
 pub mod list;
 pub mod memo;
-pub mod project;
 pub mod search;
 pub mod skill;
+pub mod text;
 pub mod tidy;
 
-pub use docname::{DocName, NameRules};
+pub use docname::DocName;
 pub use docs::{DocFile, DocGroup, group_dir};
 pub use list::{Entry, list_dir};

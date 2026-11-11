@@ -9,9 +9,9 @@
 //!   [6] 폴더 변경 감시
 //!   [7] 문서 — 판 묶기 · 새 판 내기 · 지난 판 옮기기
 //!   [7-1] 메모 — 파일 · 폴더에 붙인 글 · 색 표시 (filedesk 가 관리 · `fd-core::memo`) · 하위 폴더까지 찾기
-//!   [7-2] 이름 규칙 · Claude 스킬 설치 (설정 창)
+//!   [7-2] Claude 스킬 설치 (설정 창)
 //!   [8] 설정 (즐겨찾기 · 열어 둔 탭 · 분할 · 열 너비)
-//!   [8-1] 과업 · 자리 역할 · 들어온 곳
+//!   [8-1] 들어온 곳
 //!   [8-2] 업데이트 — GitHub 릴리즈의 latest.json (tauri-plugin-updater · 화면 쪽 `updater.ts`)
 //!   [9] 아이콘 프로토콜 · 앱 시작
 
@@ -84,9 +84,18 @@ struct PlaceOut {
 }
 
 #[derive(Serialize)]
+struct DriveOut {
+    path: String,
+    label: String,
+    kind: &'static str,
+    total: u64,
+    free: u64,
+}
+
+#[derive(Serialize)]
 struct Places {
     known: Vec<PlaceOut>,
-    drives: Vec<PlaceOut>,
+    drives: Vec<DriveOut>,
 }
 
 /// 바탕화면 · 다운로드 · 문서 · 드라이브. 사용자가 고정한 위치는 설정(`[8]`)에 있다.
@@ -94,7 +103,11 @@ struct Places {
 async fn places() -> CmdResult<Places> {
     on_sta(|| {
         let conv = |v: Vec<fd_shell::places::Place>| v.into_iter().map(|p| PlaceOut { name: p.name, path: p.path }).collect();
-        Places { known: conv(fd_shell::places::known_folders()), drives: conv(fd_shell::places::drives()) }
+        let drives = fd_shell::places::drive_details()
+            .into_iter()
+            .map(|d| DriveOut { path: d.path, label: d.label, kind: d.kind, total: d.total, free: d.free })
+            .collect();
+        Places { known: conv(fd_shell::places::known_folders()), drives }
     })
     .await
 }
@@ -331,21 +344,21 @@ fn watch_dirs(app: AppHandle, state: tauri::State<'_, WatchState>, dirs: Vec<Str
 /// 폴더(와 그 `이전판/`)를 문서 단위로. 하위 폴더까지 보는 일은 명령줄(`fd docs -r`)이 맡는다.
 #[tauri::command]
 async fn doc_groups(path: String) -> CmdResult<Vec<fd_core::DocGroup>> {
-    tauri::async_runtime::spawn_blocking(move || fd_core::group_dir(Path::new(&path), false, &fd_core::NameRules::load()))
+    tauri::async_runtime::spawn_blocking(move || fd_core::group_dir(Path::new(&path), false))
     .await
     .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn plan_edition(path: String, today: String) -> CmdResult<fd_core::edition::EditionPlan> {
-    fd_core::edition::plan(Path::new(&path), &today, &fd_core::NameRules::load())
+    fd_core::edition::plan(Path::new(&path), &today)
 }
 
 /// 새 판 내기. 계획을 다시 세워 그대로 실행한다 (보여 준 뒤 폴더가 바뀌었을 수 있어서). 돌려주는 값은 새 판 경로.
 #[tauri::command]
 async fn new_edition(window: WebviewWindow, path: String, today: String) -> CmdResult<String> {
     let hwnd = owner(&window)?;
-    let plan = fd_core::edition::plan(Path::new(&path), &today, &fd_core::NameRules::load())?;
+    let plan = fd_core::edition::plan(Path::new(&path), &today)?;
     let fd_core::edition::EditionPlan { source, new_name, new_path, retire, history } = plan;
     let out = on_sta(move || fd_shell::ops::new_edition(hwnd, &source, &new_name, &retire, &history)).await?;
     match out.map_err(|e| e.to_string())? {
@@ -356,7 +369,7 @@ async fn new_edition(window: WebviewWindow, path: String, today: String) -> CmdR
 
 /// 문서 `key` 의 지난 판 중 최신판 자리에 남은 것 — 화면이 「이전판으로 옮김: …」으로 먼저 보여 준다.
 fn stale_of(dir: &str, key: &str) -> CmdResult<Vec<String>> {
-    fd_core::docs::stale_of(Path::new(dir), key, &fd_core::NameRules::load())
+    fd_core::docs::stale_of(Path::new(dir), key)
 }
 
 #[tauri::command]
@@ -456,7 +469,7 @@ async fn set_color(path: String, color: Option<String>) -> CmdResult<Option<fd_c
     .map_err(|e| e.to_string())?
 }
 
-/// 여러 경로의 메모 · 색 — 왼쪽 목록(프로젝트 · 즐겨찾기)이 색 점을 그리는 데 쓴다. 없는 경로는 뺀다.
+/// 여러 경로의 메모 · 색 — 왼쪽 즐겨찾기가 색 점을 그리는 데 쓴다. 없는 경로는 뺀다.
 #[tauri::command]
 async fn memos_of(paths: Vec<String>) -> CmdResult<Vec<fd_core::memo::Memo>> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -468,8 +481,9 @@ async fn memos_of(paths: Vec<String>) -> CmdResult<Vec<fd_core::memo::Memo>> {
 }
 
 /// 하위 폴더까지 찾기 (fd-core `search`). 새 찾기가 오면 앞선 것은 멈춘다 — 글자를 칠 때마다 부르므로.
+/// `content` 면 문서 본문까지 본다 (화면에서는 `content: true` · 본문에서 맞은 항목은 `snippet` 이 붙는다).
 #[tauri::command]
-async fn search_dir(root: String, query: String, show_hidden: bool) -> CmdResult<fd_core::search::SearchResult> {
+async fn search_dir(root: String, query: String, show_hidden: bool, content: Option<bool>) -> CmdResult<fd_core::search::SearchResult> {
     let generation = fd_core::search::next_generation();
     tauri::async_runtime::spawn_blocking(move || {
         let memos = fd_core::memo::MemoStore::load(&memo_file()?)?
@@ -477,7 +491,7 @@ async fn search_dir(root: String, query: String, show_hidden: bool) -> CmdResult
             .filter(|m| !m.text.is_empty())
             .map(|m| (fd_core::memo::key(&m.path), m.text.clone()))
             .collect();
-        let mut r = fd_core::search::find(Path::new(&root), &query, show_hidden, &memos, 2000, std::time::Duration::from_secs(8), Some(generation));
+        let mut r = fd_core::search::find(Path::new(&root), &query, show_hidden, &memos, content.unwrap_or(false), 2000, std::time::Duration::from_secs(8), Some(generation));
         for f in &mut r.items {
             f.entry.kind = fd_shell::icon::type_name(&f.entry.ext, f.entry.is_dir);
         }
@@ -487,23 +501,74 @@ async fn search_dir(root: String, query: String, show_hidden: bool) -> CmdResult
     .map_err(|e| e.to_string())?
 }
 
+/// 색 표시를 단 항목 모두 — 왼쪽 「색」 · 명령 팔레트가 폴더와 상관없이 모아 보인다 (Finder 꼬리표처럼).
+/// `color` 가 없으면 색이 있는 것 모두. 지워졌거나 옮겨져 찾지 못한 것은 뺀다.
+#[tauri::command]
+async fn tagged(color: Option<String>) -> CmdResult<Vec<fd_core::list::Entry>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let s = fd_core::memo::MemoStore::load(&memo_file()?)?;
+        let mut out: Vec<fd_core::list::Entry> = s
+            .all()
+            .filter(|m| match (&m.color, &color) {
+                (Some(c), Some(want)) => c == want,
+                (Some(_), None) => true,
+                _ => false,
+            })
+            .filter_map(|m| fd_core::list::entry_at(Path::new(&m.path)))
+            .collect();
+        for e in &mut out {
+            e.kind = fd_shell::icon::type_name(&e.ext, e.is_dir);
+        }
+        Ok(out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 아이콘 팩에 쓸 수 있는 그림 꼴과 그 MIME.
+fn pack_mime(file: &str) -> Option<&'static str> {
+    let ext = Path::new(file).extension()?.to_string_lossy().to_lowercase();
+    Some(match ext.as_str() {
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "ico" => "image/x-icon",
+        "webp" => "image/webp",
+        "jpg" | "jpeg" => "image/jpeg",
+        _ => return None,
+    })
+}
+
+/// 아이콘 팩 폴더의 그림 — 파일 이름(확장자 뺀 것, 소문자) → 경로. 이름은 확장자(`pdf`) · 종류(`doc`) · `folder` · `file`.
+/// 같은 이름이 여러 꼴이면 svg → png → 나머지 차례로 하나만 (선명한 것 먼저).
+#[tauri::command]
+fn icon_pack(dir: String) -> CmdResult<std::collections::HashMap<String, String>> {
+    let rd = std::fs::read_dir(&dir).map_err(|e| format!("{dir} 을 읽지 못했다 — {e}"))?;
+    let rank = |p: &str| match Path::new(p).extension().map(|e| e.to_string_lossy().to_lowercase()).as_deref() {
+        Some("svg") => 0,
+        Some("png") => 1,
+        _ => 2,
+    };
+    let mut out: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for item in rd.flatten() {
+        let path = item.path().to_string_lossy().into_owned();
+        if pack_mime(&path).is_none() {
+            continue;
+        }
+        let Some(stem) = item.path().file_stem().map(|s| s.to_string_lossy().to_lowercase()) else { continue };
+        if out.get(&stem).is_none_or(|old| rank(&path) < rank(old)) {
+            out.insert(stem, path);
+        }
+    }
+    Ok(out)
+}
+
 /// 경로마다 폴더인가 (없으면 false) — 즐겨찾기에 끌어다 놓은 것이 폴더인지 파일인지 가른다.
 #[tauri::command]
 fn dirs_of(paths: Vec<String>) -> Vec<bool> {
     paths.iter().map(|p| Path::new(p).is_dir()).collect()
 }
 
-// ───────────────────────────── [7-2] 이름 규칙 · Claude 스킬 ─────────────────────────────
-
-#[tauri::command]
-fn name_rules() -> fd_core::NameRules {
-    fd_core::NameRules::load()
-}
-
-#[tauri::command]
-fn save_name_rules(rules: fd_core::NameRules) -> CmdResult<()> {
-    rules.save()
-}
+// ───────────────────────────── [7-2] Claude 스킬 ─────────────────────────────
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -570,58 +635,12 @@ fn save_settings(app: AppHandle, value: serde_json::Value) -> CmdResult<()> {
     std::fs::rename(&tmp, &p).map_err(|e| e.to_string())
 }
 
-// ───────────────────────────── [8-1] 과업 · 자리 ─────────────────────────────
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PinnedInfo {
-    path: String,
-    is_project: bool,
-    areas: Vec<fd_core::project::Area>,
-}
-
-/// 고정 위치마다 과업인지, 과업이면 그 자리 목록.
-#[tauri::command]
-async fn pinned_info(paths: Vec<String>) -> CmdResult<Vec<PinnedInfo>> {
-    tauri::async_runtime::spawn_blocking(move || {
-        paths
-            .into_iter()
-            .map(|p| {
-                let areas = fd_core::project::areas(Path::new(&p));
-                PinnedInfo { is_project: !areas.is_empty(), areas, path: p }
-            })
-            .collect()
-    })
-    .await
-    .map_err(|e| e.to_string())
-}
-
-/// 지금 폴더의 역할 (정본 · 받은 것 · 보관 · 작업 · 지난 판 …). 과업 밖이면 null.
-#[tauri::command]
-async fn role_of(path: String) -> CmdResult<Option<fd_core::project::Role>> {
-    tauri::async_runtime::spawn_blocking(move || fd_core::project::role_of(Path::new(&path)))
-        .await
-        .map_err(|e| e.to_string())
-}
-
-/// 문서 저장소의 연도별 프로젝트.
-#[tauri::command]
-async fn store_projects(root: String) -> CmdResult<Vec<fd_core::project::StoreYear>> {
-    tauri::async_runtime::spawn_blocking(move || fd_core::project::store_projects(Path::new(&root)))
-        .await
-        .map_err(|e| e.to_string())
-}
-
-/// 새 프로젝트 — 저장소에 연도 · 이름 폴더와 기본 자리를 만든다.
-#[tauri::command]
-fn create_project(root: String, year: String, name: String) -> CmdResult<String> {
-    fd_core::project::create_project(Path::new(&root), &year, &name)
-}
+// ───────────────────────────── [8-1] 들어온 곳 ─────────────────────────────
 
 /// 들어온 곳(다운로드 · 바탕화면)마다 최근 `days` 일 새 파일 수.
 #[tauri::command]
 async fn recent_counts(paths: Vec<String>, days: u64) -> CmdResult<Vec<usize>> {
-    tauri::async_runtime::spawn_blocking(move || paths.iter().map(|p| fd_core::project::recent_count(Path::new(p), days)).collect())
+    tauri::async_runtime::spawn_blocking(move || paths.iter().map(|p| fd_core::list::recent_count(Path::new(p), days)).collect())
         .await
         .map_err(|e| e.to_string())
 }
@@ -673,6 +692,15 @@ pub fn run() {
         // 화면은 `http://fdicon.localhost/<키>` 로 아이콘을 받는다. 키 꼴은 fd_shell::icon::icon_png.
         .register_asynchronous_uri_scheme_protocol("fdicon", |_ctx, req, responder| {
             let key = percent_decode(req.uri().path().trim_start_matches('/'));
+            // 아이콘 팩(`pack:<그림 파일 경로>`) — 사용자가 고른 폴더의 그림을 그대로 준다. 그림 꼴만 (화면이 아무 파일이나 읽어 가지 않게).
+            if let Some(file) = key.strip_prefix("pack:") {
+                let resp = match pack_mime(file).and_then(|mime| std::fs::read(file).ok().map(|b| (mime, b))) {
+                    Some((mime, bytes)) => tauri::http::Response::builder().header("Content-Type", mime).header("Cache-Control", "no-cache").body(bytes),
+                    None => tauri::http::Response::builder().status(404).body(Vec::new()),
+                };
+                responder.respond(resp.expect("응답"));
+                return;
+            }
             std::thread::spawn(move || {
                 // 아이콘 전담 스레드가 차례로 뽑는다 (fd_shell::icon::icon_png). 못 그리면 일반 파일 아이콘.
                 let png = fd_shell::icon::icon_png(&key);
@@ -711,19 +739,15 @@ pub fn run() {
             memos_of,
             search_dir,
             dirs_of,
-            name_rules,
-            save_name_rules,
+            tagged,
+            icon_pack,
             skill_status,
             install_skill,
             update_installable,
             open_url,
             load_settings,
             save_settings,
-            pinned_info,
-            role_of,
             recent_counts,
-            store_projects,
-            create_project,
         ])
         .run(tauri::generate_context!())
         .expect("filedesk 를 시작하지 못했다");

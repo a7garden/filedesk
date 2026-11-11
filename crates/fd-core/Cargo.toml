@@ -12,3 +12,8 @@ serde = { workspace = true }
 regex = "1"
 serde_json = { workspace = true }
 blake3 = "1"
+# 문서 안의 글 찾기(`text`). 순수 Rust 만 쓴다 — 한글 · 오피스가 없는 PC 에서도 같은 결과가 나와야 한다.
+# zip 은 풀기만 하니 deflate 풀개만 켠다 (기본 기능은 다른 압축 방식 · 암호까지 끌고 와 빌드가 길어진다).
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+pdf-extract = "0.9"
+encoding_rs = "0.8"

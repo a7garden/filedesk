@@ -141,20 +141,6 @@ export function splitName(name: string, isDir: boolean): [string, string] {
   return i > 0 && name.length - i <= 9 ? [name.slice(0, i), name.slice(i)] : [name, ""];
 }
 
-/** 자리 역할의 사람 말. */
-export const ROLE_LABEL: Record<string, string> = {
-  canon: "정본",
-  received: "받은 것",
-  archive: "보관",
-  work: "작업",
-  history: "지난 판",
-  notes: "글",
-  code: "코드",
-};
-
-/** 고치지 않는 자리 — 지우기 · 이름 바꾸기 전에 묻는다. */
-export const PROTECTED_ROLES = new Set(["received", "archive", "history"]);
-
 /** 열 너비 기본값: 이름 · 판 · 고친 날 · 크기 (이름 칸은 남는 자리를 다 쓰므로 최소 너비).
  *  2026.11.11 : 「유형」 열(셸의 긴 종류 이름)을 빼고 「판」을 넣었다 — 확장자는 이름 끝에 흐리게 보인다. */
 export const DEFAULT_COLS = [280, 170, 110, 84];
@@ -198,6 +184,17 @@ setKinds(DEFAULT_KINDS);
 export const kindOrder = () => [FOLDER, ...kinds.map((k) => k.id), OTHER];
 export const kindLabel = (id: string) => (id === FOLDER ? "폴더" : id === OTHER ? "기타" : (kinds.find((k) => k.id === id)?.label ?? "기타"));
 export const kindColor = (id: string) => kinds.find((k) => k.id === id)?.color ?? OTHER_COLOR;
+
+// 아이콘 팩 — 설정 「아이콘 › 아이콘 팩」 폴더의 그림. App 이 읽어 setIconPack 으로 넣는다.
+let pack: Record<string, string> = {};
+export function setIconPack(map: Record<string, string>) {
+  pack = map;
+}
+/** 팩에서 이 항목의 그림 주소 — 확장자 → 종류 → folder · file 차례. 없으면 null (filedesk 그림을 쓴다). */
+export function packIconUrl(e: Pick<Entry, "isDir" | "ext">): string | null {
+  const f = e.isDir ? pack.folder : (pack[e.ext.toLowerCase()] ?? pack[kindOf(e)] ?? pack.file);
+  return f ? `http://fdicon.localhost/${encodeURIComponent(`pack:${f}`)}` : null;
+}
 
 /** 격자에서 내용을 미리 보일 수 있는 확장자 — 셸 미리보기가 그리는 것이라 종류 설정과 따로 둔다. */
 const THUMB_EXTS = new Set(["image", "pdf", "media"].flatMap((id) => DEFAULT_KINDS.find((k) => k.id === id)!.exts));

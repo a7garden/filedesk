@@ -1,6 +1,7 @@
 //! `fd` — filedesk 명령줄. 출력은 JSON 이다 (에이전트가 그대로 읽게).
 //! 2026.11.11 : 목록 · 문서 묶기 · 메모. 사본 조회(`fd dupes` · `fd status`)는 2단계 색인과 함께 붙는다.
-//! 2026.11.11 : 에이전트 창구로 키웠다 — 새 판 · 이전판 정리 · 휴지통 · 프로젝트 · 이름 규칙 · Claude 스킬 설치.
+//! 2026.11.11 : 에이전트 창구로 키웠다 — 새 판 · 이전판 정리 · 휴지통 · Claude 스킬 설치.
+//! 2026.11.11 : `fd projects` · `fd where` · `fd rules` 를 뺐다 — 일반 탐색기라 「프로젝트」 · 과업 이름 규칙을 두지 않는다.
 //!
 //! 약속 (스킬 `skills/filedesk/SKILL.md` 가 이것을 믿는다):
 //! - 성공하면 표준 출력에 JSON 하나, 종료 코드 0.
@@ -75,53 +76,18 @@ enum Cmd {
         /// 최대 개수
         #[arg(long, default_value_t = 500)]
         limit: usize,
+        /// 문서 본문까지 (hwpx · docx · pptx · xlsx · pdf · txt · md · csv). 맞은 항목에 `snippet` 이 붙는다
+        #[arg(long)]
+        content: bool,
     },
     /// 휴지통으로 보낸다 (휴지통에서 되살릴 수 있다). 휴지통에 못 들어가는 자리(NAS 등)는 지우지 않고 멈춘다
     Trash {
         #[arg(required = true)]
         paths: Vec<PathBuf>,
     },
-    /// 문서 저장소의 연도별 프로젝트와 고정 위치 (앱 왼쪽 목록과 같다)
-    Projects {
-        /// 문서 저장소 (기본: 앱 설정의 문서 저장소)
-        #[arg(long)]
-        store: Option<PathBuf>,
-    },
-    /// 경로가 프로젝트 안에서 어떤 자리인가 (산출물 · 자료 · 이전판 …)와 붙은 메모
-    Where { path: PathBuf },
-    /// 이름 규칙 — 문서 키에서 뺄 프로젝트 이름 · 사람 이름 · 상태어 (앱과 같은 파일)
-    #[command(subcommand)]
-    Rules(RulesCmd),
     /// Claude Code 스킬
     #[command(subcommand)]
     Skill(SkillCmd),
-}
-
-#[derive(Subcommand)]
-enum RulesCmd {
-    /// 지금 규칙과 파일 자리
-    Show,
-    /// 이름을 더한다
-    Add {
-        #[arg(value_enum)]
-        kind: RuleKind,
-        #[arg(required = true)]
-        names: Vec<String>,
-    },
-    /// 이름을 뺀다
-    Rm {
-        #[arg(value_enum)]
-        kind: RuleKind,
-        #[arg(required = true)]
-        names: Vec<String>,
-    },
-}
-
-#[derive(Clone, Copy, clap::ValueEnum)]
-enum RuleKind {
-    Project,
-    Person,
-    Status,
 }
 
 #[derive(Subcommand)]
@@ -189,14 +155,8 @@ fn main() -> ExitCode {
         Cmd::Memo(m) => memo(m),
         Cmd::Edition { file, today, apply } => done(edition(&abs(file), today, apply)),
         Cmd::Retire { dir, doc, apply } => done(retire(&abs(dir), doc.as_deref(), apply)),
-        Cmd::Find { dir, query, all, limit } => done(find(&abs(dir), &query, all, limit)),
+        Cmd::Find { dir, query, all, limit, content } => done(find(&abs(dir), &query, all, limit, content)),
         Cmd::Trash { paths } => done(trash(paths.into_iter().map(abs).collect())),
-        Cmd::Projects { store } => done(projects(store.map(abs))),
-        Cmd::Where { path } => {
-            let p = abs(path);
-            done(Ok(serde_json::json!({ "path": p, "role": fd_core::project::role_of(&p), "memo": memo_of(&p) })))
-        }
-        Cmd::Rules(r) => done(rules(r)),
         Cmd::Skill(k) => done(skill(k)),
     }
 }
@@ -223,19 +183,13 @@ fn abs(p: PathBuf) -> PathBuf {
     std::path::absolute(&p).unwrap_or(p)
 }
 
-fn memo_of(p: &Path) -> Option<String> {
-    let f = fd_core::memo::default_file()?;
-    let s = fd_core::memo::MemoStore::load(&f).ok()?;
-    s.get(&p.to_string_lossy()).map(|m| m.text.clone())
-}
-
 fn edition(file: &Path, today: Option<String>, apply: bool) -> Out {
     let today = match today {
         Some(t) if t.len() == 8 && t.chars().all(|c| c.is_ascii_digit()) => t,
         Some(t) => return Err(format!("--today 는 YYYYMMDD 꼴이어야 한다: {t}")),
         None => fd_shell::clock::today(),
     };
-    let plan = fd_core::edition::plan(file, &today, &fd_core::NameRules::load())?;
+    let plan = fd_core::edition::plan(file, &today)?;
     let clash = fd_core::edition::collisions(&plan);
     if !apply {
         return Ok(serde_json::json!({ "applied": false, "plan": plan, "collisions": clash }));
@@ -255,10 +209,9 @@ fn retire(dir: &Path, doc: Option<&str>, apply: bool) -> Out {
     if !dir.is_dir() {
         return Err(format!("{}: 폴더가 아니다", dir.display()));
     }
-    let rules = fd_core::NameRules::load();
     let docs: Vec<(String, String, Vec<String>)> = match doc {
-        Some(k) => vec![(k.to_string(), k.to_string(), fd_core::docs::stale_of(dir, k, &rules)?)],
-        None => fd_core::docs::stale_all(dir, &rules),
+        Some(k) => vec![(k.to_string(), k.to_string(), fd_core::docs::stale_of(dir, k)?)],
+        None => fd_core::docs::stale_all(dir),
     };
     let history = dir.join(fd_core::docs::HISTORY_DIR);
     let paths: Vec<String> = docs.iter().flat_map(|(_, _, v)| v.iter().cloned()).collect();
@@ -279,7 +232,7 @@ fn retire(dir: &Path, doc: Option<&str>, apply: bool) -> Out {
     }
 }
 
-fn find(dir: &Path, query: &str, all: bool, limit: usize) -> Out {
+fn find(dir: &Path, query: &str, all: bool, limit: usize, content: bool) -> Out {
     if !dir.is_dir() {
         return Err(format!("{}: 폴더가 아니다", dir.display()));
     }
@@ -287,7 +240,7 @@ fn find(dir: &Path, query: &str, all: bool, limit: usize) -> Out {
         .and_then(|f| fd_core::memo::MemoStore::load(&f).ok())
         .map(|s| s.all().filter(|m| !m.text.is_empty()).map(|m| (fd_core::memo::key(&m.path), m.text.clone())).collect())
         .unwrap_or_default();
-    let r = fd_core::search::find(dir, query, all, &memos, limit, std::time::Duration::from_secs(20), None);
+    let r = fd_core::search::find(dir, query, all, &memos, content, limit, std::time::Duration::from_secs(20), None);
     serde_json::to_value(r).map_err(|e| e.to_string())
 }
 
@@ -304,57 +257,6 @@ fn trash(paths: Vec<PathBuf>) -> Out {
         // 휴지통에 못 들어가는 것은 셸이 영구 삭제를 묻는다 — 「아니오」로 끝나면 여기로 온다.
         fd_shell::ops::Outcome::Aborted => Err("휴지통으로 다 보내지 못했다 — 휴지통에 못 들어가는 자리면 사람이 지운다".into()),
     }
-}
-
-/// 앱 설정 파일 (`settings.json`). 앱이 쓰고 명령줄은 읽기만 한다.
-fn app_settings() -> serde_json::Value {
-    std::env::var_os("APPDATA")
-        .map(|a| PathBuf::from(a).join("kr.seesun.filedesk").join("settings.json"))
-        .and_then(|f| std::fs::read_to_string(f).ok())
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or(serde_json::Value::Null)
-}
-
-fn projects(store: Option<PathBuf>) -> Out {
-    let settings = app_settings();
-    let store = match store {
-        Some(s) => s,
-        None => match settings["storeRoot"].as_str().filter(|s| !s.is_empty()) {
-            Some(s) => PathBuf::from(s),
-            None => return Err("문서 저장소를 아직 정하지 않았다 — 앱 왼쪽 「프로젝트」에서 정하거나 --store 로 준다".into()),
-        },
-    };
-    Ok(serde_json::json!({
-        "store": store,
-        "years": fd_core::project::store_projects(&store),
-        "pinned": settings["pinned"],
-    }))
-}
-
-fn rules(r: RulesCmd) -> Out {
-    let mut rules = fd_core::NameRules::load();
-    let show = |rules: &fd_core::NameRules| serde_json::json!({ "file": fd_core::NameRules::file(), "rules": rules });
-    let (kind, names, add) = match r {
-        RulesCmd::Show => return Ok(show(&rules)),
-        RulesCmd::Add { kind, names } => (kind, names, true),
-        RulesCmd::Rm { kind, names } => (kind, names, false),
-    };
-    let list = match kind {
-        RuleKind::Project => &mut rules.project_names,
-        RuleKind::Person => &mut rules.people,
-        RuleKind::Status => &mut rules.status_words,
-    };
-    for n in names.iter().map(|n| n.trim()).filter(|n| !n.is_empty()) {
-        if add {
-            if !list.iter().any(|x| x == n) {
-                list.push(n.to_string());
-            }
-        } else {
-            list.retain(|x| x != n);
-        }
-    }
-    rules.save()?;
-    Ok(show(&rules))
 }
 
 fn fd_exe() -> PathBuf {
@@ -460,7 +362,7 @@ fn docs(path: &Path, recursive: bool, summary: bool) -> ExitCode {
         eprintln!("{}: 폴더가 아니다", path.display());
         return ExitCode::FAILURE;
     }
-    let groups = fd_core::group_dir(path, recursive, &fd_core::NameRules::load());
+    let groups = fd_core::group_dir(path, recursive);
     let out = if summary {
         let files: usize = groups.iter().map(|g| g.files.len()).sum();
         let with_issues: Vec<_> = groups

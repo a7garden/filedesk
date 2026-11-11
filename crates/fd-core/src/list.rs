@@ -47,10 +47,20 @@ pub fn list_dir(path: &Path, show_hidden: bool) -> io::Result<Vec<Entry>> {
 /// 항목 하나. 특성을 읽지 못하면(권한 · 지워짐) None. 하위 폴더까지 찾기(`search`)도 이것을 쓴다.
 pub fn entry_of(item: &std::fs::DirEntry) -> Option<Entry> {
     let meta = item.metadata().ok()?;
-    let attrs = file_attrs(&meta);
+    Some(entry_from(item.path(), item.file_name().to_string_lossy().into_owned(), &meta))
+}
+
+/// 경로 하나의 항목 — 폴더를 읽지 않고 흩어진 경로를 모아 보일 때 (색 표시 모아 보기). 없거나 못 읽으면 None.
+pub fn entry_at(path: &Path) -> Option<Entry> {
+    let meta = std::fs::metadata(path).ok()?;
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.to_string_lossy().into_owned());
+    Some(entry_from(path.to_path_buf(), name, &meta))
+}
+
+fn entry_from(path: std::path::PathBuf, name: String, meta: &std::fs::Metadata) -> Entry {
+    let attrs = file_attrs(meta);
     // 정션 · 심볼릭 링크 폴더는 is_dir() 이 거짓이라 특성 비트로 본다.
     let is_dir = meta.is_dir() || attrs & ATTR_DIRECTORY != 0;
-    let name = item.file_name().to_string_lossy().into_owned();
     let ext = if is_dir {
         String::new()
     } else {
@@ -65,8 +75,8 @@ pub fn entry_of(item: &std::fs::DirEntry) -> Option<Entry> {
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0);
-    Some(Entry {
-        path: item.path().to_string_lossy().into_owned(),
+    Entry {
+        path: path.to_string_lossy().into_owned(),
         name,
         is_dir,
         size: if is_dir { 0 } else { meta.len() },
@@ -74,7 +84,7 @@ pub fn entry_of(item: &std::fs::DirEntry) -> Option<Entry> {
         attrs,
         ext,
         kind: String::new(),
-    })
+    }
 }
 
 #[cfg(windows)]
@@ -86,6 +96,22 @@ fn file_attrs(meta: &std::fs::Metadata) -> u32 {
 #[cfg(not(windows))]
 fn file_attrs(_meta: &std::fs::Metadata) -> u32 {
     0
+}
+
+/// 폴더 바로 아래에서 최근 `days` 일 안에 생기거나 바뀐 파일 수 — 왼쪽 「들어온 곳」(다운로드 · 바탕화면)에 보이는 숫자.
+pub fn recent_count(dir: &Path, days: u64) -> usize {
+    let since = std::time::SystemTime::now() - std::time::Duration::from_secs(days * 86_400);
+    let Ok(rd) = std::fs::read_dir(dir) else { return 0 };
+    rd.flatten()
+        .filter(|e| {
+            let n = e.file_name();
+            let n = n.to_string_lossy();
+            !n.starts_with('.') && !n.starts_with("~$") && !n.eq_ignore_ascii_case("desktop.ini")
+        })
+        .filter_map(|e| e.metadata().ok())
+        .filter(|m| m.is_file())
+        .filter(|m| m.modified().is_ok_and(|t| t >= since) || m.created().is_ok_and(|t| t >= since))
+        .count()
 }
 
 #[cfg(test)]

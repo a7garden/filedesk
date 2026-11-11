@@ -3,7 +3,7 @@
 // 목차
 //   [1] 읽기 — 목록 + 문서 묶음을 함께 읽어 「판 접힌 줄」을 만든다 · 폴더 변경 알림
 //       2026.11.11 : 목록을 먼저 그리고 문서 묶음은 뒤에 얹는다 (묶기가 0.12초 안에 끝나면 한 번에). 큰 폴더에서 첫 줄이 묶기를 기다렸다
-//   [1-1] 찾기 — 「거르기」는 이 폴더(이름 · 메모 글), Shift+Enter 는 아래 폴더까지 (fd-core search). 종류 · 색으로도 거른다
+//   [1-1] 찾기 — 이 폴더(이름 · 메모 글) · 아래 폴더까지(Shift+Enter) · 문서 안 글까지(Ctrl+Enter, fd-core search) · 색 표시 모아 보기(왼쪽 「색」). 종류 · 색으로도 추린다
 //   [2] 줄 만들기 — 문서 하나 = 한 줄(최신판), 펼치면 그 자리에 판들 · 새 판 줄
 //       판 규칙이 어긋난 문서는 접혀 있어도 바로 밑에 「문제 줄」(무엇이 어긋났나 + 고칠 동작). 머리의 「문제 N문서」가 그것만 거른다
 //       2026.11.11 : 따로 있던 「점검」 보기를 지우고 목록에 겹쳤다 — 같은 폴더를 다른 표로 두 번 그렸고, 목록과 견줄 수 없었다
@@ -18,13 +18,13 @@
 //       2026.11.11 : 격자 보기 · 크기(Ctrl+휠) · filedesk 아이콘 · 오른쪽 메뉴에 filedesk 항목(메모 · 색 · 즐겨찾기 · 옆 칸 · 새 판)
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { api, iconUrl, TAG_COLORS, TAG_LABEL, today, type ColKey, type DocFile, type DocGroup, type EditionPlan, type Entry, type Found, type MenuItem, type Role, type TagColor, type ViewPrefs } from "./api";
+import { api, iconUrl, TAG_COLORS, TAG_LABEL, today, type ColKey, type DocFile, type DocGroup, type EditionPlan, type Entry, type Found, type MenuItem, type TagColor, type ViewPrefs } from "./api";
 import AddressBar, { type AddressHandle } from "./AddressBar";
 import type { Tab } from "./App";
 import EditionTicks, { editionCount, editionTime } from "./EditionTicks";
 import { Chevron, FileGlyph, FolderGlyph } from "./glyphs";
 import GridView, { TILE } from "./GridView";
-import { SIZE_LABEL } from "./SettingsPanel";
+import SizeLadder, { atStep, LAST_STEP, STEPS, stepOf } from "./SizeLadder";
 import TagMenu, { TagDot } from "./TagMenu";
 import {
   baseName,
@@ -34,14 +34,14 @@ import {
   formatDate,
   formatSize,
   canThumb,
+  packIconUrl,
+  kindColor,
   kindLabel,
   kindOf,
   kindOrder,
   norm,
   parentOf,
-  PROTECTED_ROLES,
   relDate,
-  ROLE_LABEL,
   samePath,
   sortEntries,
   splitName,
@@ -77,6 +77,8 @@ type Props = {
 };
 
 /** 목록 한 줄. 판 줄(depth 1)은 펼친 문서 아래에 붙는다. 「새 판」 줄은 펼친 문서의 맨 아래. 「문제」 줄은 판 규칙이 어긋난 문서 바로 밑. */
+type DeepScope = "below" | "content" | "tag";
+type Deep = { scope: DeepScope; q: string; color?: TagColor; items: Found[] | null; truncated: boolean; scanned: number };
 type EntryRow = { kind: "entry"; e: Entry; depth: 0 | 1; group?: DocGroup; hiddenCount?: number; where?: string };
 type EditionRow = { kind: "edition"; group: DocGroup; source: Entry };
 type IssueRow = { kind: "issue"; group: DocGroup; stack: boolean };
@@ -87,7 +89,9 @@ type Plan = { key: string; kind: "edition"; plan: EditionPlan } | { key: string;
 
 type Msg = { text: string; tone?: "warn" | "ok"; actions?: { label: string; run: () => void; primary?: boolean }[] };
 
+/** 줄 높이 — 보통 · 촘촘 (크기 사다리 첫 칸). styles.css `.row` · `.list.dense .row` 와 같아야 한다. */
 const ROW_H = 30;
+const ROW_H_DENSE = 24;
 const DRAG_PX = 5;
 
 const joinPath = (dir: string, name: string) => (dir.endsWith("\\") ? dir + name : `${dir}\\${name}`);
@@ -106,7 +110,6 @@ export default function Pane(p: Props) {
   const path = p.tab.path;
   const [entries, setEntries] = useState<Entry[] | null>(null);
   const [groups, setGroups] = useState<DocGroup[]>([]);
-  const [role, setRole] = useState<Role | null>(null);
   const [error, setError] = useState("");
   const [sort, setSort] = useState<Sort>({ key: "name", asc: true });
   const [sel, setSel] = useState<Set<string>>(new Set());
@@ -127,6 +130,7 @@ export default function Pane(p: Props) {
   /** 격자 한 줄의 칸 수 — 위 · 아래 화살표가 이만큼 움직인다. */
   const gridCols = useRef(1);
   const isGrid = p.view.mode === "grid";
+  const rowH = p.view.dense ? ROW_H_DENSE : ROW_H;
   const [msg, setMsg] = useState<Msg | null>(null);
   /** 판을 접어 보는가 (기본). 끄면 파일을 다 보인다 — Ctrl+Shift+D. */
   const [fold, setFold] = useState(true);
@@ -144,7 +148,8 @@ export default function Pane(p: Props) {
   const [kind, setKind] = useState<string | null>(null);
   const [colorOnly, setColorOnly] = useState<TagColor | null>(null);
   /** 아래 폴더까지 찾기. 켜져 있으면 목록 대신 찾은 것을 보인다. */
-  const [deep, setDeep] = useState<{ q: string; items: Found[] | null; truncated: boolean; scanned: number } | null>(null);
+  /** 이 폴더 밖까지 모아 보기 — 아래 폴더까지(below) · 문서 안 글까지(content) · 색 표시(tag, 모든 폴더). */
+  const [deep, setDeep] = useState<Deep | null>(null);
   /** 방금 펼친 문서 — 그 판 줄만 나타나는 움직임을 준다 (스크롤로 다시 그려지는 줄은 움직이지 않게). */
   const [justOpened, setJustOpened] = useState<{ key: string; at: number } | null>(null);
   /** 읽기 차례 — 늦게 온 앞선 읽기가 새 폴더 목록을 덮지 않게. */
@@ -272,9 +277,7 @@ export default function Pane(p: Props) {
     setOpen(new Set());
     setPlan(null);
     setEntries(null);
-    setRole(null);
     scrollRef.current?.scrollTo(0, 0);
-    api.roleOf(path).then(setRole).catch(() => setRole(null));
     load(false);
   }, [path, load]);
 
@@ -287,15 +290,12 @@ export default function Pane(p: Props) {
       window.clearTimeout(timer);
       timer = window.setTimeout(() => load(true), 150);
     };
-    // 이름 규칙이 바뀌면 다시 묶는다 · 왼쪽 목록에서 색을 바꾸면 색만 다시 읽는다.
-    const rules = () => load(true);
+    // 왼쪽 목록에서 색을 바꾸면 색만 다시 읽는다.
     const recolor = () => api.memosIn(path).then(applyNotes).catch(() => {});
     window.addEventListener("fd:changed", on);
-    window.addEventListener("fd:rules", rules);
     window.addEventListener("fd:colors", recolor);
     return () => {
       window.removeEventListener("fd:changed", on);
-      window.removeEventListener("fd:rules", rules);
       window.removeEventListener("fd:colors", recolor);
       window.clearTimeout(timer);
     };
@@ -305,25 +305,56 @@ export default function Pane(p: Props) {
 
   /** 아래 폴더까지 찾기. 글자를 고치면 잠깐 기다렸다 다시 찾는다 (앞선 찾기는 Rust 쪽에서 멈춘다). */
   const deepQ = deep?.q;
+  const deepScope = deep?.scope;
   useEffect(() => {
-    if (deepQ == null) return;
+    if (deepQ == null || deepScope === "tag") return;
     const q = filter.trim();
     if (!q) return setDeep(null);
+    const scope = deepScope as DeepScope;
     const t = window.setTimeout(() => {
       setDeep((d) => (d ? { ...d, q, items: d.q === q ? d.items : null } : d));
       api
-        .searchDir(path, q, p.showHidden)
-        .then((r) => !r.cancelled && setDeep((d) => (d && d.q === q ? { q, items: r.items, truncated: r.truncated, scanned: r.scanned } : d)))
+        .searchDir(path, q, p.showHidden, scope === "content")
+        .then((r) => !r.cancelled && setDeep((d) => (d && d.q === q && d.scope === scope ? { scope, q, items: r.items, truncated: r.truncated, scanned: r.scanned } : d)))
         .catch(report);
     }, deepQ === q ? 0 : 250);
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deepQ != null, filter, path, p.showHidden]);
+  }, [deepQ != null, deepScope, filter, path, p.showHidden]);
 
-  const startDeep = () => {
+  const startDeep = (scope: "below" | "content" = "below") => {
     const q = filter.trim();
-    if (q) setDeep({ q, items: null, truncated: false, scanned: 0 });
+    if (q) setDeep({ scope, q, items: null, truncated: false, scanned: 0 });
   };
+
+  /** 색 표시 모아 보기 — 왼쪽 「색」 · 명령 팔레트가 지금 칸에 띄운다. 폴더와 상관없이 모든 자리에서. */
+  const showTagged = useCallback(
+    (color: TagColor) => {
+      setDeep({ scope: "tag", q: TAG_LABEL[color], color, items: null, truncated: false, scanned: 0 });
+      api
+        .tagged(color)
+        .then((items) => setDeep((d) => (d?.scope === "tag" && d.color === color ? { ...d, items } : d)))
+        .catch(report);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+  useEffect(() => {
+    if (!p.active) return;
+    const on = (ev: Event) => showTagged((ev as CustomEvent<TagColor>).detail);
+    // 명령 팔레트의 「찾기」 — 찾는 말을 칸에 넣고 그 범위로 찾는다
+    const find = (ev: Event) => {
+      const { q, scope } = (ev as CustomEvent<{ q: string; scope: "below" | "content" }>).detail;
+      setFilter(q);
+      setDeep({ scope, q, items: null, truncated: false, scanned: 0 });
+    };
+    window.addEventListener("fd:tagged", on);
+    window.addEventListener("fd:search", find);
+    return () => {
+      window.removeEventListener("fd:tagged", on);
+      window.removeEventListener("fd:search", find);
+    };
+  }, [p.active, showTagged]);
 
   /** 찾은 것의 메모 — 이 폴더 밖이라 목록 메모(memos)에 없다. */
   const deepMemos = useMemo(() => new Map((deep?.items ?? []).filter((f) => f.memo).map((f) => [norm(f.path), f.memo as string])), [deep]);
@@ -382,11 +413,14 @@ export default function Pane(p: Props) {
   const rows = useMemo<Row[]>(() => {
     if (deep) {
       // 찾은 것 — 판으로 접지 않고, 어느 폴더에 있는지를 곁에 적는다.
+      // 색 표시는 모든 폴더에서 모으므로 온 자리를 통째로, 문서 안 글은 맞은 곳 앞뒤를 적는다.
       const rel = (fp: string) => {
         const dir = parentOf(fp) ?? "";
+        if (deep.scope === "tag") return dir;
         return samePath(dir, path) ? "" : dir.slice(path.replace(/\\$/, "").length + 1);
       };
-      return sortEntries((deep.items ?? []).filter(passes), sort).map((e): Row => ({ kind: "entry", e, depth: 0, where: rel(e.path) || undefined }));
+      const whereOf = (f: Found) => [rel(f.path), f.snippet ? `…${f.snippet}…` : ""].filter(Boolean).join(" · ");
+      return sortEntries((deep.items ?? []).filter(passes), sort).map((e): Row => ({ kind: "entry", e, depth: 0, where: whereOf(e) || undefined }));
     }
     const all = (entries ?? []).filter(passes);
     const q = filter.trim().toLowerCase();
@@ -446,15 +480,17 @@ export default function Pane(p: Props) {
   const virt = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => ROW_H,
+    estimateSize: () => rowH,
     overscan: 20,
   });
+  // 줄 높이가 바뀌면 자리를 다시 잰다 — 안 하면 줄이 옛 높이 간격으로 겹치거나 벌어진다
+  useEffect(() => virt.measure(), [rowH, virt]);
 
   useEffect(() => {
     if (focus == null || isGrid) return;
     const i = rowIndex.get(focus);
     if (i != null) virt.scrollToIndex(i, { align: "auto" });
-  }, [focus, rowIndex, virt, isGrid]);
+  }, [focus, rowIndex, virt, isGrid, rowH]);
 
   const toggleOpen = (key: string) =>
     setOpen((s) => {
@@ -512,25 +548,6 @@ export default function Pane(p: Props) {
 
   // ───────── [4] 동작 ─────────
 
-  const guarded = (what: string, run: () => void) => {
-    if (!role || !PROTECTED_ROLES.has(role)) return run();
-    setMsg({
-      text: `${ROLE_LABEL[role]} 자리다. 이 자리 파일은 고치지 않는 것이 규칙이다. 그래도 ${what}?`,
-      tone: "warn",
-      actions: [
-        {
-          label: what,
-          run: () => {
-            setMsg(null);
-            run();
-          },
-          primary: true,
-        },
-        { label: "그만두기", run: () => setMsg(null) },
-      ],
-    });
-  };
-
   const openEntries = (list: Entry[]) => {
     if (list.length === 1 && list[0].isDir) return p.onGo(list[0].path);
     for (const e of list) {
@@ -564,10 +581,10 @@ export default function Pane(p: Props) {
         })
         .catch(report);
     };
-    guarded("휴지통으로 보내기", run);
+    run();
   };
 
-  const startRename = (fp: string) => guarded("이름 바꾸기", () => setRenaming(fp));
+  const startRename = (fp: string) => setRenaming(fp);
 
   const commitRename = async (e: Entry, value: string) => {
     setRenaming(null);
@@ -682,8 +699,7 @@ export default function Pane(p: Props) {
     if (!r.startsWith("app:")) return;
     const k = r.slice(4);
     if (k.startsWith("color:")) applyColor(paths, k === "color:none" ? null : (k.slice(6) as TagColor));
-    else if (k.startsWith("size:")) p.setView((v) => ({ ...v, mode: "grid", size: Number(k.slice(5)) }));
-    else if (k === "view:list" || k === "view:grid") p.setView((v) => ({ ...v, mode: k.slice(5) as "list" | "grid" }));
+    else if (k.startsWith("step:")) p.setView((v) => atStep(v, Number(k.slice(5))));
     else if (k === "memo" && e) setMemoing(e.path);
     else if (k === "pin") p.onPin(list.map((x) => ({ path: x.path, isDir: x.isDir })));
     else if (k === "pinhere") p.onPin([{ path, isDir: true }]);
@@ -722,10 +738,7 @@ export default function Pane(p: Props) {
       {
         label: "보기",
         children: [
-          { key: "view:list", label: "목록", checked: !isGrid },
-          { key: "view:grid", label: "격자", checked: isGrid },
-          {},
-          ...SIZE_LABEL.map((l, i) => ({ key: `size:${i}`, label: `격자 ${l}`, checked: isGrid && p.view.size === i })),
+          ...STEPS.map((l, i) => ({ key: `step:${i}`, label: l, checked: stepOf(p.view) === i })),
         ],
       },
       { key: "split", label: p.split ? "나눠 보기 끄기\tCtrl+\\" : "나눠 보기\tCtrl+\\" },
@@ -852,6 +865,10 @@ export default function Pane(p: Props) {
       const focusRow = focus != null ? nav[navIndex.get(focus) ?? -1] : undefined;
       let handled = true;
       if (ctrl && (lk === "f" || lk === "e")) filterRef.current?.focus();
+      else if (ctrl && (k === "=" || k === "+" || k === "-" || k === "0")) {
+        // 크기 사다리 — 브라우저 확대 대신. 0 은 보통 목록으로
+        p.setView((v) => (k === "0" ? atStep(v, 1) : atStep(v, Math.min(LAST_STEP, stepOf(v) + (k === "-" ? -1 : 1)))));
+      }
       else if (k === "Escape" && (deep || kind || colorOnly) && !msg) {
         setDeep(null);
         setKind(null);
@@ -885,8 +902,8 @@ export default function Pane(p: Props) {
         if (rep) selectOnly(rep.e.path);
       } else if (k === "Home") moveFocus(-Infinity, e);
       else if (k === "End") moveFocus(Infinity, e);
-      else if (k === "PageDown") moveFocus(isGrid ? gridCols.current * 3 : Math.floor((scrollRef.current?.clientHeight ?? 400) / ROW_H), e);
-      else if (k === "PageUp") moveFocus(isGrid ? -gridCols.current * 3 : -Math.floor((scrollRef.current?.clientHeight ?? 400) / ROW_H), e);
+      else if (k === "PageDown") moveFocus(isGrid ? gridCols.current * 3 : Math.floor((scrollRef.current?.clientHeight ?? 400) / rowH), e);
+      else if (k === "PageUp") moveFocus(isGrid ? -gridCols.current * 3 : -Math.floor((scrollRef.current?.clientHeight ?? 400) / rowH), e);
       else if (k === "Enter" && e.altKey) api.shellVerb(selectedPaths(), "properties", path).catch(report);
       else if (k === "Enter") openEntries(selectedEntries);
       else if (k === "F2" && focus) startRename(focus);
@@ -909,7 +926,7 @@ export default function Pane(p: Props) {
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  // Ctrl+휠 — 탐색기처럼 보기 크기를 바꾼다. 목록에서 올리면 격자 작게, 격자 작게에서 내리면 목록.
+  // Ctrl+휠 — 크기 사다리를 한 칸씩 (목록 촘촘 · 목록 · 격자 넷). 칸이 바뀌어도 보던 항목은 화면 안에 붙든다 (아래 [5-1]).
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -921,11 +938,7 @@ export default function Pane(p: Props) {
       if (now - last < 140) return; // 휠 한 칸에 이벤트가 여럿 온다 (정밀 터치패드)
       last = now;
       const up = ev.deltaY < 0;
-      p.setView((v) => {
-        if (v.mode === "list") return up ? { ...v, mode: "grid", size: 0 } : v;
-        if (up) return { ...v, size: Math.min(3, v.size + 1) };
-        return v.size === 0 ? { ...v, mode: "list" } : { ...v, size: v.size - 1 };
-      });
+      p.setView((v) => atStep(v, stepOf(v) + (up ? 1 : -1)));
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
@@ -1019,9 +1032,9 @@ export default function Pane(p: Props) {
         ref={filterRef}
         className={"filter" + (deep ? " deep" : "")}
         value={filter}
-        placeholder={deep ? "아래 폴더까지 찾기" : "거르기"}
-        aria-label={deep ? "아래 폴더까지 찾기" : "이 폴더에서 거르기"}
-        title={"Ctrl+F — 이름 · 메모 글에서 거른다\nShift+Enter — 아래 폴더까지 찾기"}
+        placeholder={deep?.scope === "content" ? "문서 안 글까지 찾기" : deep?.scope === "below" ? "아래 폴더까지 찾기" : "찾기"}
+        aria-label={deep?.scope === "content" ? "문서 안 글까지 찾기" : deep?.scope === "below" ? "아래 폴더까지 찾기" : "이 폴더에서 찾기"}
+        title={"Ctrl+F — 이 폴더의 이름 · 메모 글에서 찾는다\nShift+Enter — 아래 폴더까지 · Ctrl+Enter — 문서 안 글까지"}
         spellCheck={false}
         onChange={(e) => setFilter(e.target.value)}
         onKeyDown={(e) => {
@@ -1033,7 +1046,10 @@ export default function Pane(p: Props) {
           }
           if (e.key === "Enter" && e.shiftKey) {
             e.preventDefault();
-            startDeep();
+            startDeep("below");
+          } else if (e.key === "Enter" && e.ctrlKey) {
+            e.preventDefault();
+            startDeep("content");
           } else if (e.key === "Enter" || e.key === "ArrowDown") {
             (e.target as HTMLInputElement).blur();
             if (nav[0]) selectOnly(nav[0].e.path);
@@ -1095,9 +1111,11 @@ export default function Pane(p: Props) {
           ) : (
             <span className="twisty-space" />
           )}
-          {e.isDir ? (
+          {p.view.icons === "pack" && !isHistDir && packIconUrl(e) ? (
+            <img src={packIconUrl(e)!} width={16} height={16} alt="" draggable={false} />
+          ) : e.isDir ? (
             <FolderGlyph faint={isHistDir} />
-          ) : p.view.icons === "filedesk" ? (
+          ) : p.view.icons !== "shell" ? (
             <FileGlyph ext={e.ext} />
           ) : (
             <img src={iconUrl(e)} width={16} height={16} alt="" draggable={false} loading="lazy" />
@@ -1212,9 +1230,11 @@ export default function Pane(p: Props) {
         }}
       >
         <div className="tile-pic" style={{ height: iconPx }}>
-          {e.isDir && (p.view.icons === "filedesk" || hist) ? (
+          {p.view.icons === "pack" && !hist && !thumb && packIconUrl(e) ? (
+            <img src={packIconUrl(e)!} alt="" draggable={false} style={{ width: iconPx, height: iconPx, objectFit: "contain" }} />
+          ) : e.isDir && (p.view.icons !== "shell" || hist) ? (
             <FolderGlyph size={iconPx} faint={hist} />
-          ) : !e.isDir && p.view.icons === "filedesk" && !thumb ? (
+          ) : !e.isDir && p.view.icons !== "shell" && !thumb ? (
             <FileGlyph ext={e.ext} size={iconPx} />
           ) : (
             <img
@@ -1356,7 +1376,6 @@ export default function Pane(p: Props) {
       <AddressBar
         ref={addrRef}
         path={path}
-        role={role}
         canBack={p.tab.back.length > 0}
         canFwd={p.tab.fwd.length > 0}
         canUp={parentOf(path) != null}
@@ -1379,15 +1398,24 @@ export default function Pane(p: Props) {
       {(deep || kind || colorOnly || kindCounts.size > 1 || colorCounts.size > 0 || filter.trim()) && (
         <div className="kinds" role="toolbar" aria-label="종류 · 색으로 거르기">
           {deep && (
-            <span className="deep-tag" title={path}>
-              아래 폴더까지 「{deep.q}」
-              <button className="kind-x" aria-label="찾기 끝내기" title="이 폴더로 돌아가기 (Esc)" onClick={() => setDeep(null)}>
+            <span className="deep-tag" title={deep.scope === "tag" ? "모든 폴더" : path}>
+              {deep.scope === "tag" ? (
+                <>
+                  <TagDot color={deep.color} /> {deep.q} 표시 — 모든 폴더
+                </>
+              ) : (
+                <>
+                  {deep.scope === "content" ? "문서 안 글까지" : "아래 폴더까지"} 「{deep.q}」
+                </>
+              )}
+              <button className="kind-x" aria-label="모아 보기 끝내기" title="이 폴더로 돌아가기 (Esc)" onClick={() => setDeep(null)}>
                 ×
               </button>
             </span>
           )}
           {kindOrder().filter((k) => kindCounts.has(k) || kind === k).map((k) => (
             <button key={k} className="kind" aria-pressed={kind === k} onClick={() => setKind((v) => (v === k ? null : k))}>
+              {k !== "folder" && k !== "other" && <span className="kind-dot" style={{ background: kindColor(k) }} aria-hidden="true" />}
               {kindLabel(k)} <span className="kind-n">{kindCounts.get(k) ?? 0}</span>
             </button>
           ))}
@@ -1402,10 +1430,23 @@ export default function Pane(p: Props) {
               <TagDot color={c} /> <span className="kind-n">{colorCounts.get(c) ?? 0}</span>
             </button>
           ))}
-          {!deep && filter.trim() && (
-            <button className="kind deep-btn" title="이 폴더 아래 전부에서 이름 · 메모 글로 찾는다 (Shift+Enter)" onClick={startDeep}>
-              아래 폴더까지 찾기
-            </button>
+          {filter.trim() && deep?.scope !== "tag" && (
+            <span className="scope" role="group" aria-label="찾을 범위">
+              <button className="kind" aria-pressed={!deep} onClick={() => setDeep(null)} title="이 폴더의 이름 · 메모">
+                이 폴더
+              </button>
+              <button className="kind" aria-pressed={deep?.scope === "below"} onClick={() => startDeep("below")} title="아래 폴더 전부의 이름 · 메모 (Shift+Enter)">
+                아래 폴더까지
+              </button>
+              <button
+                className="kind"
+                aria-pressed={deep?.scope === "content"}
+                onClick={() => startDeep("content")}
+                title="아래 폴더 문서의 본문 글 — hwpx · docx · pptx · xlsx · pdf · txt · md (Ctrl+Enter)"
+              >
+                문서 안 글까지
+              </button>
+            </span>
           )}
         </div>
       )}
@@ -1436,7 +1477,7 @@ export default function Pane(p: Props) {
       )}
       <div
         ref={scrollRef}
-        className="list"
+        className={"list" + (p.view.dense ? " dense" : "")}
         role="grid"
         aria-label="파일 목록"
         data-drop={path}
@@ -1454,7 +1495,7 @@ export default function Pane(p: Props) {
         {error ? (
           <div className="empty error">{error}</div>
         ) : deep && deep.items == null ? (
-          <div className="empty">아래 폴더에서 찾는 중…</div>
+          <div className="empty">{deep.scope === "tag" ? "색 표시를 모으는 중…" : deep.scope === "content" ? "문서 안 글을 읽으며 찾는 중…" : "아래 폴더에서 찾는 중…"}</div>
         ) : entries && rows.length === 0 ? (
           <div className="empty">
             {kind || colorOnly ? (
@@ -1473,15 +1514,24 @@ export default function Pane(p: Props) {
                 </button>
               </>
             ) : deep ? (
-              <>아래 폴더에도 「{deep.q}」이 든 이름 · 메모가 없다</>
+              <>
+                {deep.scope === "tag"
+                  ? `${deep.q} 표시를 단 항목이 없다`
+                  : deep.scope === "content"
+                    ? `아래 폴더 문서에도 「${deep.q}」이 든 글이 없다`
+                    : `아래 폴더에도 「${deep.q}」이 든 이름 · 메모가 없다`}
+              </>
             ) : filter ? (
               <>
                 「{filter}」이 든 이름 · 메모가 이 폴더에 없다
-                <button className="act primary" onClick={startDeep}>
+                <button className="act primary" onClick={() => startDeep("below")}>
                   아래 폴더까지 찾기
                 </button>
+                <button className="act" onClick={() => startDeep("content")}>
+                  문서 안 글까지
+                </button>
                 <button className="act" onClick={() => setFilter("")}>
-                  거르기 지우기
+                  지우기
                 </button>
               </>
             ) : onlyIssues ? (
@@ -1528,44 +1578,18 @@ export default function Pane(p: Props) {
           {deep
             ? deep.items == null
               ? "찾는 중"
-              : `아래 폴더에서 ${deep.items.length.toLocaleString("ko-KR")}개${deep.truncated ? " (더 있다 — 말을 더 좁힌다)" : ""}`
+              : `${deep.scope === "tag" ? "모든 폴더에서" : deep.scope === "content" ? "문서 안 글에서" : "아래 폴더에서"} ${deep.items.length.toLocaleString("ko-KR")}개${deep.truncated ? " (더 있다 — 말을 더 좁힌다)" : ""}`
             : entries
               ? `${entries.length.toLocaleString("ko-KR")}개`
               : "읽는 중"}
-          {!deep && (filter || kind || colorOnly) && entries ? ` · 거른 결과 ${nav.length.toLocaleString("ko-KR")}` : ""}
+          {!deep && (filter || kind || colorOnly) && entries ? ` · 보이는 것 ${nav.length.toLocaleString("ko-KR")}` : ""}
         </span>
         {sel.size > 0 && (
           <span>
             {sel.size.toLocaleString("ko-KR")}개 고름{selBytes > 0 ? ` · ${formatBytes(selBytes)}` : ""}
           </span>
         )}
-        <span className="view-switch" role="group" aria-label="보기">
-          <button aria-pressed={!isGrid} title="목록 보기" onClick={() => p.setView((v) => ({ ...v, mode: "list" }))}>
-            <svg width="14" height="12" viewBox="0 0 14 12" aria-hidden="true">
-              <path d="M1 2h12M1 6h12M1 10h12" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-            </svg>
-          </button>
-          <button aria-pressed={isGrid} title="격자 보기 (Ctrl+휠로 크기)" onClick={() => p.setView((v) => ({ ...v, mode: "grid" }))}>
-            <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-              <rect x="1" y="1" width="4" height="4" rx="1" fill="none" stroke="currentColor" strokeWidth="1.2" />
-              <rect x="7" y="1" width="4" height="4" rx="1" fill="none" stroke="currentColor" strokeWidth="1.2" />
-              <rect x="1" y="7" width="4" height="4" rx="1" fill="none" stroke="currentColor" strokeWidth="1.2" />
-              <rect x="7" y="7" width="4" height="4" rx="1" fill="none" stroke="currentColor" strokeWidth="1.2" />
-            </svg>
-          </button>
-          {isGrid && (
-            <input
-              type="range"
-              min={0}
-              max={3}
-              step={1}
-              value={p.view.size}
-              aria-label="격자 크기"
-              title={`격자 크기 — ${SIZE_LABEL[p.view.size]} (Ctrl+휠)`}
-              onChange={(e) => p.setView((v) => ({ ...v, size: Number(e.target.value) }))}
-            />
-          )}
-        </span>
+        <SizeLadder view={p.view} setView={p.setView} />
         <button className="foot-toggle" aria-pressed={fold} onClick={() => setFold((v) => !v)} title="Ctrl+Shift+D">
           {fold ? `판 접음${stacked > 0 ? ` ${stacked}` : ""}` : "판 펼침"}
         </button>
