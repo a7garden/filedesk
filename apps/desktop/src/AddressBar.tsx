@@ -1,14 +1,13 @@
-// 자리 머리 — 경로 조각이 곧 화면 제목이다. 마지막 조각을 크게, 그 뒤에 자리 역할(정본 · 받은 것 · 보관 …).
+// 자리 머리 — 경로 조각이 곧 화면 제목이다. 마지막 조각을 크게.
+// 2026.11.11 : 조각 뒤의 자리 역할 꼬리표(정본 · 받은 것 · 보관 …)를 뺐다 — 과업 폴더 이름(산출물 · 자료)에 매던 뜻이라 일반 탐색기에 맞지 않는다.
 // 조각을 누르면 그리로, 빈 곳을 누르거나 Ctrl+L · Alt+D · F4 면 글로 고친다.
 import { forwardRef, useImperativeHandle, useRef, useState } from "react";
-import type { Role } from "./api";
-import { ROLE_LABEL, segments } from "./util";
+import { segments } from "./util";
 
 export type AddressHandle = { edit: () => void };
 
 type Props = {
   path: string;
-  role: Role | null;
   canBack: boolean;
   canFwd: boolean;
   canUp: boolean;
@@ -91,7 +90,6 @@ const AddressBar = forwardRef<AddressHandle, Props>(function AddressBar(p, ref) 
               {i < segs.length - 1 && <span className="crumb-sep">/</span>}
             </span>
           ))}
-          {p.role && <span className={`role-tag role-${p.role}`}>{ROLE_LABEL[p.role]}</span>}
         </div>
       )}
       <div className="head-right">{p.right}</div>

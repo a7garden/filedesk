@@ -1,9 +1,9 @@
 # filedesk
 
 Windows 탐색기를 대신해 쓰는 로컬 파일 탐색기. 탐색기가 하는 일(셸 메뉴 · 끌기 · 파일 작업 · 단축키)은 셸에 맡겨 그대로 하고,
-화면은 Windows 모양을 따르지 않고 일의 단위(과업 → 자리 → 문서 → 판)로 새로 지었다. 문서 정리(판 묶기 · 사본 · 정본 비교 · 정리 계획)를 더한다.
+화면은 Windows 모양을 따르지 않고 일의 단위(폴더 → 문서 → 판)로 새로 지었다. 문서 정리(판 묶기 · 사본 · 정본 비교 · 정리 계획)를 더한다.
 화면 색은 왼쪽 아래 단추로 시스템 · 밝게 · 어둡게를 고른다 (기본은 시스템 — Windows 설정을 따른다).
-설정(왼쪽 아래 「설정」 · Ctrl+,): 보기(목록 · 격자 · 격자 크기 · 아이콘 모양 · 미리보기 · 보일 열) · 문서 저장소 · 이름 규칙 · Claude 스킬.
+설정(왼쪽 아래 「설정」 · Ctrl+,): 보기(목록 · 격자 · 격자 크기 · 아이콘 모양 · 미리보기 · 보일 열) · 종류 · 화면 색 · Claude 스킬.
 
 설치 파일은 코드 서명이 없어 처음 설치할 때 SmartScreen 이 「Windows의 PC 보호」를 띄운다 — 「추가 정보」 → 「실행」.
 설치한 뒤의 새 판은 앱이 받아 서명(minisign)을 확인하고 깐다.
@@ -27,11 +27,9 @@ bun tauri build --no-bundle    # 실행 파일: target/release/filedesk.exe
 앱 시험 (배포판을 띄워 WebView2 디버깅 포트로 조작 · 캡처): `node apps/desktop/e2e/smoke.mjs [캡처 폴더]` — 셸 메뉴 · 앱 밖 끌기는 사람이 본다.
 큰 폴더 성능: `node apps/desktop/e2e/perf.mjs [파일 수=20000]` — 켜고 첫 줄까지 · End 키 · 스크롤 프레임 · JS 힙을 잰다.
 
-이름 규칙: 문서 키에서 뗄 과업 이름 · 작성자 이름 — 설정 → 「이름 규칙」, 또는 `fd rules add project <이름>`. 파일은 `%APPDATA%\kr.seesun.filedesk\name-rules.json`.
-
 명령줄 (JSON · 실패하면 표준 오류에 `{"error"}`): `fd ls <폴더>` · `fd docs <폴더> [-r] [--summary]` (문서 단위로 묶기 · 판 · 규칙 어긋남) ·
 `fd edition <파일> [--apply]` (새 판) · `fd retire <폴더> [--doc 키] [--apply]` (지난 판을 이전판으로) · `fd find <폴더> <말>` (이름 · 메모 글, 아래 폴더까지) ·
-`fd trash <경로>…` · `fd where <경로>` · `fd projects` · `fd rules show|add|rm` · `fd skill install` ·
+`fd trash <경로>…` · `fd skill install` ·
 `fd memo ls [폴더]` · `fd memo get|set <경로> [글]` · `fd memo color <경로> <red…gray|none>` (앱과 같은 메모 · 색) ·
 `fd tidy plan --sweep 이름=경로… --keep 정본자리 -o plan.json` → `fd tidy apply plan.json --box 정리함 [--only 이름]` → `fd tidy undo 정리함/manifest.json` (정본이 따로 있는 사본만 · 내용 해시 대조 · 옮기기만 하고 지우지 않는다). `cargo run -p fd-cli -- …`
 
@@ -63,7 +61,7 @@ GitHub Actions(`.github/workflows/release.yml`)가 서명한 설치 파일(NSIS)
 | Ctrl+Shift+N · Ctrl+Shift+C | 새 폴더 · 경로 복사 |
 | Ctrl+L · Alt+D · F4 · F5 | 주소창 · 새로 고침 |
 | Alt+Enter · Shift+F10 | 속성 · 오른쪽 메뉴 |
-| Ctrl+T · Ctrl+W · Ctrl+Tab · Ctrl+1~9 | 탭 (탭을 끌어 순서 바꾸기 · 목록 왼쪽/오른쪽 반에 놓아 나눠 보기) |
+| Ctrl+T · Ctrl+W · Ctrl+Tab · Ctrl+1~9 | 탭 — 나눠 보면 칸마다 제 탭 줄. 탭을 끌어 순서 바꾸기 · 다른 칸의 탭 줄이나 목록에 놓아 그 칸으로 옮기기 · 안 나눴을 때 목록 오른쪽 반에 놓아 나눠 보기 |
 | Ctrl+\ | 나눠 보기 켜기 · 끄기 (칸 사이 줄을 끌어 너비 · 두 번 누르면 반반) |
 | Ctrl+H | 숨김 항목 보기 |
 | Ctrl+F · Ctrl+E | 이 폴더에서 거르기 — 이름 · 메모 글 (Esc 지우기) · Shift+Enter 아래 폴더까지 찾기 |

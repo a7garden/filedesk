@@ -1,6 +1,6 @@
 ---
 name: filedesk
-description: Windows 에서 파일 · 폴더를 정리할 때 쓴다 — 문서의 판(v1 · v2 · 날짜) 보기, 새 판 내기, 최신판 자리에 남은 지난 판을 이전판 폴더로 옮기기, 파일 · 폴더 메모 읽고 쓰기, 휴지통으로 지우기, 연도별 프로젝트 폴더 찾기, 이름 규칙 고치기. 「파일 정리」 「폴더 정리」 「새 판」 「이전판」 「판 정리」 「메모 달아」 「프로젝트 폴더 어디」 「filedesk」 요청 때 쓴다.
+description: Windows 에서 파일 · 폴더를 정리할 때 쓴다 — 문서의 판(v1 · v2 · 날짜) 보기, 새 판 내기, 최신판 자리에 남은 지난 판을 이전판 폴더로 옮기기, 파일 · 폴더 메모 읽고 쓰기, 휴지통으로 지우기. 「파일 정리」 「폴더 정리」 「새 판」 「이전판」 「판 정리」 「메모 달아」 「filedesk」 요청 때 쓴다.
 ---
 
 # filedesk — 파일 관리 (명령줄 `fd`, filedesk {{VERSION}})
@@ -33,9 +33,6 @@ FD="{{FD}}"
 | 지난 판 정리 계획 / 실행 | `$FD retire <폴더> [--doc <key>] [--apply]` | `{applied, history, documents[{key, title, move[]}], collisions[]}` |
 | 휴지통 | `$FD trash <경로>…` | `{trashed[]}` |
 | 메모 | `$FD memo ls [폴더]` · `$FD memo get <경로>` · `$FD memo set <경로> "<글>"` (`""` 이면 뗀다) | `{path, text, updated}` |
-| 자리 · 메모 | `$FD where <경로>` | `{path, role, memo}` — role: `canon` 정본 · `received` 받은 것 · `work` · `notes` · `archive` · `history` 이전판 |
-| 프로젝트 | `$FD projects [--store <폴더>]` | `{store, years[{year, projects[{name, path}]}], pinned[]}` |
-| 이름 규칙 | `$FD rules show` · `$FD rules add project <이름>…` · `$FD rules rm person <이름>…` | `{file, rules{projectNames, people, statusWords}}` |
 | 스킬 갱신 | `$FD skill install` | 앱을 새 판으로 올린 뒤 한 번 |
 
 ## 판 규칙 (앱과 같다)
@@ -43,7 +40,7 @@ FD="{{FD}}"
 - 이름 꼴: `<문서명>_v<판>_<YYYYMMDD>.<확장자>` — 예: `보고서_v3_20261101.pptx`. 같은 판의 pdf 는 같은 판의 다른 꼴로 묶인다.
 - 정본 폴더에는 최신판 하나만. 지난 판은 그 폴더의 `이전판/` 에.
 - 새 판은 마지막 판 자리를 하나 올리고 날짜를 오늘로 한다. 정의서(`LDM_D…`)는 하루에 한 판 — 오늘 판이 있으면 새로 내지 않고 그 판을 고친다.
-- 판마다 프로젝트 이름 · 작성자 이름이 붙었다 빠졌다 해서 한 문서로 묶이지 않으면 `fd rules add project <이름>` / `person <이름>` 으로 더한다. 앱도 같은 규칙을 바로 쓴다.
+- 문서 이름에서 판 · 날짜 · 작성자 꼬리(한글 세 글자) · 상태어(최종 · 수정본 …) · 복사 표시를 떼고 남은 것이 같으면 같은 문서로 묶는다.
 
 ## 흐름 예
 
@@ -59,7 +56,3 @@ FD="{{FD}}"
 2. 확인 뒤 `--apply`. 새 파일 경로는 `plan.newPath`.
 3. 바뀐 까닭을 들었으면 `$FD memo set <newPath> "<까닭>"`.
 
-**어디 있지** — 「작년 ○○ 프로젝트 산출물 폴더」
-
-1. `$FD projects` 에서 연도 · 이름으로 찾는다. 없으면 `pinned` 를 본다.
-2. 그 폴더를 `$FD docs` 로 본다.

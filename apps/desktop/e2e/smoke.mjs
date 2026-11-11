@@ -17,7 +17,6 @@ const PORT = 9333;
 const SHOTS = process.argv[2] ?? join(tmpdir(), "filedesk-shots");
 const SETTINGS = join(process.env.APPDATA, "kr.seesun.filedesk", "settings.json");
 const MEMOS = join(process.env.APPDATA, "kr.seesun.filedesk", "memos.json");
-const RULES = join(process.env.APPDATA, "kr.seesun.filedesk", "name-rules.json");
 mkdirSync(SHOTS, { recursive: true });
 
 const results = [];
@@ -55,21 +54,12 @@ const files = {
   "회의자료_v2_20261005.pptx": "m2",
 };
 for (const [n, c] of Object.entries(files)) writeFileSync(join(T, n), c);
-// 프로젝트 단위 문서 저장소 흉내: <저장소>\사업\<올해>\시험사업\{산출물, 자료}
-const YEAR = String(new Date().getFullYear());
-const STORE = join(T, "저장소");
-const PROJ = join(STORE, "사업", YEAR, "시험사업");
-for (const d of ["산출물", "자료"]) mkdirSync(join(PROJ, d), { recursive: true });
-writeFileSync(join(PROJ, "자료", "받은공문_20261101.hwpx"), "r");
 
 const backup = existsSync(SETTINGS) ? readFileSync(SETTINGS) : null;
 // 메모도 떠 두었다가 되돌린다 — 시험 메모가 사용자 메모 파일에 남지 않게.
 const memoBackup = existsSync(MEMOS) ? readFileSync(MEMOS) : null;
-// 이름 규칙도 — 시험 파일 이름(「…_예시과업_v1.6」)이 사용자 규칙과 상관없이 같은 문서로 묶이게 시험 규칙을 쓴다.
-const rulesBackup = existsSync(RULES) ? readFileSync(RULES) : null;
-writeFileSync(RULES, JSON.stringify({ projectNames: ["예시과업"], people: [] }));
 mkdirSync(join(SETTINGS, ".."), { recursive: true });
-writeFileSync(SETTINGS, JSON.stringify({ session: { tabs: [T], active: 0 }, pinned: [{ name: "시험 폴더", path: T }], storeRoot: STORE }));
+writeFileSync(SETTINGS, JSON.stringify({ session: { tabs: [T], active: 0 }, pinned: [{ name: "시험 폴더", path: T }] }));
 
 const app = spawn(EXE, [], {
   // WebView2 데이터 폴더를 따로 둔다 — 사용자가 켜 둔 filedesk 와 같은 폴더를 쓰면
@@ -106,7 +96,6 @@ try {
   check("D09 판 겹침은 문제 줄로", (await pane.locator(".row.issue-line", { hasText: "v1.6 이 여러 날짜" }).count()) === 1);
   check("판 겹침 점은 경고 모양", (await row("LDM_D09").locator(".tick-arc").count()) === 1);
   check("셸 아이콘이 그려진다", await until(() => row("가나다").locator("img").evaluate((img) => img.complete && img.naturalWidth > 0), 5000));
-  check("왼쪽 프로젝트에 올해 프로젝트", (await page.locator(".side .project-name").allTextContents()).includes("시험사업"));
   await page.screenshot({ path: join(SHOTS, "01_목록.png") });
 
   // 2. 거르기
@@ -182,33 +171,6 @@ try {
   check("지난 판만 이전판으로", await until(() => existsSync(join(T, "이전판", "회의자료_v1_20261001.pptx")), 6000) && existsSync(join(T, "회의자료_v2_20261005.pptx")));
   check("고치고 나면 문제 줄이 사라진다", await until(() => pane.locator(".row.issue-line", { hasText: "판이 2개" }).count().then((c) => c === 0)));
 
-  // 9. 프로젝트로 가면 그 프로젝트의 자리가 펼쳐진다 → 받은 것 자리는 지우기 전에 묻는다
-  await page.locator(".side .nav-item.project", { hasText: "시험사업" }).click();
-  const areas = await until(async () => {
-    const a = await page.locator(".side .area").allTextContents();
-    return a.length ? a : null;
-  });
-  check("지금 프로젝트의 자리가 펼쳐진다", areas?.join(",") === "산출물,자료", areas?.join(","));
-  await page.locator(".side .area", { hasText: "자료" }).click();
-  check("자리 머리에 역할", await until(async () => (await pane.locator(".role-tag").textContent()) === "받은 것"));
-  await until(async () => (await rowNames()).length === 1);
-  await row("받은공문").click();
-  await page.keyboard.press("Delete");
-  check("받은 것 자리는 묻는다", await until(() => pane.locator(".msg[role=alertdialog]").count().then((c) => c > 0)));
-  await page.screenshot({ path: join(SHOTS, "03_받은것_확인.png") });
-  await pane.locator(".msg button", { hasText: "그만두기" }).click();
-  await sleep(500);
-  check("그만두면 그대로", existsSync(join(PROJ, "자료", "받은공문_20261101.hwpx")));
-
-  // 9-1. 새 프로젝트 — 올해 폴더에 기본 자리와 함께 만들어지고 그리로 간다
-  await page.locator(".side-add").click();
-  await page.locator(".side-new input").fill("새시험");
-  await page.locator(".side-new input").press("Enter");
-  check("새 프로젝트 만들기", await until(() => existsSync(join(STORE, "사업", YEAR, "새시험", "산출물"))));
-  check("새 프로젝트로 이동", await until(async () => (await pane.locator(".crumb.here").textContent()) === "새시험"));
-  await page.screenshot({ path: join(SHOTS, "05_새프로젝트.png") });
-  await page.keyboard.press("Backspace");
-  await page.keyboard.press("Backspace");
 
   // 9-2. 메모 — Ctrl+M 으로 붙이고, 앱에서 이름을 바꾸면 따라가고, 앱 밖에서 옮겨도 파일 ID 로 다시 붙는다
   await page.keyboard.press("Backspace");
@@ -335,16 +297,10 @@ try {
   await page.keyboard.press("Control+\\");
   check("다시 한 칸", await until(() => panes.count().then((c) => c === 1)));
 
-  // 10-8. 설정 창 — 보기 · 이름 규칙 · Claude 스킬. 이름 규칙은 저장하면 설정 파일에
+  // 10-8. 설정 창 — 보기 · Claude 스킬
   await page.locator(".settings-btn").click();
   check("설정 창", await until(() => page.locator(".settings").count().then((c) => c === 1)));
   check("설정은 보기부터", (await page.locator(".set-nav button[aria-current]").textContent()) === "보기");
-  await page.locator(".set-nav button", { hasText: "이름 규칙" }).click();
-  const rulesBox = page.locator(".settings textarea").first();
-  check("이름 규칙이 보인다", (await rulesBox.inputValue()) === "예시과업", await rulesBox.inputValue());
-  await rulesBox.fill("예시과업\n시험규칙");
-  await page.getByRole("button", { name: "저장", exact: true }).click();
-  check("이름 규칙을 저장한다", await until(() => readFileSync(RULES, "utf8").includes("시험규칙")));
   await page.locator(".set-nav button", { hasText: "Claude 스킬" }).click();
   check("Claude 스킬 상태", await until(async () => /설치/.test((await page.locator(".settings").textContent()) ?? "")));
   await page.screenshot({ path: join(SHOTS, "13_설정.png") });
@@ -441,8 +397,6 @@ try {
   else rmSync(SETTINGS, { force: true });
   if (memoBackup) writeFileSync(MEMOS, memoBackup);
   else rmSync(MEMOS, { force: true });
-  if (rulesBackup) writeFileSync(RULES, rulesBackup);
-  else rmSync(RULES, { force: true });
   rmSync(T, { recursive: true, force: true });
 }
 

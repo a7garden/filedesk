@@ -9,7 +9,7 @@ use std::time::UNIX_EPOCH;
 
 use serde::Serialize;
 
-use crate::docname::{DocName, NameRules, parse};
+use crate::docname::{DocName, parse};
 
 /// 지난 판을 모아 두는 하위 폴더 이름 (과업 지침).
 pub const HISTORY_DIR: &str = "이전판";
@@ -52,7 +52,7 @@ fn edition(f: &DocFile) -> (Vec<u32>, String, String) {
     (f.parsed.version.clone(), f.parsed.date.clone(), f.parsed.time.clone())
 }
 
-fn read_files(dir: &Path, in_history: bool, recursive: bool, rules: &NameRules, out: &mut Vec<DocFile>) {
+fn read_files(dir: &Path, in_history: bool, recursive: bool, out: &mut Vec<DocFile>) {
     let Ok(rd) = std::fs::read_dir(dir) else { return };
     for item in rd.flatten() {
         let Ok(meta) = item.metadata() else { continue };
@@ -64,7 +64,7 @@ fn read_files(dir: &Path, in_history: bool, recursive: bool, rules: &NameRules, 
         if meta.is_dir() {
             let is_hist = name == HISTORY_DIR;
             if is_hist || recursive {
-                read_files(&path, in_history || is_hist, recursive, rules, out);
+                read_files(&path, in_history || is_hist, recursive, out);
             }
             continue;
         }
@@ -75,7 +75,7 @@ fn read_files(dir: &Path, in_history: bool, recursive: bool, rules: &NameRules, 
             .map(|d| d.as_millis() as i64)
             .unwrap_or(0);
         out.push(DocFile {
-            parsed: parse(&name, rules),
+            parsed: parse(&name),
             path: path.to_string_lossy().into_owned(),
             name,
             size: meta.len(),
@@ -86,9 +86,9 @@ fn read_files(dir: &Path, in_history: bool, recursive: bool, rules: &NameRules, 
 }
 
 /// `dir` 의 파일(과 `이전판/`)을 문서로 묶는다. `recursive` 면 아래 폴더 전부.
-pub fn group_dir(dir: &Path, recursive: bool, rules: &NameRules) -> Vec<DocGroup> {
+pub fn group_dir(dir: &Path, recursive: bool) -> Vec<DocGroup> {
     let mut files = Vec::new();
-    read_files(dir, false, recursive, rules, &mut files);
+    read_files(dir, false, recursive, &mut files);
     group_files(files)
 }
 
@@ -124,15 +124,15 @@ pub fn stale_in_place(g: &DocGroup) -> Vec<String> {
 }
 
 /// 폴더 `dir` 의 문서 `key` 에서 최신판 자리에 남은 지난 판. 화면의 「지난 판을 이전판으로」와 `fd retire --doc` 이 쓴다.
-pub fn stale_of(dir: &Path, key: &str, rules: &NameRules) -> Result<Vec<String>, String> {
-    let groups = group_dir(dir, false, rules);
+pub fn stale_of(dir: &Path, key: &str) -> Result<Vec<String>, String> {
+    let groups = group_dir(dir, false);
     let g = groups.iter().find(|g| g.key == key).ok_or("문서를 찾지 못했다 — 폴더가 바뀌었다")?;
     Ok(stale_in_place(g))
 }
 
 /// 폴더 `dir` 의 모든 문서에서 최신판 자리에 남은 지난 판 — `(문서 키, 제목, 옮길 파일)`. 옮길 것이 없는 문서는 뺀다.
-pub fn stale_all(dir: &Path, rules: &NameRules) -> Vec<(String, String, Vec<String>)> {
-    group_dir(dir, false, rules)
+pub fn stale_all(dir: &Path) -> Vec<(String, String, Vec<String>)> {
+    group_dir(dir, false)
         .iter()
         .map(|g| (g.key.clone(), g.title.clone(), stale_in_place(g)))
         .filter(|(_, _, v)| !v.is_empty())
@@ -203,7 +203,7 @@ mod tests {
 
     fn f(name: &str, dir: &str, hist: bool) -> DocFile {
         DocFile {
-            parsed: parse(name, &NameRules::default()),
+            parsed: parse(name),
             path: format!("{dir}\\{name}"),
             name: name.into(),
             size: 1,

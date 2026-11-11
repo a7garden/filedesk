@@ -77,7 +77,7 @@ pub struct EditionPlan {
 /// 새 판 계획을 세운다. 판 규칙으로 다음 이름을 짓고, 같은 판의 다른 꼴(pdf 등)까지 `이전판/` 으로 보낼 목록을 만든다.
 /// 화면과 명령줄이 같은 계획을 먼저 보이고, 실행할 때 다시 세워 그대로 한다 (보인 뒤 폴더가 바뀌었을 수 있어서).
 /// 2026.11.11 : 앱(`lib.rs`)에 있던 것을 명령줄(`fd edition`)도 쓰도록 옮겼다.
-pub fn plan(path: &std::path::Path, today: &str, rules: &crate::NameRules) -> Result<EditionPlan, String> {
+pub fn plan(path: &std::path::Path, today: &str) -> Result<EditionPlan, String> {
     use crate::docname::parse;
     use crate::docs::{HISTORY_DIR, is_rendition};
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).ok_or("파일 이름이 없다")?;
@@ -89,9 +89,9 @@ pub fn plan(path: &std::path::Path, today: &str, rules: &crate::NameRules) -> Re
         return Err(format!("{}: 파일이 없다", path.display()));
     }
     let new_name = next_edition_name(&name, today).map_err(|e| e.to_string())?;
-    let me = parse(&name, rules);
+    let me = parse(&name);
     let same_edition = |n: &str| {
-        let o = parse(n, rules);
+        let o = parse(n);
         o.key == me.key && o.version == me.version && o.date == me.date && o.time == me.time
     };
     let mut retire: Vec<String> = std::fs::read_dir(&folder)
@@ -107,9 +107,9 @@ pub fn plan(path: &std::path::Path, today: &str, rules: &crate::NameRules) -> Re
         let src_name = retire
             .iter()
             .filter_map(|p| std::path::Path::new(p).file_name().map(|n| n.to_string_lossy().into_owned()))
-            .find(|n| !is_rendition(&parse(n, rules).ext));
+            .find(|n| !is_rendition(&parse(n).ext));
         if let Some(src_name) = src_name {
-            return plan(&folder.join(&src_name), today, rules);
+            return plan(&folder.join(&src_name), today);
         }
     }
     Ok(EditionPlan {

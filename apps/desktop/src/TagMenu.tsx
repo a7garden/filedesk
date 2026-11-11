@@ -1,4 +1,4 @@
-// 색 표시 고르기 — Finder 꼬리표처럼 일곱 색 중 하나. 목록 줄 · 왼쪽 프로젝트 · 즐겨찾기가 같은 꼴을 쓴다.
+// 색 표시 고르기 — Finder 꼬리표처럼 일곱 색 중 하나. 목록 줄 · 왼쪽 즐겨찾기가 같은 꼴을 쓴다.
 // 마우스 자리(또는 단추 아래)에 뜨고, 고르거나 · 밖을 누르거나 · Esc 면 닫힌다. 키보드는 ← → 로 옮기고 Enter.
 import { useEffect, useRef, type ReactNode } from "react";
 import { TAG_COLORS, TAG_LABEL, type TagColor } from "./api";

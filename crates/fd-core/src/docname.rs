@@ -10,73 +10,12 @@
 use std::sync::OnceLock;
 
 use regex::Regex;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-/// 이름 규칙. 과업마다 다르므로 사용자 설정 파일(`name-rules.json`, 앱 설정 폴더)로 받는다 — `NameRules::load`.
-/// 2026.11.11 : 과업 이름 · 사람 이름을 코드 기본값에서 빼 설정 파일로 옮겼다 (공개 저장소에 회사 과업 이름을 두지 않으려고).
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct NameRules {
-    /// 문서 키에서 뺄 과업 이름 (판마다 붙었다 안 붙었다 한다 — `LDM_D09_테이블(컬럼)정의서_v1.2` · `…_예시과업_v1.6`).
-    pub project_names: Vec<String>,
-    /// 작성자 꼬리로 붙는 사람 이름.
-    pub people: Vec<String>,
-    /// 판을 가리지 못하는 상태어 — 키에서 빼고 이름 규칙 위반으로 알린다.
-    pub status_words: Vec<String>,
-}
-
-impl Default for NameRules {
-    fn default() -> Self {
-        let v = |xs: &[&str]| xs.iter().map(|s| s.to_string()).collect();
-        NameRules {
-            project_names: Vec::new(),
-            people: Vec::new(),
-            status_words: v(&["최종", "진짜", "수정본", "수정전", "복사본", "사본", "임시", "확인용", "최최종", "취합", "검토"]),
-        }
-    }
-}
-
-impl NameRules {
-    /// 설정 파일 자리 — 앱 설정 · 메모와 같은 폴더 (`%APPDATA%\kr.seesun.filedesk\name-rules.json`).
-    pub fn file() -> Option<std::path::PathBuf> {
-        std::env::var_os("APPDATA").map(|a| std::path::PathBuf::from(a).join("kr.seesun.filedesk").join("name-rules.json"))
-    }
-
-    /// 설정 파일을 읽는다. 없거나 꼴이 틀리면 기본값 — 빠진 칸도 기본값으로 채운다.
-    /// 꼴이 틀린 것을 조용히 넘기지 않게 표준 오류에 한 줄 남긴다 (화면은 기본 규칙으로 계속 돈다).
-    pub fn load() -> Self {
-        let Some(f) = Self::file() else { return Self::default() };
-        match std::fs::read_to_string(&f) {
-            Ok(s) => serde_json::from_str(&s).unwrap_or_else(|e| {
-                eprintln!("{}: 이름 규칙을 읽지 못해 기본값을 쓴다 — {e}", f.display());
-                Self::default()
-            }),
-            Err(_) => Self::default(),
-        }
-    }
-
-    /// 설정 파일에 쓴다. 빈 칸 · 겹친 이름은 빼고 쓴다. 다른 꼴로 쓰다 끊겨도 원본이 남게 임시 파일에 쓴 뒤 바꿔 끼운다.
-    /// 2026.11.11 : 앱 「이름 규칙」 창과 `fd rules` 가 이 파일을 함께 고친다 — 둘 다 고칠 때마다 읽고 쓰며 들고 있지 않는다.
-    pub fn save(&self) -> Result<(), String> {
-        let f = Self::file().ok_or("APPDATA 가 없어 이름 규칙 파일 자리를 모른다")?;
-        let tidy = |v: &[String]| {
-            let mut out: Vec<String> = Vec::new();
-            for s in v.iter().map(|s| s.trim()).filter(|s| !s.is_empty()) {
-                if !out.iter().any(|o| o == s) {
-                    out.push(s.to_string());
-                }
-            }
-            out
-        };
-        let clean = NameRules { project_names: tidy(&self.project_names), people: tidy(&self.people), status_words: tidy(&self.status_words) };
-        if let Some(d) = f.parent() {
-            std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
-        }
-        let tmp = f.with_extension("json.tmp");
-        std::fs::write(&tmp, serde_json::to_string_pretty(&clean).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-        std::fs::rename(&tmp, &f).map_err(|e| e.to_string())
-    }
-}
+/// 판을 가리지 못하는 상태어 — 키에서 빼고 이름 규칙 위반으로 알린다.
+/// 2026.11.11 : 설정 파일(`name-rules.json`)로 받던 이름 규칙을 뺐다. 과업 이름 · 사람 이름 목록은 한 과업에만 맞는 말이라
+///              일반 탐색기에 둘 까닭이 없고, 작성자 꼬리는 `looks_like_person` 추정으로 뗀다. 상태어는 어디서나 같아 여기 고정한다.
+const STATUS_WORDS: &[&str] = &["최종", "진짜", "수정본", "수정전", "복사본", "사본", "임시", "확인용", "최최종", "취합", "검토"];
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -156,7 +95,7 @@ fn parse_version(s: &str) -> Vec<u32> {
     s.split('.').filter_map(|p| p.parse().ok()).collect()
 }
 
-pub fn parse(name: &str, rules: &NameRules) -> DocName {
+pub fn parse(name: &str) -> DocName {
     let (stem, ext) = split_ext(name);
     let mut issues = Vec::new();
     let mut stem = stem.trim().to_string();
@@ -237,11 +176,11 @@ pub fn parse(name: &str, rules: &NameRules) -> DocName {
         }
         prev_was_date = false;
         // 상태어를 먼저 본다 — 「수정전」도 한글 세 글자라 사람 이름으로 잘못 볼 수 있다.
-        if rules.status_words.iter().any(|w| w == t) {
+        if STATUS_WORDS.contains(&t) {
             issues.push(format!("상태어 「{t}」"));
             continue;
         }
-        if rules.people.iter().any(|p| p == t) || rules.project_names.iter().any(|p| p == t) || looks_like_person(t) {
+        if looks_like_person(t) {
             continue;
         }
         kept.push(t);
@@ -288,20 +227,15 @@ fn lead_six(name: &str) -> bool {
 mod tests {
     use super::*;
 
-    /// 시험 규칙 — 과업 이름 · 사람 이름은 설정에서 오므로 여기서 준다.
-    fn rules() -> NameRules {
-        NameRules { project_names: vec!["예시과업".into()], people: vec!["홍길동".into()], ..NameRules::default() }
-    }
-
     fn p(n: &str) -> DocName {
-        parse(n, &rules())
+        parse(n)
     }
 
     #[test]
     fn standard_definition_files_group_together() {
-        let a = p("LDM_D09_테이블(컬럼)정의서_예시과업_v1.6_20261016.xlsx");
+        let a = p("LDM_D09_테이블(컬럼)정의서_v1.6_20261016.xlsx");
         let b = p("LDM_D09_테이블(컬럼)정의서_v1.2.xlsx");
-        let c = p("LDM_D09_테이블(컬럼)정의서_예시과업_v1.5_20261001_수정전.xlsx");
+        let c = p("LDM_D09_테이블(컬럼)정의서_v1.5_20261001_수정전.xlsx");
         assert_eq!(a.key, "ldm_d09_테이블(컬럼)정의서");
         assert_eq!(a.key, b.key);
         assert_eq!(a.key, c.key);
@@ -314,11 +248,11 @@ mod tests {
 
     #[test]
     fn report_with_author_and_time() {
-        let a = p("예시과업_담당자매뉴얼_20261027_홍길동.pptx");
-        let b = p("예시과업_담당자매뉴얼_v14_20261027.pptx");
+        let a = p("담당자매뉴얼_20261027_홍길동.pptx");
+        let b = p("담당자매뉴얼_v14_20261027.pptx");
         assert_eq!(a.key, b.key);
         assert_eq!(a.key, "담당자매뉴얼");
-        let m = p("예시과업_중간보고_회의록_20261006_1342.hwpx");
+        let m = p("중간보고_회의록_20261006_1342.hwpx");
         assert_eq!((m.date.as_str(), m.time.as_str()), ("20261006", "1342"));
         assert_eq!(m.key, "중간보고_회의록");
     }
@@ -343,12 +277,12 @@ mod tests {
 
     #[test]
     fn bundle_prefixes_are_dropped() {
-        let a = p("별첨9_LDM_D14_화면정의서_예시과업_20260714.pptx");
-        let b = p("LDM_D14_화면정의서_예시과업_20260714.pptx");
+        let a = p("별첨9_LDM_D14_화면정의서_20260714.pptx");
+        let b = p("LDM_D14_화면정의서_20260714.pptx");
         assert_eq!(a.key, b.key);
         let c = p("00_반입_안내.txt");
         assert_eq!(c.key, "반입_안내");
-        let d = p("01_예시과업_진행현황및조치사항.xlsx");
+        let d = p("01_진행현황및조치사항.xlsx");
         assert_eq!(d.key, "진행현황및조치사항");
     }
 
@@ -372,6 +306,6 @@ mod tests {
     #[test]
     fn same_name_different_docs_stay_apart() {
         // 산출물 번호가 같아도(D14) 문서가 다르면 키가 다르다.
-        assert_ne!(p("LDM_D14_공통코드_정의서_v0.2_20261016.xlsx").key, p("LDM_D14_화면정의서_예시과업_20260714.pptx").key);
+        assert_ne!(p("LDM_D14_공통코드_정의서_v0.2_20261016.xlsx").key, p("LDM_D14_화면정의서_20260714.pptx").key);
     }
 }
