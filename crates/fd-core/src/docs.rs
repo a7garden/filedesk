@@ -123,6 +123,33 @@ pub fn stale_in_place(g: &DocGroup) -> Vec<String> {
         .collect()
 }
 
+/// 폴더 `dir` 의 문서 `key` 에서 최신판 자리에 남은 지난 판. 화면의 「지난 판을 이전판으로」와 `fd retire --doc` 이 쓴다.
+pub fn stale_of(dir: &Path, key: &str, rules: &NameRules) -> Result<Vec<String>, String> {
+    let groups = group_dir(dir, false, rules);
+    let g = groups.iter().find(|g| g.key == key).ok_or("문서를 찾지 못했다 — 폴더가 바뀌었다")?;
+    Ok(stale_in_place(g))
+}
+
+/// 폴더 `dir` 의 모든 문서에서 최신판 자리에 남은 지난 판 — `(문서 키, 제목, 옮길 파일)`. 옮길 것이 없는 문서는 뺀다.
+pub fn stale_all(dir: &Path, rules: &NameRules) -> Vec<(String, String, Vec<String>)> {
+    group_dir(dir, false, rules)
+        .iter()
+        .map(|g| (g.key.clone(), g.title.clone(), stale_in_place(g)))
+        .filter(|(_, _, v)| !v.is_empty())
+        .collect()
+}
+
+/// `paths` 를 `history` 로 옮기면 이름이 겹치는 것 — 이미 같은 이름이 이전판에 있다.
+pub fn history_collisions(paths: &[String], history: &Path) -> Vec<String> {
+    paths
+        .iter()
+        .filter_map(|p| Path::new(p).file_name())
+        .map(|n| history.join(n))
+        .filter(|t| t.exists())
+        .map(|t| t.to_string_lossy().into_owned())
+        .collect()
+}
+
 fn group_issues(files: &[DocFile]) -> Vec<String> {
     let mut issues = Vec::new();
 

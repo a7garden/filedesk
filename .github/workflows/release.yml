@@ -69,3 +69,6 @@ jobs:
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: true
+          # 명령줄 fd.exe 를 설치 폴더에 함께 넣는다 (에이전트 스킬이 쓴다). 배포 빌드에만 붙인다 —
+          # 자원 파일이 없으면 tauri-build 가 멈춰서, 기본 설정에 두면 개발 판 · cargo test 가 fd.exe 를 먼저 빌드해야 돈다.
+          args: --config src-tauri/tauri.release.json

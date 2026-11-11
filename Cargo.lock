@@ -910,7 +910,7 @@ checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 
 [[package]]
 name = "fd-cli"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "clap",
  "fd-core",
@@ -920,7 +920,7 @@ dependencies = [
 
 [[package]]
 name = "fd-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "blake3",
  "regex",
@@ -930,7 +930,7 @@ dependencies = [
 
 [[package]]
 name = "fd-shell"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "png 0.17.16",
  "windows 0.61.3",
@@ -957,7 +957,7 @@ dependencies = [
 
 [[package]]
 name = "filedesk-desktop"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "fd-core",
  "fd-shell",

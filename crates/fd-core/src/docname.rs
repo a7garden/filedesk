@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 /// 이름 규칙. 과업마다 다르므로 사용자 설정 파일(`name-rules.json`, 앱 설정 폴더)로 받는다 — `NameRules::load`.
 /// 2026.11.11 : 과업 이름 · 사람 이름을 코드 기본값에서 빼 설정 파일로 옮겼다 (공개 저장소에 회사 과업 이름을 두지 않으려고).
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct NameRules {
     /// 문서 키에서 뺄 과업 이름 (판마다 붙었다 안 붙었다 한다 — `LDM_D09_테이블(컬럼)정의서_v1.2` · `…_예시과업_v1.6`).
@@ -53,6 +53,28 @@ impl NameRules {
             }),
             Err(_) => Self::default(),
         }
+    }
+
+    /// 설정 파일에 쓴다. 빈 칸 · 겹친 이름은 빼고 쓴다. 다른 꼴로 쓰다 끊겨도 원본이 남게 임시 파일에 쓴 뒤 바꿔 끼운다.
+    /// 2026.11.11 : 앱 「이름 규칙」 창과 `fd rules` 가 이 파일을 함께 고친다 — 둘 다 고칠 때마다 읽고 쓰며 들고 있지 않는다.
+    pub fn save(&self) -> Result<(), String> {
+        let f = Self::file().ok_or("APPDATA 가 없어 이름 규칙 파일 자리를 모른다")?;
+        let tidy = |v: &[String]| {
+            let mut out: Vec<String> = Vec::new();
+            for s in v.iter().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                if !out.iter().any(|o| o == s) {
+                    out.push(s.to_string());
+                }
+            }
+            out
+        };
+        let clean = NameRules { project_names: tidy(&self.project_names), people: tidy(&self.people), status_words: tidy(&self.status_words) };
+        if let Some(d) = f.parent() {
+            std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
+        }
+        let tmp = f.with_extension("json.tmp");
+        std::fs::write(&tmp, serde_json::to_string_pretty(&clean).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, &f).map_err(|e| e.to_string())
     }
 }
 

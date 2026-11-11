@@ -7,6 +7,8 @@ pub mod edition;
 pub mod list;
 pub mod memo;
 pub mod project;
+pub mod search;
+pub mod skill;
 pub mod tidy;
 
 pub use docname::{DocName, NameRules};

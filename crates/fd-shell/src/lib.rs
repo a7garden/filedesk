@@ -8,6 +8,8 @@
 //! 파일 작업 · 열기 · 아이콘은 `run_sta` 로 따로 띄운 STA 스레드에서 돈다 — 주 스레드를 막지 않으려고.
 
 #[cfg(windows)]
+pub mod clock;
+#[cfg(windows)]
 mod com;
 #[cfg(windows)]
 pub mod drag;

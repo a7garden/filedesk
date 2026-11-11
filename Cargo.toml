@@ -8,7 +8,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 rust-version = "1.89"
 license = "MIT"
@@ -30,6 +30,7 @@ windows = { version = "0.61", features = [
     "Win32_System_Com_StructuredStorage",
     "Win32_System_Environment",
     "Win32_System_Ole",
+    "Win32_System_SystemInformation",
     "Win32_System_SystemServices",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_Shell",

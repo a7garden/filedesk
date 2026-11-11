@@ -154,3 +154,50 @@ export const ROLE_LABEL: Record<string, string> = {
 
 /** 고치지 않는 자리 — 지우기 · 이름 바꾸기 전에 묻는다. */
 export const PROTECTED_ROLES = new Set(["received", "archive", "history"]);
+
+/** 열 너비 기본값: 이름 · 판 · 고친 날 · 크기 (이름 칸은 남는 자리를 다 쓰므로 최소 너비).
+ *  2026.11.11 : 「유형」 열(셸의 긴 종류 이름)을 빼고 「판」을 넣었다 — 확장자는 이름 끝에 흐리게 보인다. */
+export const DEFAULT_COLS = [280, 170, 110, 84];
+
+/** 종류마다의 색 — filedesk 아이콘의 띠 색. 밝게 · 어둡게 모두에서 읽히는 중간 밝기. */
+export const KIND_COLOR: Record<string, string> = {
+  doc: "#3f72d9",
+  sheet: "#2f9e5a",
+  slide: "#e0732c",
+  pdf: "#d64545",
+  image: "#8e4ec6",
+  media: "#c2417e",
+  archive: "#a07a3c",
+  code: "#5b6470",
+  other: "#8b8f96",
+};
+
+/** 파일 종류 묶음 — 목록 위 「종류」 거르기. 셸의 긴 종류 이름 대신 일에서 쓰는 말로 묶는다. */
+export type KindGroup = "folder" | "doc" | "sheet" | "slide" | "pdf" | "image" | "media" | "archive" | "code" | "other";
+export const KIND_ORDER: KindGroup[] = ["folder", "doc", "sheet", "slide", "pdf", "image", "media", "archive", "code", "other"];
+export const KIND_LABEL: Record<KindGroup, string> = {
+  folder: "폴더",
+  doc: "문서",
+  sheet: "표",
+  slide: "발표",
+  pdf: "PDF",
+  image: "그림",
+  media: "영상 · 소리",
+  archive: "압축",
+  code: "코드",
+  other: "기타",
+};
+const EXT_KIND: Record<string, KindGroup> = {};
+const add = (k: KindGroup, exts: string) => exts.split(" ").forEach((x) => (EXT_KIND[x] = k));
+add("doc", "hwp hwpx doc docx odt rtf txt md");
+add("sheet", "xls xlsx xlsm csv ods cell");
+add("slide", "ppt pptx odp show key");
+add("pdf", "pdf");
+add("image", "png jpg jpeg gif bmp webp svg tif tiff heic ico psd ai");
+add("media", "mp4 mov avi mkv wmv webm mp3 wav m4a flac");
+add("archive", "zip 7z rar alz egg tar gz tgz");
+add("code", "js ts tsx jsx java jsp py rs go c cpp h cs sql xml json yml yaml html css sh ps1 bat");
+
+export function kindOf(e: Pick<Entry, "isDir" | "ext">): KindGroup {
+  return e.isDir ? "folder" : (EXT_KIND[e.ext] ?? "other");
+}

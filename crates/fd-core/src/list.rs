@@ -35,40 +35,46 @@ pub fn list_dir(path: &Path, show_hidden: bool) -> io::Result<Vec<Entry>> {
     let mut out = Vec::new();
     for item in std::fs::read_dir(path)? {
         let Ok(item) = item else { continue };
-        let Ok(meta) = item.metadata() else { continue };
-        let attrs = file_attrs(&meta);
-        if !show_hidden && attrs & (ATTR_HIDDEN | ATTR_SYSTEM) != 0 {
+        let Some(e) = entry_of(&item) else { continue };
+        if !show_hidden && e.attrs & (ATTR_HIDDEN | ATTR_SYSTEM) != 0 {
             continue;
         }
-        // 정션 · 심볼릭 링크 폴더는 is_dir() 이 거짓이라 특성 비트로 본다.
-        let is_dir = meta.is_dir() || attrs & ATTR_DIRECTORY != 0;
-        let name = item.file_name().to_string_lossy().into_owned();
-        let ext = if is_dir {
-            String::new()
-        } else {
-            Path::new(&name)
-                .extension()
-                .map(|e| e.to_string_lossy().to_lowercase())
-                .unwrap_or_default()
-        };
-        let modified = meta
-            .modified()
-            .ok()
-            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-            .map(|d| d.as_millis() as i64)
-            .unwrap_or(0);
-        out.push(Entry {
-            path: item.path().to_string_lossy().into_owned(),
-            name,
-            is_dir,
-            size: if is_dir { 0 } else { meta.len() },
-            modified,
-            attrs,
-            ext,
-            kind: String::new(),
-        });
+        out.push(e);
     }
     Ok(out)
+}
+
+/// 항목 하나. 특성을 읽지 못하면(권한 · 지워짐) None. 하위 폴더까지 찾기(`search`)도 이것을 쓴다.
+pub fn entry_of(item: &std::fs::DirEntry) -> Option<Entry> {
+    let meta = item.metadata().ok()?;
+    let attrs = file_attrs(&meta);
+    // 정션 · 심볼릭 링크 폴더는 is_dir() 이 거짓이라 특성 비트로 본다.
+    let is_dir = meta.is_dir() || attrs & ATTR_DIRECTORY != 0;
+    let name = item.file_name().to_string_lossy().into_owned();
+    let ext = if is_dir {
+        String::new()
+    } else {
+        Path::new(&name)
+            .extension()
+            .map(|e| e.to_string_lossy().to_lowercase())
+            .unwrap_or_default()
+    };
+    let modified = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    Some(Entry {
+        path: item.path().to_string_lossy().into_owned(),
+        name,
+        is_dir,
+        size: if is_dir { 0 } else { meta.len() },
+        modified,
+        attrs,
+        ext,
+        kind: String::new(),
+    })
 }
 
 #[cfg(windows)]

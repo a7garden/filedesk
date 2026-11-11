@@ -72,7 +72,9 @@ mkdirSync(join(SETTINGS, ".."), { recursive: true });
 writeFileSync(SETTINGS, JSON.stringify({ session: { tabs: [T], active: 0 }, pinned: [{ name: "시험 폴더", path: T }], storeRoot: STORE }));
 
 const app = spawn(EXE, [], {
-  env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${PORT}` },
+  // WebView2 데이터 폴더를 따로 둔다 — 사용자가 켜 둔 filedesk 와 같은 폴더를 쓰면
+  // 새 창이 그 브라우저 프로세스에 붙어 디버깅 포트가 열리지 않는다 (11-11: 설치본을 켜 둔 채 시험이 붙지 못함).
+  env: { ...process.env, WEBVIEW2_USER_DATA_FOLDER: join(tmpdir(), "filedesk-e2e-webview"), WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${PORT}` },
   stdio: "ignore",
 });
 
@@ -213,7 +215,7 @@ try {
   await until(async () => (await rowNames()).length >= 7);
   await row("사아자").click();
   await page.keyboard.press("Control+m");
-  check("Ctrl+M 메모 칸", await until(() => pane.locator("input.memo-input").count().then((c) => c > 0)));
+  check("Ctrl+M 메모 칸", await until(() => pane.locator(".memo-input").count().then((c) => c > 0)));
   await page.keyboard.type("발주처 검토 끝");
   await page.keyboard.press("Enter");
   check("메모가 이름 곁에", await until(() => row("사아자").locator(".memo").textContent().then((t) => t === "발주처 검토 끝")));
@@ -245,6 +247,163 @@ try {
   await page.screenshot({ path: join(SHOTS, "07_문제만.png") });
   await chip.click();
   check("다시 모두", await until(async () => (await rowNames()).length >= 7));
+
+  // 10-2. 이전판 감시 — 이전판 안에만 파일이 생겨도 판 눈금이 따라온다 (감시는 한 단계라 이전판을 따로 본다)
+  writeFileSync(join(T, "이전판", "보고서_v1_20260901.pptx"), "v1");
+  check("이전판 안만 바뀌어도 판 눈금이 따라온다", await until(async () => (await row("보고서").locator("svg.ticks").getAttribute("aria-label"))?.includes("3판"), 6000));
+
+  // 10-3. 종류 거르기 — 이 폴더에 있는 종류만 칩으로. 「표」를 누르면 xlsx 만
+  const kindBtn = (label) => pane.locator(".kinds .kind", { hasText: label }).first();
+  check("종류 칩", await until(() => kindBtn("표").count().then((c) => c === 1)), (await pane.locator(".kinds").textContent()) ?? "");
+  await kindBtn("표").click();
+  check("표만 거른다", await until(async () => {
+    const n = await rowNames();
+    return n.length > 0 && n.every((x) => x.endsWith(".xlsx"));
+  }), (await rowNames()).join(" · "));
+  await kindBtn("표").click();
+  await until(async () => (await rowNames()).length >= 7);
+
+  // 10-4. 색 표시 — Alt+2(주황) → 이름 곁 점 · 메모 파일에 · 색 칩으로 거르기 · Alt+0 으로 뗀다 · 「색」 단추로 고르기
+  await row("회의자료").click();
+  await page.keyboard.press("Alt+2");
+  check("Alt+2 로 색 표시", await until(() => row("회의자료").locator(".tag-dot.tag-orange").count().then((c) => c === 1)));
+  check("색은 filedesk 메모 파일에", await until(() => existsSync(MEMOS) && readFileSync(MEMOS, "utf8").includes('"orange"')));
+  await pane.locator(".kinds .kind-color").first().click();
+  check("색으로 거르기", await until(async () => (await rowNames()).length === 1), (await rowNames()).join(" · "));
+  await pane.locator(".kinds .kind-color").first().click();
+  await until(async () => (await rowNames()).length >= 7);
+  await row("회의자료").click();
+  await page.keyboard.press("Alt+0");
+  check("Alt+0 으로 뗀다", await until(() => row("회의자료").locator(".tag-dot").count().then((c) => c === 0)));
+  await row("보고서").hover();
+  await row("보고서").locator(".tag-add").click();
+  check("색 고르기 창 — 일곱 색", await until(() => page.locator(".tag-menu .tag-swatch").count().then((c) => c === 7)));
+  await page.locator(".tag-menu [data-color=blue]").click();
+  check("고르기 창에서 파랑", await until(() => row("보고서").locator(".tag-dot.tag-blue").count().then((c) => c === 1)));
+  await page.screenshot({ path: join(SHOTS, "10_색표시.png") });
+
+  // 10-5. 아래 폴더까지 찾기 — 하위\차카타.txt 는 이 폴더 거르기에 없고, Shift+Enter 로 찾는다
+  await page.keyboard.press("Control+f");
+  await page.keyboard.type("차카타");
+  check("이 폴더 거르기에는 없다", await until(() => pane.locator(".empty", { hasText: "이 폴더에 없다" }).count().then((c) => c === 1)));
+  await page.keyboard.press("Shift+Enter");
+  check("아래 폴더까지 찾기", await until(async () => (await rowNames()).some((n) => n.startsWith("차카타"))), (await rowNames()).join(" · "));
+  check("찾은 자리를 곁에 적는다", (await row("차카타").locator(".where").textContent()) === "하위");
+  await page.screenshot({ path: join(SHOTS, "11_아래폴더찾기.png") });
+  await pane.locator("input.filter").press("Escape");
+  await until(async () => (await rowNames()).length >= 7);
+
+  // 10-6. 즐겨찾기 — 파일을 고르고 Ctrl+D → 왼쪽 즐겨찾기에 파일로
+  await row("LDM_D09").click();
+  await page.keyboard.press("Control+d");
+  check("파일을 즐겨찾기에", await until(() => page.locator(".side li[data-pin-index]", { hasText: "LDM_D09" }).count().then((c) => c === 1)));
+
+  // 10-7. 나눠 보기 — Ctrl+\ 로 두 칸 · 오른쪽 칸만 옮기기 · 칸 너비 끌기 · 탭을 끌어 칸에 놓기 · 다시 Ctrl+\
+  //       칸 사이 파일 끌기는 셸 끌기(OLE)라 여기서 못 본다 — 사람이 본다.
+  const panes = page.locator("section.pane:not([hidden])");
+  await page.keyboard.press("Control+\\");
+  check("나눠 보기 — 두 칸", await until(() => panes.count().then((c) => c === 2)));
+  const focused = page.locator("section.pane.focused-pane");
+  check("오른쪽 칸이 키보드를 받는다", await until(() => focused.count().then((c) => c === 1)));
+  await focused.locator(".row", { hasText: "하위" }).first().dblclick();
+  check(
+    "오른쪽 칸만 옮긴다",
+    await until(async () => (await focused.locator(".crumb.here").textContent()) === "하위" && (await panes.first().locator(".crumb.here").textContent()) !== "하위"),
+  );
+  const div = await page.locator(".divider").boundingBox();
+  await page.mouse.move(div.x + 2, div.y + 200);
+  await page.mouse.down();
+  await page.mouse.move(div.x - 160, div.y + 200, { steps: 6 });
+  await page.mouse.up();
+  const widths = await panes.evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().width)));
+  check("칸 너비를 끌어 바꾼다", widths[0] < widths[1], widths.join(" · "));
+  await page.screenshot({ path: join(SHOTS, "12_나눠보기.png") });
+  const tab0 = await page.locator(".tab").first().boundingBox();
+  const area = await page.locator(".panes").boundingBox();
+  await page.mouse.move(tab0.x + 20, tab0.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(area.x + area.width * 0.8, area.y + 200, { steps: 8 });
+  check("탭을 끌면 놓을 칸이 보인다", await until(() => page.locator(".split-drop.side-1").count().then((c) => c === 1), 2000));
+  await page.mouse.up();
+  // 칸은 DOM 순서(탭 순서)가 아니라 grid 칸으로 놓인다 — 화면 왼쪽에 있는 칸을 위치로 고른다.
+  const leftCrumb = () =>
+    panes.evaluateAll((els) => {
+      const l = els.sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left)[0];
+      return l?.querySelector(".crumb.here")?.textContent ?? "";
+    });
+  check("탭을 오른쪽 반에 놓으면 그 칸에 연다 (두 칸이 맞바뀐다)", await until(async () => (await leftCrumb()) === "하위"), await leftCrumb());
+  await page.keyboard.press("Control+\\");
+  check("다시 한 칸", await until(() => panes.count().then((c) => c === 1)));
+
+  // 10-8. 설정 창 — 보기 · 이름 규칙 · Claude 스킬. 이름 규칙은 저장하면 설정 파일에
+  await page.locator(".settings-btn").click();
+  check("설정 창", await until(() => page.locator(".settings").count().then((c) => c === 1)));
+  check("설정은 보기부터", (await page.locator(".set-nav button[aria-current]").textContent()) === "보기");
+  await page.locator(".set-nav button", { hasText: "이름 규칙" }).click();
+  const rulesBox = page.locator(".settings textarea").first();
+  check("이름 규칙이 보인다", (await rulesBox.inputValue()) === "예시과업", await rulesBox.inputValue());
+  await rulesBox.fill("예시과업\n시험규칙");
+  await page.getByRole("button", { name: "저장", exact: true }).click();
+  check("이름 규칙을 저장한다", await until(() => readFileSync(RULES, "utf8").includes("시험규칙")));
+  await page.locator(".set-nav button", { hasText: "Claude 스킬" }).click();
+  check("Claude 스킬 상태", await until(async () => /설치/.test((await page.locator(".settings").textContent()) ?? "")));
+  await page.screenshot({ path: join(SHOTS, "13_설정.png") });
+  await page.keyboard.press("Escape");
+  check("Esc 로 닫힌다", await until(() => page.locator(".settings").count().then((c) => c === 0)));
+
+  // 10-9. 격자 보기 — 아래 단추로 격자 · Ctrl+휠로 크기 · 그림은 미리보기 · 다시 목록
+  writeFileSync(
+    join(T, "그림.png"),
+    Buffer.from("iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAJElEQVR4nGP8z8Dwn4ECwESJ5lEDRg0YNWDUgFEDRg0YNQAAOwYCH0xD9z4AAAAASUVORK5CYII=", "base64"),
+  );
+  const ticksBefore = (await row("보고서").locator("svg.ticks").getAttribute("aria-label")) ?? "";
+  await pane.locator(".view-switch button").nth(1).click();
+  check("격자 보기", await until(() => pane.locator(".tile").count().then((c) => c >= 7)));
+  const tileW = () => pane.locator(".tile").first().evaluate((el) => el.getBoundingClientRect().width);
+  const w0 = await tileW();
+  const box = await pane.locator(".list").boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.keyboard.down("Control");
+  await page.mouse.wheel(0, -100);
+  await page.keyboard.up("Control");
+  const w1 = await until(async () => ((await tileW()) > w0 ? tileW() : null), 3000);
+  check("Ctrl+휠로 칸이 커진다", !!w1, `${Math.round(w0)} → ${Math.round(w1 ?? w0)}`);
+  check(
+    "그림은 미리보기로",
+    await until(() => pane.locator(".tile", { hasText: "그림" }).locator("img.thumb").evaluate((img) => img.complete && img.naturalWidth > 0), 8000),
+  );
+  const stackText = await pane.locator(".tile", { hasText: "보고서" }).locator(".tile-stack").textContent();
+  check("판이 쌓인 문서는 판 수 (목록 판 눈금과 같은 셈)", stackText === ticksBefore.match(/(\d+)판/)?.[0], `${stackText} · ${ticksBefore}`);
+  await pane.locator(".tile", { hasText: "LDM_D09" }).click();
+  await page.keyboard.press("ArrowLeft");
+  check("격자에서 화살표로 옮긴다", await until(() => pane.locator(".tile.selected").count().then((c) => c === 1)));
+  await page.screenshot({ path: join(SHOTS, "14_격자.png") });
+  await pane.locator(".view-switch button").first().click();
+  check("다시 목록", await until(() => pane.locator(".row").count().then((c) => c >= 7)));
+
+  // 10-10. 보일 열 — 열 머리 오른쪽 단추로 「크기」를 숨겼다가 다시
+  await pane.locator(".cols").click({ button: "right" });
+  check("열 고르기 메뉴", await until(() => page.locator(".pop-menu").count().then((c) => c === 1)));
+  await page.locator(".pop-menu button", { hasText: "크기" }).click();
+  check("크기 열을 숨긴다", await until(() => pane.locator(".row .cell.size").count().then((c) => c === 0)));
+  await page.locator(".pop-menu button", { hasText: "크기" }).click();
+  check("다시 보인다", await until(() => pane.locator(".row .cell.size").count().then((c) => c > 0)));
+  await page.keyboard.press("Escape");
+
+  // 10-11. 긴 메모 — 여러 줄로 붙이면 줄에는 첫 줄, 올려 두면 카드로 다
+  await row("LDM_D09").click();
+  await page.keyboard.press("Control+m");
+  await until(() => pane.locator(".memo-input").count().then((c) => c > 0));
+  await page.keyboard.type("정의서 검토 요청");
+  await page.keyboard.press("Shift+Enter");
+  await page.keyboard.type("발주처 회신을 받은 뒤 v1.7 로 올린다. 컬럼 설명 열두 곳을 고친다.");
+  await page.keyboard.press("Enter");
+  const memoBtn = row("LDM_D09").locator(".memo");
+  check("여러 줄 메모는 첫 줄만", await until(() => memoBtn.textContent().then((t) => t === "정의서 검토 요청")));
+  await memoBtn.hover();
+  check("올려 두면 메모 카드", await until(() => page.locator(".memo-card").textContent().then((t) => t?.includes("v1.7")), 3000));
+  await page.screenshot({ path: join(SHOTS, "15_메모카드.png") });
+  await page.mouse.move(5, 400);
 
   // 10-1. 직접 그린 제목 줄 — 창 단추 셋 · 최대화 ↔ 이전 크기 · 왼쪽 판 표시
   check("창 단추 셋", (await page.locator(".winctl button").count()) === 3);

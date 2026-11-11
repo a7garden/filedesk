@@ -8,8 +8,9 @@
 //!   [5] 끌기 (앱 밖으로)
 //!   [6] 폴더 변경 감시
 //!   [7] 문서 — 판 묶기 · 새 판 내기 · 지난 판 옮기기
-//!   [7-1] 메모 — 파일 · 폴더에 붙인 글 (filedesk 가 관리 · `fd-core::memo`)
-//!   [8] 설정 (고정 위치 · 열어 둔 탭 · 열 너비)
+//!   [7-1] 메모 — 파일 · 폴더에 붙인 글 · 색 표시 (filedesk 가 관리 · `fd-core::memo`) · 하위 폴더까지 찾기
+//!   [7-2] 이름 규칙 · Claude 스킬 설치 (설정 창)
+//!   [8] 설정 (즐겨찾기 · 열어 둔 탭 · 분할 · 열 너비)
 //!   [8-1] 과업 · 자리 역할 · 들어온 곳
 //!   [8-2] 업데이트 — GitHub 릴리즈의 latest.json (tauri-plugin-updater · 화면 쪽 `updater.ts`)
 //!   [9] 아이콘 프로토콜 · 앱 시작
@@ -148,20 +149,40 @@ fn pick_out(p: MenuPick) -> String {
         MenuPick::None => "none".into(),
         MenuPick::Rename => "rename".into(),
         MenuPick::Invoked(v) => format!("invoked:{v}"),
+        MenuPick::App(k) => format!("app:{k}"),
     }
 }
 
+/// 화면이 보내는 filedesk 메뉴 항목 (`fd_shell::menu::AppItem`). 구분선은 key · label 이 비어 있다.
+#[derive(serde::Deserialize, Default)]
+#[serde(default)]
+struct MenuItemIn {
+    key: String,
+    label: String,
+    checked: bool,
+    disabled: bool,
+    children: Vec<MenuItemIn>,
+}
+
+fn app_items(v: Vec<MenuItemIn>) -> Vec<fd_shell::menu::AppItem> {
+    v.into_iter()
+        .map(|i| fd_shell::menu::AppItem { key: i.key, label: i.label, checked: i.checked, disabled: i.disabled, children: app_items(i.children) })
+        .collect()
+}
+
 #[tauri::command]
-async fn context_menu(app: AppHandle, window: WebviewWindow, paths: Vec<String>, dir: String) -> CmdResult<String> {
+async fn context_menu(app: AppHandle, window: WebviewWindow, paths: Vec<String>, dir: String, items: Option<Vec<MenuItemIn>>) -> CmdResult<String> {
     let hwnd = owner(&window)?;
-    on_main(app, move || fd_shell::menu::show_items_menu(hwnd, &paths, &dir).map(pick_out).map_err(|e| e.to_string()))
+    let items = app_items(items.unwrap_or_default());
+    on_main(app, move || fd_shell::menu::show_items_menu(hwnd, &paths, &dir, &items).map(pick_out).map_err(|e| e.to_string()))
         .await?
 }
 
 #[tauri::command]
-async fn background_menu(app: AppHandle, window: WebviewWindow, dir: String) -> CmdResult<String> {
+async fn background_menu(app: AppHandle, window: WebviewWindow, dir: String, items: Option<Vec<MenuItemIn>>) -> CmdResult<String> {
     let hwnd = owner(&window)?;
-    on_main(app, move || fd_shell::menu::show_background_menu(hwnd, &dir).map(pick_out).map_err(|e| e.to_string()))
+    let items = app_items(items.unwrap_or_default());
+    on_main(app, move || fd_shell::menu::show_background_menu(hwnd, &dir, &items).map(pick_out).map_err(|e| e.to_string()))
         .await?
 }
 
@@ -282,7 +303,16 @@ fn watch_dirs(app: AppHandle, state: tauri::State<'_, WatchState>, dirs: Vec<Str
         *guard = Some(w);
     }
     let w = guard.as_mut().unwrap();
-    let want: HashSet<PathBuf> = dirs.into_iter().map(PathBuf::from).collect();
+    // 그 폴더의 `이전판/` 도 본다 — 감시는 한 단계라, 이전판 안에서만 바뀌면 판 눈금 · 문제 줄이 따라오지 않았다.
+    // 이벤트 경로의 상위가 `…\이전판` 이면 화면이 그 위 폴더를 다시 읽는다 (Pane [1]).
+    let want: HashSet<PathBuf> = dirs
+        .into_iter()
+        .map(PathBuf::from)
+        .flat_map(|d| {
+            let h = d.join(fd_core::docs::HISTORY_DIR);
+            if h.is_dir() { vec![d, h] } else { vec![d] }
+        })
+        .collect();
     let mut have = state.dirs.lock().unwrap();
     for gone in have.difference(&want).cloned().collect::<Vec<_>>() {
         let _ = w.unwatch(&gone);
@@ -306,74 +336,17 @@ async fn doc_groups(path: String) -> CmdResult<Vec<fd_core::DocGroup>> {
     .map_err(|e| e.to_string())
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct EditionPlan {
-    /// 복사해 올 판 (pdf 를 골랐으면 같은 판의 원본으로 바뀐다).
-    source: String,
-    new_name: String,
-    new_path: String,
-    /// 이전판으로 보낼 파일 (지난 판과 그 판의 다른 꼴).
-    retire: Vec<String>,
-    history: String,
-}
-
-/// 새 판 계획 — 지침의 판 규칙으로 다음 이름을 짓고, 같은 판의 다른 꼴(pdf 등)까지 `이전판/` 으로 보낼 목록을 만든다.
-/// 화면은 이것을 먼저 보여 주고 확인을 받은 뒤 `new_edition` 을 부른다 — 여러 파일을 옮기는 일이라 미리 보이게.
-fn plan_edition_inner(path: &str, today: &str) -> CmdResult<EditionPlan> {
-    let src = PathBuf::from(path);
-    let name = src.file_name().map(|n| n.to_string_lossy().into_owned()).ok_or("파일 이름이 없다")?;
-    let folder = src.parent().ok_or("상위 폴더가 없다")?.to_path_buf();
-    if folder.file_name().is_some_and(|n| n == fd_core::docs::HISTORY_DIR) {
-        return Err("이전판 안의 파일에서는 새 판을 내지 않는다 — 정본 폴더의 최신판에서 낸다".into());
-    }
-    let new_name = fd_core::edition::next_edition_name(&name, today).map_err(|e| e.to_string())?;
-    let rules = fd_core::NameRules::load();
-    let me = fd_core::docname::parse(&name, &rules);
-    let same_edition = |n: &str| {
-        let o = fd_core::docname::parse(n, &rules);
-        o.key == me.key && o.version == me.version && o.date == me.date && o.time == me.time
-    };
-    let mut retire: Vec<String> = std::fs::read_dir(&folder)
-        .map_err(|e| e.to_string())?
-        .flatten()
-        .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
-        .filter(|e| same_edition(&e.file_name().to_string_lossy()))
-        .map(|e| e.path().to_string_lossy().into_owned())
-        .collect();
-    retire.sort();
-    // 보기용 꼴(pdf)을 골랐어도 같은 판에 원본이 있으면 원본에서 낸다. 새 판 이름도 원본 확장자로.
-    if fd_core::docs::is_rendition(&me.ext) {
-        let src_name = retire
-            .iter()
-            .filter_map(|p| Path::new(p).file_name().map(|n| n.to_string_lossy().into_owned()))
-            .find(|n| !fd_core::docs::is_rendition(&fd_core::docname::parse(n, &rules).ext));
-        if let Some(src_name) = src_name {
-            let mut plan = plan_edition_inner(&folder.join(&src_name).to_string_lossy(), today)?;
-            plan.source = folder.join(&src_name).to_string_lossy().into_owned();
-            return Ok(plan);
-        }
-    }
-    Ok(EditionPlan {
-        source: path.to_string(),
-        new_path: folder.join(&new_name).to_string_lossy().into_owned(),
-        new_name,
-        retire,
-        history: folder.join(fd_core::docs::HISTORY_DIR).to_string_lossy().into_owned(),
-    })
-}
-
 #[tauri::command]
-fn plan_edition(path: String, today: String) -> CmdResult<EditionPlan> {
-    plan_edition_inner(&path, &today)
+fn plan_edition(path: String, today: String) -> CmdResult<fd_core::edition::EditionPlan> {
+    fd_core::edition::plan(Path::new(&path), &today, &fd_core::NameRules::load())
 }
 
 /// 새 판 내기. 계획을 다시 세워 그대로 실행한다 (보여 준 뒤 폴더가 바뀌었을 수 있어서). 돌려주는 값은 새 판 경로.
 #[tauri::command]
 async fn new_edition(window: WebviewWindow, path: String, today: String) -> CmdResult<String> {
     let hwnd = owner(&window)?;
-    let plan = plan_edition_inner(&path, &today)?;
-    let EditionPlan { source, new_name, new_path, retire, history } = plan;
+    let plan = fd_core::edition::plan(Path::new(&path), &today, &fd_core::NameRules::load())?;
+    let fd_core::edition::EditionPlan { source, new_name, new_path, retire, history } = plan;
     let out = on_sta(move || fd_shell::ops::new_edition(hwnd, &source, &new_name, &retire, &history)).await?;
     match out.map_err(|e| e.to_string())? {
         Outcome::Done => Ok(new_path),
@@ -383,9 +356,7 @@ async fn new_edition(window: WebviewWindow, path: String, today: String) -> CmdR
 
 /// 문서 `key` 의 지난 판 중 최신판 자리에 남은 것 — 화면이 「이전판으로 옮김: …」으로 먼저 보여 준다.
 fn stale_of(dir: &str, key: &str) -> CmdResult<Vec<String>> {
-    let groups = fd_core::group_dir(Path::new(dir), false, &fd_core::NameRules::load());
-    let g = groups.iter().find(|g| g.key == key).ok_or("문서를 찾지 못했다 — 폴더가 바뀌었다")?;
-    Ok(fd_core::docs::stale_in_place(g))
+    fd_core::docs::stale_of(Path::new(dir), key, &fd_core::NameRules::load())
 }
 
 #[tauri::command]
@@ -467,6 +438,109 @@ async fn set_memo(path: String, text: String) -> CmdResult<Option<fd_core::memo:
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// 색 표시를 붙인다 (`None` 이면 뗀다). 돌려주는 값은 남은 항목.
+#[tauri::command]
+async fn set_color(path: String, color: Option<String>) -> CmdResult<Option<fd_core::memo::Memo>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let id = fd_shell::fileid::file_id(&path);
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
+        let file = memo_file()?;
+        let mut s = fd_core::memo::MemoStore::load(&file)?;
+        let out = s.set_color(&path, color.as_deref(), id, now)?.cloned();
+        s.save(&file)?;
+        Ok(out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 여러 경로의 메모 · 색 — 왼쪽 목록(프로젝트 · 즐겨찾기)이 색 점을 그리는 데 쓴다. 없는 경로는 뺀다.
+#[tauri::command]
+async fn memos_of(paths: Vec<String>) -> CmdResult<Vec<fd_core::memo::Memo>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let s = fd_core::memo::MemoStore::load(&memo_file()?)?;
+        Ok(paths.iter().filter_map(|p| s.get(p).cloned()).collect())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 하위 폴더까지 찾기 (fd-core `search`). 새 찾기가 오면 앞선 것은 멈춘다 — 글자를 칠 때마다 부르므로.
+#[tauri::command]
+async fn search_dir(root: String, query: String, show_hidden: bool) -> CmdResult<fd_core::search::SearchResult> {
+    let generation = fd_core::search::next_generation();
+    tauri::async_runtime::spawn_blocking(move || {
+        let memos = fd_core::memo::MemoStore::load(&memo_file()?)?
+            .all()
+            .filter(|m| !m.text.is_empty())
+            .map(|m| (fd_core::memo::key(&m.path), m.text.clone()))
+            .collect();
+        let mut r = fd_core::search::find(Path::new(&root), &query, show_hidden, &memos, 2000, std::time::Duration::from_secs(8), Some(generation));
+        for f in &mut r.items {
+            f.entry.kind = fd_shell::icon::type_name(&f.entry.ext, f.entry.is_dir);
+        }
+        Ok(r)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 경로마다 폴더인가 (없으면 false) — 즐겨찾기에 끌어다 놓은 것이 폴더인지 파일인지 가른다.
+#[tauri::command]
+fn dirs_of(paths: Vec<String>) -> Vec<bool> {
+    paths.iter().map(|p| Path::new(p).is_dir()).collect()
+}
+
+// ───────────────────────────── [7-2] 이름 규칙 · Claude 스킬 ─────────────────────────────
+
+#[tauri::command]
+fn name_rules() -> fd_core::NameRules {
+    fd_core::NameRules::load()
+}
+
+#[tauri::command]
+fn save_name_rules(rules: fd_core::NameRules) -> CmdResult<()> {
+    rules.save()
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SkillStatus {
+    /// 설치 자리 (`~/.claude/skills/filedesk/SKILL.md`).
+    file: Option<String>,
+    /// 설치된 스킬의 판. 없으면 설치 안 됨.
+    installed: Option<String>,
+    /// 이 앱의 판 — 다르면 다시 설치를 권한다.
+    current: String,
+    /// 설치 폴더에 fd.exe 가 있는가 (배포 설치본). 없으면 스킬이 부를 명령이 없다.
+    has_cli: bool,
+}
+
+/// 앱 옆 fd.exe — 설치본은 같은 폴더에 함께 깔린다 (tauri.release.json).
+fn fd_exe() -> Option<PathBuf> {
+    let p = std::env::current_exe().ok()?.parent()?.join("fd.exe");
+    p.is_file().then_some(p)
+}
+
+#[tauri::command]
+fn skill_status() -> SkillStatus {
+    let file = fd_core::skill::default_file();
+    SkillStatus {
+        installed: file.as_deref().and_then(fd_core::skill::installed_version),
+        file: file.map(|f| f.to_string_lossy().into_owned()),
+        current: env!("CARGO_PKG_VERSION").to_string(),
+        has_cli: fd_exe().is_some(),
+    }
+}
+
+#[tauri::command]
+fn install_skill() -> CmdResult<SkillStatus> {
+    let fd = fd_exe().ok_or("앱 폴더에 fd.exe 가 없다 — 설치본(릴리즈의 setup.exe)으로 깔아야 함께 들어온다")?;
+    let file = fd_core::skill::default_file().ok_or("USERPROFILE 이 없다")?;
+    fd_core::skill::install(&file, &fd)?;
+    Ok(skill_status())
 }
 
 // ───────────────────────────── [8] 설정 ─────────────────────────────
@@ -633,6 +707,14 @@ pub fn run() {
             retire_editions,
             memos_in,
             set_memo,
+            set_color,
+            memos_of,
+            search_dir,
+            dirs_of,
+            name_rules,
+            save_name_rules,
+            skill_status,
+            install_skill,
             update_installable,
             open_url,
             load_settings,

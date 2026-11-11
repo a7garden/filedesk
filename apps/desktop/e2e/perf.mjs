@@ -27,7 +27,8 @@ const backup = existsSync(SETTINGS) ? readFileSync(SETTINGS) : null;
 writeFileSync(SETTINGS, JSON.stringify({ session: { tabs: [T], active: 0 }, pinned: [] }));
 
 const launched = Date.now();
-const app = spawn(EXE, [], { env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${PORT}` }, stdio: "ignore" });
+// WebView2 데이터 폴더를 따로 둔다 — 켜 둔 filedesk 와 겹치면 디버깅 포트가 열리지 않는다 (smoke.mjs 와 같다).
+const app = spawn(EXE, [], { env: { ...process.env, WEBVIEW2_USER_DATA_FOLDER: join(tmpdir(), "filedesk-e2e-webview"), WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${PORT}` }, stdio: "ignore" });
 let browser;
 try {
   for (let i = 0; i < 150 && !browser; i++) {

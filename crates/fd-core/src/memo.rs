@@ -8,6 +8,9 @@
 //! 앱 안에서 이름을 바꾸면 그 자리에서 바로 옮긴다 (`moved`).
 //!
 //! 앱과 명령줄(`fd memo`)이 같은 파일을 쓴다 — 오래 들고 있지 않고 매번 읽고 · 고치고 · 쓴다.
+//!
+//! 2026.11.11 : 색 표시(Finder 의 꼬리표처럼 빨강 · 주황 … 하나)도 같은 자리에 둔다. 글 없이 색만 있는 항목도 남는다 —
+//! 경로가 바뀌면 따라가야 하는 것은 글과 같아서, 따로 두면 옮기기 · 다시 붙이기를 두 번 짜야 한다.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -25,7 +28,13 @@ pub struct Memo {
     pub id: Option<String>,
     /// 고친 때 (유닉스 밀리초).
     pub updated: i64,
+    /// 색 표시 — `COLORS` 중 하나. 없으면 없다.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
 }
+
+/// 색 표시에 쓰는 이름. 화면은 이 이름으로 색을 고른다 (Finder 꼬리표와 같은 일곱 색).
+pub const COLORS: &[&str] = &["red", "orange", "yellow", "green", "blue", "purple", "gray"];
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct Disk {
@@ -94,15 +103,30 @@ impl MemoStore {
         self.items.iter().filter(|(k, _)| parent_key(k) == d || parent_key(k) == hist).map(|(_, m)| m).collect()
     }
 
-    /// 메모를 붙인다. 빈 글이면 뗀다. 돌려주는 값은 남은 메모.
+    /// 메모를 붙인다. 빈 글이면 글을 뗀다 (색이 있으면 항목은 남는다). 돌려주는 값은 남은 항목.
     pub fn set(&mut self, path: &str, text: &str, id: Option<String>, now: i64) -> Option<&Memo> {
+        let color = self.get(path).and_then(|m| m.color.clone());
+        self.put(path, text.trim().to_string(), color, id, now)
+    }
+
+    /// 색을 붙인다. `None` 이면 뗀다 (글이 있으면 항목은 남는다). 모르는 색 이름은 오류.
+    pub fn set_color(&mut self, path: &str, color: Option<&str>, id: Option<String>, now: i64) -> Result<Option<&Memo>, String> {
+        if let Some(c) = color {
+            if !COLORS.contains(&c) {
+                return Err(format!("모르는 색이다: {c} (쓸 수 있는 색: {})", COLORS.join(" · ")));
+            }
+        }
+        let text = self.get(path).map(|m| m.text.clone()).unwrap_or_default();
+        Ok(self.put(path, text, color.map(str::to_string), id, now))
+    }
+
+    fn put(&mut self, path: &str, text: String, color: Option<String>, id: Option<String>, now: i64) -> Option<&Memo> {
         let k = key(path);
-        let text = text.trim();
-        if text.is_empty() {
+        if text.is_empty() && color.is_none() {
             self.items.remove(&k);
             return None;
         }
-        self.items.insert(k.clone(), Memo { path: path.to_string(), text: text.to_string(), id, updated: now });
+        self.items.insert(k.clone(), Memo { path: path.to_string(), text, id, updated: now, color });
         self.items.get(&k)
     }
 

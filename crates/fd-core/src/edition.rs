@@ -61,6 +61,78 @@ pub fn next_edition_name(name: &str, today: &str) -> Result<String, EditionError
     Ok(format!("{}{}", toks.join("_"), ext))
 }
 
+/// 새 판 계획 — 무엇을 복사해 어떤 이름으로 두고, 무엇을 `이전판/` 으로 보내는가.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditionPlan {
+    /// 복사해 올 판 (pdf 를 골랐으면 같은 판의 원본으로 바뀐다).
+    pub source: String,
+    pub new_name: String,
+    pub new_path: String,
+    /// 이전판으로 보낼 파일 (지난 판과 그 판의 다른 꼴).
+    pub retire: Vec<String>,
+    pub history: String,
+}
+
+/// 새 판 계획을 세운다. 판 규칙으로 다음 이름을 짓고, 같은 판의 다른 꼴(pdf 등)까지 `이전판/` 으로 보낼 목록을 만든다.
+/// 화면과 명령줄이 같은 계획을 먼저 보이고, 실행할 때 다시 세워 그대로 한다 (보인 뒤 폴더가 바뀌었을 수 있어서).
+/// 2026.11.11 : 앱(`lib.rs`)에 있던 것을 명령줄(`fd edition`)도 쓰도록 옮겼다.
+pub fn plan(path: &std::path::Path, today: &str, rules: &crate::NameRules) -> Result<EditionPlan, String> {
+    use crate::docname::parse;
+    use crate::docs::{HISTORY_DIR, is_rendition};
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).ok_or("파일 이름이 없다")?;
+    let folder = path.parent().ok_or("상위 폴더가 없다")?.to_path_buf();
+    if folder.file_name().is_some_and(|n| n == HISTORY_DIR) {
+        return Err("이전판 안의 파일에서는 새 판을 내지 않는다 — 정본 폴더의 최신판에서 낸다".into());
+    }
+    if !path.is_file() {
+        return Err(format!("{}: 파일이 없다", path.display()));
+    }
+    let new_name = next_edition_name(&name, today).map_err(|e| e.to_string())?;
+    let me = parse(&name, rules);
+    let same_edition = |n: &str| {
+        let o = parse(n, rules);
+        o.key == me.key && o.version == me.version && o.date == me.date && o.time == me.time
+    };
+    let mut retire: Vec<String> = std::fs::read_dir(&folder)
+        .map_err(|e| e.to_string())?
+        .flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+        .filter(|e| same_edition(&e.file_name().to_string_lossy()))
+        .map(|e| e.path().to_string_lossy().into_owned())
+        .collect();
+    retire.sort();
+    // 보기용 꼴(pdf)을 골랐어도 같은 판에 원본이 있으면 원본에서 낸다. 새 판 이름도 원본 확장자로.
+    if is_rendition(&me.ext) {
+        let src_name = retire
+            .iter()
+            .filter_map(|p| std::path::Path::new(p).file_name().map(|n| n.to_string_lossy().into_owned()))
+            .find(|n| !is_rendition(&parse(n, rules).ext));
+        if let Some(src_name) = src_name {
+            return plan(&folder.join(&src_name), today, rules);
+        }
+    }
+    Ok(EditionPlan {
+        source: path.to_string_lossy().into_owned(),
+        new_path: folder.join(&new_name).to_string_lossy().into_owned(),
+        new_name,
+        retire,
+        history: folder.join(HISTORY_DIR).to_string_lossy().into_owned(),
+    })
+}
+
+/// 계획대로 하면 덮어쓸 자리 — 새 판 이름이 이미 있거나, 이전판에 같은 이름이 있으면.
+/// 셸은 겹치면 창을 띄워 묻는데, 명령줄은 묻는 창 없이 멈춰야 해서 먼저 본다.
+pub fn collisions(plan: &EditionPlan) -> Vec<String> {
+    let hist = std::path::Path::new(&plan.history);
+    let mut out: Vec<String> = Vec::new();
+    if std::path::Path::new(&plan.new_path).exists() {
+        out.push(plan.new_path.clone());
+    }
+    out.extend(crate::docs::history_collisions(&plan.retire, hist));
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

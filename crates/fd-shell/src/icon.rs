@@ -1,17 +1,23 @@
 //! 파일 아이콘 · 종류 이름. 셸이 주는 것을 그대로 쓴다 — 탐색기와 같은 그림 · 같은 이름이어야 눈이 헤매지 않는다.
 //!
 //! 확장자마다 한 번만 묻고 기억한다. exe · lnk · ico 처럼 파일마다 그림이 다른 것만 경로로 묻는다.
+//!
+//! 2026.11.11 : 격자 보기용 큰 그림 — `i:<크기>:<경로>` 큰 아이콘 · `t:<크기>:<경로>` 미리보기(그림 · pdf · 영상은 내용).
+//! IShellItemImageFactory 가 탐색기 「큰 아이콘」 보기와 같은 그림을 준다. 미리보기는 느릴 수 있어 아이콘과 다른 스레드에서 뽑고,
+//! 수천 장이 될 수 있어 여기서 기억하지 않는다 (화면 쪽 브라우저 캐시가 맡는다).
 
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
+use windows::Win32::Foundation::SIZE;
 use windows::Win32::Graphics::Gdi::{
     BI_RGB, BITMAP, BITMAPINFO, BITMAPINFOHEADER, BLACKNESS, CreateCompatibleDC, CreateDIBSection, DIB_RGB_COLORS,
-    DeleteDC, DeleteObject, GetDC, GetDIBits, GetObjectW, HGDIOBJ, PatBlt, ReleaseDC, SelectObject, WHITENESS,
+    DeleteDC, DeleteObject, GetDC, GetDIBits, GetObjectW, HBITMAP, HGDIOBJ, PatBlt, ReleaseDC, SelectObject, WHITENESS,
 };
 use windows::Win32::Storage::FileSystem::{FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_NORMAL, FILE_FLAGS_AND_ATTRIBUTES};
 use windows::Win32::UI::Shell::{
-    SHFILEINFOW, SHGFI_FLAGS, SHGFI_ICON, SHGFI_SMALLICON, SHGFI_TYPENAME, SHGFI_USEFILEATTRIBUTES, SHGetFileInfoW,
+    IShellItemImageFactory, SHCreateItemFromParsingName, SHFILEINFOW, SHGFI_FLAGS, SHGFI_ICON, SHGFI_SMALLICON,
+    SHGFI_TYPENAME, SHGFI_USEFILEATTRIBUTES, SHGetFileInfoW, SIIGBF_ICONONLY, SIIGBF_RESIZETOFIT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     DI_NORMAL, DestroyIcon, DrawIconEx, GetIconInfo, GetSystemMetrics, HICON, ICONINFO, SM_CXSMICON,
@@ -62,38 +68,138 @@ pub fn type_name(ext: &str, is_dir: bool) -> String {
 /// SHGetFileInfo · GDI 를 동시에 부르게 되는데, 그때 일부가 까닭 없이 실패했다 (11-11 앱 시험: pptx · txt 404).
 /// 어느 스레드에서 불러도 된다 — 안에서 아이콘 전담 STA 스레드로 넘긴다.
 pub fn icon_png(key: &str) -> Option<Vec<u8>> {
-    if let Some(v) = icon_cache().lock().unwrap().get(key) {
+    if let Some(v) = icon_cache().lock().unwrap().get(&cache_key(key)) {
         return Some(v.clone());
     }
     let (tx, rx) = std::sync::mpsc::channel();
-    worker().lock().unwrap().send((key.to_string(), tx)).ok()?;
+    let w = if key.starts_with("t:") { thumb_worker() } else { icon_worker() };
+    w.lock().unwrap().send((key.to_string(), tx)).ok()?;
     rx.recv().ok().flatten()
 }
 
 type IconJob = (String, std::sync::mpsc::Sender<Option<Vec<u8>>>);
 
-fn worker() -> &'static Mutex<std::sync::mpsc::Sender<IconJob>> {
+fn icon_worker() -> &'static Mutex<std::sync::mpsc::Sender<IconJob>> {
     static W: OnceLock<Mutex<std::sync::mpsc::Sender<IconJob>>> = OnceLock::new();
-    W.get_or_init(|| {
-        let (tx, rx) = std::sync::mpsc::channel::<IconJob>();
-        std::thread::Builder::new()
-            .name("fd-icon".into())
-            .spawn(move || {
-                let _com = crate::com::ComGuard::sta();
-                for (key, reply) in rx {
-                    // 못 그리면 확장자 없는 일반 파일 아이콘으로 (오프라인 NAS · 지워진 바로가기 대상 등).
-                    let png = extract(&key).or_else(|| extract("e:"));
-                    let _ = reply.send(png);
-                }
-            })
-            .expect("아이콘 스레드");
-        Mutex::new(tx)
-    })
+    W.get_or_init(|| spawn_worker("fd-icon"))
+}
+
+/// 미리보기 전담 — 큰 그림 · pdf 는 한 장에 수백 ms 걸려, 아이콘 스레드에 섞으면 목록 아이콘이 그만큼 늦게 뜬다.
+fn thumb_worker() -> &'static Mutex<std::sync::mpsc::Sender<IconJob>> {
+    static W: OnceLock<Mutex<std::sync::mpsc::Sender<IconJob>>> = OnceLock::new();
+    W.get_or_init(|| spawn_worker("fd-thumb"))
+}
+
+fn spawn_worker(name: &str) -> Mutex<std::sync::mpsc::Sender<IconJob>> {
+    let (tx, rx) = std::sync::mpsc::channel::<IconJob>();
+    std::thread::Builder::new()
+        .name(name.into())
+        .spawn(move || {
+            let _com = crate::com::ComGuard::sta();
+            for (key, reply) in rx {
+                // 못 그리면 확장자 없는 일반 파일 아이콘으로 (오프라인 NAS · 지워진 바로가기 대상 등).
+                let png = extract(&key).or_else(|| extract("e:"));
+                let _ = reply.send(png);
+            }
+        })
+        .expect("아이콘 스레드");
+    Mutex::new(tx)
+}
+
+/// 큰 아이콘은 확장자마다 같으므로 확장자로 기억한다 (`i:96:C:\a.pptx` → `I:96:pptx`). 미리보기 · 파일마다 다른 것은 경로 그대로.
+fn cache_key(key: &str) -> String {
+    if let Some(rest) = key.strip_prefix("i:") {
+        if let Some((size, path)) = rest.split_once(':') {
+            let p = std::path::Path::new(path);
+            let ext = p.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+            let is_dir = p.is_dir();
+            if is_dir {
+                return format!("I:{size}:\u{0}dir");
+            }
+            if !PER_FILE_EXTS.contains(&ext.as_str()) {
+                return format!("I:{size}:{ext}");
+            }
+        }
+    }
+    key.to_string()
+}
+
+/// 큰 그림 (IShellItemImageFactory). `icon_only` 면 아이콘, 아니면 미리보기(없으면 셸이 아이콘을 준다).
+fn big_image(path: &str, size: i32, icon_only: bool) -> Option<Vec<u8>> {
+    let size = size.clamp(16, 256);
+    let f: IShellItemImageFactory = unsafe { SHCreateItemFromParsingName(&HSTRING::from(path), None) }.ok()?;
+    let flags = if icon_only { SIIGBF_RESIZETOFIT | SIIGBF_ICONONLY } else { SIIGBF_RESIZETOFIT };
+    let hbm = unsafe { f.GetImage(SIZE { cx: size, cy: size }, flags) }.ok()?;
+    let png = unsafe { bitmap_to_png(hbm) };
+    unsafe {
+        let _ = DeleteObject(HGDIOBJ(hbm.0));
+    }
+    png
+}
+
+/// 32비트 비트맵 → PNG. 셸 그림은 알파를 곱해 둔 꼴이라 되돌린다. 알파가 하나도 없으면(사진 미리보기) 불투명으로.
+unsafe fn bitmap_to_png(hbm: HBITMAP) -> Option<Vec<u8>> {
+    let mut bm = BITMAP::default();
+    let got = unsafe { GetObjectW(HGDIOBJ(hbm.0), std::mem::size_of::<BITMAP>() as i32, Some(&mut bm as *mut _ as *mut _)) };
+    if got == 0 || bm.bmWidth <= 0 || bm.bmHeight <= 0 {
+        return None;
+    }
+    let (w, h) = (bm.bmWidth, bm.bmHeight);
+    let mut bi = BITMAPINFO {
+        bmiHeader: BITMAPINFOHEADER {
+            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: w,
+            biHeight: -h,
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: BI_RGB.0,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let mut px = vec![0u8; (w * h * 4) as usize];
+    let dc = unsafe { GetDC(None) };
+    let lines = unsafe { GetDIBits(dc, hbm, 0, h as u32, Some(px.as_mut_ptr() as *mut _), &mut bi, DIB_RGB_COLORS) };
+    unsafe { ReleaseDC(None, dc) };
+    if lines == 0 {
+        return None;
+    }
+    let has_alpha = px.chunks_exact(4).any(|p| p[3] != 0);
+    for p in px.chunks_exact_mut(4) {
+        p.swap(0, 2);
+        if !has_alpha {
+            p[3] = 255;
+        } else if p[3] > 0 && p[3] < 255 {
+            let a = p[3] as u32;
+            for c in &mut p[..3] {
+                *c = ((*c as u32 * 255 + a / 2) / a).min(255) as u8;
+            }
+        }
+    }
+    let mut out = Vec::new();
+    {
+        let mut enc = png::Encoder::new(&mut out, w as u32, h as u32);
+        enc.set_color(png::ColorType::Rgba);
+        enc.set_depth(png::BitDepth::Eight);
+        let mut wr = enc.write_header().ok()?;
+        wr.write_image_data(&px).ok()?;
+    }
+    Some(out)
 }
 
 fn extract(key: &str) -> Option<Vec<u8>> {
-    if let Some(v) = icon_cache().lock().unwrap().get(key) {
+    let ck = cache_key(key);
+    if let Some(v) = icon_cache().lock().unwrap().get(&ck) {
         return Some(v.clone());
+    }
+    for (prefix, icon_only) in [("i:", true), ("t:", false)] {
+        if let Some((size, path)) = key.strip_prefix(prefix).and_then(|r| r.split_once(':')) {
+            let png = big_image(path, size.parse().unwrap_or(96), icon_only)?;
+            if icon_only {
+                icon_cache().lock().unwrap().insert(ck, png.clone());
+            }
+            return Some(png);
+        }
     }
     let info = if key == "d" {
         query("folder", FILE_ATTRIBUTE_DIRECTORY, SHGFI_ICON | SHGFI_SMALLICON | SHGFI_USEFILEATTRIBUTES)
