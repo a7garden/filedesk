@@ -1,5 +1,6 @@
 // Rust 명령 창구. 인자 이름은 Tauri 규약대로 camelCase (Rust 쪽은 snake_case).
 import { invoke } from "@tauri-apps/api/core";
+import { DEFAULT_KINDS, type KindDef } from "./util";
 
 export type Entry = {
   name: string;
@@ -72,9 +73,11 @@ export type ViewPrefs = {
   thumbs: boolean;
   /** 목록에서 숨긴 열 (판 · 고친 날 · 크기). 이름 열은 숨기지 않는다. */
   hiddenCols: ColKey[];
+  /** 파일 종류 묶음 — 이름 · 확장자 · 색. 「폴더」 · 「기타」는 고정이라 없다 (util.ts DEFAULT_KINDS). */
+  kinds: KindDef[];
 };
 export type ColKey = "ver" | "date" | "size";
-export const DEFAULT_VIEW: ViewPrefs = { mode: "list", size: 1, icons: "shell", thumbs: true, hiddenCols: [] };
+export const DEFAULT_VIEW: ViewPrefs = { mode: "list", size: 1, icons: "shell", thumbs: true, hiddenCols: [], kinds: DEFAULT_KINDS };
 
 /** 오른쪽 메뉴에 얹는 filedesk 항목 (fd-shell menu::AppItem). key 와 label 이 비면 구분선. */
 export type MenuItem = { key?: string; label?: string; checked?: boolean; disabled?: boolean; children?: MenuItem[] };

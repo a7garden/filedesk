@@ -1,6 +1,7 @@
 // 설정 창 — 왼쪽 아래 「설정」 · Ctrl+, 로 연다. 왼쪽 목차 · 오른쪽 내용.
 //
 //   보기       목록 · 격자 · 격자 크기 · 아이콘 모양 · 그림 미리보기 · 보일 열 · 숨김 파일 · 화면 색
+//   종류       목록 위 거르기 · 아이콘 색의 묶음. 이름 · 확장자 · 색을 고치고 더한다
 //   문서 저장소 연도별 프로젝트가 있는 자리
 //   이름 규칙   판마다 붙었다 빠졌다 하는 말 (name-rules.json)
 //   Claude 스킬 앱 옆 fd.exe 를 부르는 안내서를 `~/.claude/skills/filedesk` 에 쓴다
@@ -12,7 +13,7 @@ import { useEffect, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { api, type ColKey, type NameRules, type SkillStatus, type Theme, type ViewPrefs } from "./api";
 import { checkUpdate } from "./updater";
-import { errText } from "./util";
+import { DEFAULT_KINDS, errText, KIND_PALETTE, type KindDef, parseExts } from "./util";
 
 type Props = {
   storeRoot: string;
@@ -28,9 +29,10 @@ type Props = {
   onClose: () => void;
 };
 
-type Section = "view" | "store" | "rules" | "skill";
+type Section = "view" | "kinds" | "store" | "rules" | "skill";
 const SECTIONS: { key: Section; label: string }[] = [
   { key: "view", label: "보기" },
+  { key: "kinds", label: "종류" },
   { key: "store", label: "문서 저장소" },
   { key: "rules", label: "이름 규칙" },
   { key: "skill", label: "Claude 스킬" },
@@ -216,6 +218,8 @@ export default function SettingsPanel(props: Props) {
             </section>
           )}
 
+          {section === "kinds" && <KindsEditor kinds={view.kinds} set={(kinds) => setView((v) => ({ ...v, kinds }))} />}
+
           {section === "store" && (
             <section>
               <h3>문서 저장소</h3>
@@ -286,5 +290,90 @@ export default function SettingsPanel(props: Props) {
         </div>
       </div>
     </div>
+  );
+}
+
+/** 종류 편집 — 한 줄에 종류 하나: 색 · 이름 · 확장자 · 순서 · 빼기. 바꾸는 즉시 목록에 쓴다 (보기 설정과 같다).
+ *  확장자 칸은 고치는 동안 글 그대로 두고, 칸을 떠날 때 목록으로 맞춘다 — 쓰는 도중에 빈칸 · 점이 지워지면 글을 쓸 수 없다. */
+function KindsEditor({ kinds, set }: { kinds: KindDef[]; set: (k: KindDef[]) => void }) {
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const owner = new Map<string, string>();
+  for (const k of kinds) for (const x of k.exts) if (!owner.has(x)) owner.set(x, k.id);
+  const put = (i: number, patch: Partial<KindDef>) => set(kinds.map((k, j) => (j === i ? { ...k, ...patch } : k)));
+  const move = (i: number, d: -1 | 1) => {
+    const j = i + d;
+    if (j < 0 || j >= kinds.length) return;
+    const n = [...kinds];
+    [n[i], n[j]] = [n[j], n[i]];
+    set(n);
+  };
+  const add = () => {
+    const id = `k${Date.now().toString(36)}`;
+    set([...kinds, { id, label: "새 종류", exts: [], color: KIND_PALETTE[kinds.length % KIND_PALETTE.length] }]);
+    setTimeout(() => document.querySelector<HTMLInputElement>(`[data-kind="${id}"]`)?.select(), 0);
+  };
+  const commit = (i: number, id: string) => {
+    if (draft[id] == null) return;
+    put(i, { exts: parseExts(draft[id]) });
+    setDraft(({ [id]: _, ...rest }) => rest);
+  };
+  return (
+    <section>
+      <h3>종류</h3>
+      <p className="muted set-note">목록 위 「종류」 거르기와 filedesk 아이콘의 색 띠가 이 묶음을 쓴다. 확장자는 빈칸으로 나눈다. 「폴더」와, 어디에도 없는 확장자가 가는 「기타」는 늘 있다.</p>
+      <div className="kind-edit" role="list">
+        {kinds.map((k, i) => {
+          // 앞 종류가 이미 가진 확장자 — 이 종류에서는 효과가 없다
+          const lost = k.exts.filter((x) => owner.get(x) !== k.id);
+          return (
+            <div className="kind-edit-row" role="listitem" key={k.id}>
+              <input type="color" className="kind-swatch" value={k.color} aria-label={`${k.label} 색`} onChange={(e) => put(i, { color: e.target.value })} />
+              <input
+                className="kind-name"
+                data-kind={k.id}
+                value={k.label}
+                aria-label="종류 이름"
+                onChange={(e) => put(i, { label: e.target.value })}
+                onBlur={(e) => !e.target.value.trim() && put(i, { label: "이름 없음" })}
+                onKeyDown={(e) => e.stopPropagation()}
+              />
+              <input
+                className="kind-exts"
+                spellCheck={false}
+                value={draft[k.id] ?? k.exts.join(" ")}
+                placeholder="확장자 — 예: hwp docx"
+                aria-label={`${k.label} 확장자`}
+                onChange={(e) => setDraft((d) => ({ ...d, [k.id]: e.target.value }))}
+                onBlur={() => commit(i, k.id)}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === "Enter") commit(i, k.id);
+                }}
+              />
+              <span className="kind-edit-acts">
+                <button className="icon-btn" aria-label="위로" title="위로 — 확장자가 겹치면 위 종류가 갖는다" disabled={i === 0} onClick={() => move(i, -1)}>
+                  ↑
+                </button>
+                <button className="icon-btn" aria-label="아래로" title="아래로" disabled={i === kinds.length - 1} onClick={() => move(i, 1)}>
+                  ↓
+                </button>
+                <button className="icon-btn" aria-label={`${k.label} 빼기`} title="빼기 — 이 확장자들은 「기타」가 된다" onClick={() => set(kinds.filter((_, j) => j !== i))}>
+                  ×
+                </button>
+              </span>
+              {lost.length > 0 && <span className="kind-edit-warn">{lost.join(" ")} — 위 종류에 이미 있어 여기서는 쓰이지 않는다</span>}
+            </div>
+          );
+        })}
+      </div>
+      <div className="set-acts">
+        <button className="act primary" onClick={add}>
+          종류 더하기
+        </button>
+        <button className="act" onClick={() => set(DEFAULT_KINDS)} title="문서 · 표 · 발표 · PDF · 그림 · 영상 · 소리 · 압축 · 코드">
+          처음대로
+        </button>
+      </div>
+    </section>
   );
 }

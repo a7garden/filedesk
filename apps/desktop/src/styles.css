@@ -658,7 +658,7 @@ button:disabled {
 .resizer {
   position: absolute;
   top: 2px;
-  right: -3px;
+  left: -3px;
   width: 6px;
   height: 22px;
   cursor: col-resize;
@@ -666,6 +666,12 @@ button:disabled {
 }
 .resizer:hover {
   background: var(--line);
+}
+/* 끄는 동안 — 마우스가 손잡이를 벗어나도 모양을 지키고, 지나간 줄 글자가 골라지지 않게 */
+body.col-resizing,
+body.col-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 
 .list {
@@ -969,6 +975,10 @@ button:disabled {
   padding: 0 8px;
   white-space: nowrap;
   overflow: hidden;
+}
+/* 2026.11.11 : 줄이 좁으면 줄이는 쪽은 글(.issue-text · b)이다. 단추가 줄 끝에서 잘리면 무엇을 하는 단추인지 읽을 수 없다 */
+.edition-line .act {
+  flex: none;
 }
 .edition-line b {
   font-weight: 600;
@@ -1628,6 +1638,76 @@ body.resizing * {
   margin-bottom: 8px;
 }
 .warn-text {
+  color: var(--warn);
+}
+
+/* 종류 편집 — 한 줄: 색 · 이름 · 확장자(남는 너비) · 위 · 아래 · 빼기. 겹친 확장자 알림은 그 아래 줄 전체 */
+.kind-edit {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.kind-edit-row {
+  display: grid;
+  grid-template-columns: 26px 110px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+}
+.kind-edit-row input:not([type="color"]) {
+  font: inherit;
+  font-size: 12.5px;
+  height: 28px;
+  min-width: 0;
+  color: var(--ink);
+  background: var(--paper);
+  border: 0;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px var(--line);
+  padding: 0 8px;
+}
+.kind-edit-row input:not([type="color"]):focus {
+  outline: none;
+  box-shadow: inset 0 0 0 1.5px var(--focus);
+}
+.kind-exts {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+.kind-swatch {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+.kind-swatch::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+.kind-swatch::-webkit-color-swatch {
+  border: 0;
+  border-radius: 6px;
+}
+.kind-edit-acts {
+  display: flex;
+  gap: 2px;
+}
+.kind-edit-acts .icon-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  color: var(--ink-2);
+}
+.kind-edit-acts .icon-btn:hover:not(:disabled) {
+  background: var(--raise);
+  color: var(--ink);
+}
+.kind-edit-acts .icon-btn:disabled {
+  opacity: 0.3;
+}
+.kind-edit-warn {
+  grid-column: 2 / -1;
+  font-size: 11.5px;
   color: var(--warn);
 }
 

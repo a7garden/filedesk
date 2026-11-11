@@ -33,10 +33,10 @@ import {
   formatBytes,
   formatDate,
   formatSize,
-  KIND_LABEL,
-  KIND_ORDER,
+  canThumb,
+  kindLabel,
   kindOf,
-  type KindGroup,
+  kindOrder,
   norm,
   parentOf,
   PROTECTED_ROLES,
@@ -141,7 +141,7 @@ export default function Pane(p: Props) {
   /** 색 고르기 창 — 줄의 「색」 단추나 Alt 없이 연 경우. */
   const [tagMenu, setTagMenu] = useState<{ x: number; y: number; paths: string[] } | null>(null);
   /** 종류 · 색 거르기. */
-  const [kind, setKind] = useState<KindGroup | null>(null);
+  const [kind, setKind] = useState<string | null>(null);
   const [colorOnly, setColorOnly] = useState<TagColor | null>(null);
   /** 아래 폴더까지 찾기. 켜져 있으면 목록 대신 찾은 것을 보인다. */
   const [deep, setDeep] = useState<{ q: string; items: Found[] | null; truncated: boolean; scanned: number } | null>(null);
@@ -360,10 +360,11 @@ export default function Pane(p: Props) {
   /** 종류 · 색 거르기에 쓸 개수 — 지금 보이는 바탕(폴더 목록이나 찾은 것) 기준. */
   const base: Entry[] = deep ? (deep.items ?? []) : (entries ?? []);
   const kindCounts = useMemo(() => {
-    const m = new Map<KindGroup, number>();
+    const m = new Map<string, number>();
     for (const e of base) m.set(kindOf(e), (m.get(kindOf(e)) ?? 0) + 1);
     return m;
-  }, [base]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 종류 설정이 바뀌면 kindOf 가 다른 답을 낸다
+  }, [base, p.view.kinds]);
   const colorCounts = useMemo(() => {
     const m = new Map<TagColor, number>();
     for (const e of base) {
@@ -374,7 +375,8 @@ export default function Pane(p: Props) {
   }, [base, colors]);
   const passes = useCallback(
     (e: Entry) => (!kind || kindOf(e) === kind) && (!colorOnly || colors.get(norm(e.path)) === colorOnly),
-    [kind, colorOnly, colors],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 종류 설정이 바뀌면 kindOf 가 다른 답을 낸다
+    [kind, colorOnly, colors, p.view.kinds],
   );
 
   const rows = useMemo<Row[]>(() => {
@@ -932,17 +934,22 @@ export default function Pane(p: Props) {
 
   // ───────── [7] 그리기 ─────────
 
+  /** 열 너비 끌기 — 손잡이는 판 · 고친 날 · 크기 열의 <왼쪽> 경계에 있다.
+   *  2026.11.11 : 오른쪽 경계에 두었더니, 이 열들은 창 오른쪽에 붙어 있어 넓히면 왼쪽 경계가 반대로 밀려 잡은 선이 마우스를 따라오지 않았다.
+   *  이름 열은 남는 너비를 다 쓰므로 따로 끌 손잡이가 없다 — 그 오른쪽 경계가 곧 다음 열의 왼쪽 손잡이다. */
   const startResize = (ev: React.MouseEvent, i: number) => {
     ev.preventDefault();
     ev.stopPropagation();
     const x0 = ev.clientX;
     const base = [...p.cols];
+    document.body.classList.add("col-resizing");
     const move = (m: MouseEvent) => {
       const next = [...base];
-      next[i] = Math.max(i === 0 ? 160 : 56, Math.round(base[i] + m.clientX - x0));
+      next[i] = Math.max(56, Math.round(base[i] - (m.clientX - x0)));
       p.setCols(next);
     };
     const upH = () => {
+      document.body.classList.remove("col-resizing");
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", upH);
     };
@@ -984,13 +991,15 @@ export default function Pane(p: Props) {
       ) : (
         <span className="col-btn">{label}</span>
       )}
-      <span
-        className="resizer"
-        title="끌어서 너비 바꾸기 · 두 번 누르면 처음대로"
-        onMouseDown={(e) => startResize(e, i)}
-        onDoubleClick={() => p.setCols(p.cols.map((w, j) => (j === i ? DEFAULT_COLS[i] : w)))}
-        aria-hidden="true"
-      />
+      {i > 0 && (
+        <span
+          className="resizer"
+          title="끌어서 너비 바꾸기 · 두 번 누르면 처음대로"
+          onMouseDown={(e) => startResize(e, i)}
+          onDoubleClick={() => p.setCols(p.cols.map((w, j) => (j === i ? DEFAULT_COLS[i] : w)))}
+          aria-hidden="true"
+        />
+      )}
     </div>
   );
 
@@ -1182,8 +1191,7 @@ export default function Pane(p: Props) {
     const color = colors.get(norm(e.path));
     const iconPx = TILE[p.view.size].icon;
     const px = Math.round(iconPx * (window.devicePixelRatio || 1));
-    const kg = kindOf(e);
-    const thumb = p.view.thumbs && (kg === "image" || kg === "pdf" || kg === "media");
+    const thumb = p.view.thumbs && !e.isDir && canThumb(e.ext);
     const hist = e.isDir && e.name === "이전판";
     const issue = !!g && g.issues.length > 0 && issueLead.has(norm(e.path));
     return (
@@ -1318,8 +1326,8 @@ export default function Pane(p: Props) {
                 {g.issues.join(" · ")}
               </span>
               {stale > 0 ? (
-                <button className="act" onClick={() => askRetire(g)}>
-                  지난 판 {stale}개를 이전판으로…
+                <button className="act" onClick={() => askRetire(g)} title="옮길 파일을 먼저 보이고, 확인하면 이 폴더의 이전판으로 옮긴다">
+                  지난 판 {stale}개 이전판으로 옮기기
                 </button>
               ) : (
                 r.stack &&
@@ -1378,9 +1386,9 @@ export default function Pane(p: Props) {
               </button>
             </span>
           )}
-          {KIND_ORDER.filter((k) => kindCounts.has(k) || kind === k).map((k) => (
+          {kindOrder().filter((k) => kindCounts.has(k) || kind === k).map((k) => (
             <button key={k} className="kind" aria-pressed={kind === k} onClick={() => setKind((v) => (v === k ? null : k))}>
-              {KIND_LABEL[k]} <span className="kind-n">{kindCounts.get(k) ?? 0}</span>
+              {kindLabel(k)} <span className="kind-n">{kindCounts.get(k) ?? 0}</span>
             </button>
           ))}
           {TAG_COLORS.filter((c) => colorCounts.has(c) || colorOnly === c).map((c) => (
@@ -1451,7 +1459,7 @@ export default function Pane(p: Props) {
           <div className="empty">
             {kind || colorOnly ? (
               <>
-                {kind ? `${KIND_LABEL[kind]}` : ""}
+                {kind ? kindLabel(kind) : ""}
                 {kind && colorOnly ? " · " : ""}
                 {colorOnly ? `${TAG_LABEL[colorOnly]} 표시` : ""} 항목이 없다
                 <button

@@ -1,5 +1,5 @@
 // 자체 선 그림. 폴더는 셸의 노란 아이콘 대신 이것을 쓴다 — 파일 아이콘(앱 구분)은 설정에 따라 셸 것이나 FileGlyph.
-import { KIND_COLOR, kindOf } from "./util";
+import { kindColor, kindOf } from "./util";
 
 export function FolderGlyph({ faint = false, size = 16 }: { faint?: boolean; size?: number }) {
   return (
@@ -18,7 +18,7 @@ export function FolderGlyph({ faint = false, size = 16 }: { faint?: boolean; siz
 /** filedesk 파일 아이콘 — 접힌 귀퉁이 종이 + 종류 색 띠. 크면(28px 넘게) 띠에 확장자를 쓴다.
  *  2026.11.11 : 설정 「아이콘 — filedesk」. 셸 아이콘은 프로그램마다 모양 · 색이 제각각이라 종류를 한눈에 가리기 어렵다. */
 export function FileGlyph({ ext, size = 16 }: { ext: string; size?: number }) {
-  const color = KIND_COLOR[kindOf({ isDir: false, ext })];
+  const color = kindColor(kindOf({ isDir: false, ext }));
   if (size < 28)
     return (
       <svg className="glyph file-glyph" width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">

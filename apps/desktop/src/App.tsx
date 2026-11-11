@@ -17,7 +17,7 @@ import SettingsPanel from "./SettingsPanel";
 import Sidebar from "./Sidebar";
 import TitleBar from "./TitleBar";
 import { useAutoUpdate } from "./updater";
-import { applyTheme, baseName, DEFAULT_COLS, errText, norm } from "./util";
+import { applyTheme, baseName, DEFAULT_COLS, DEFAULT_KINDS, errText, type KindDef, norm, setKinds } from "./util";
 
 export type Tab = { id: number; path: string; back: string[]; fwd: string[] };
 
@@ -52,8 +52,19 @@ function withDefaults(s: Partial<Settings> | null): Settings {
       ...(s?.view ?? {}),
       size: Math.min(3, Math.max(0, Number(s?.view?.size ?? DEFAULT_VIEW.size) || 0)),
       hiddenCols: Array.isArray(s?.view?.hiddenCols) ? s.view.hiddenCols : [],
+      kinds: validKinds(s?.view?.kinds),
     },
   };
+}
+
+/** 설정 파일의 종류 목록 — 손으로 고쳐 꼴이 어긋난 것은 버리고, 하나도 없으면 기본값. */
+function validKinds(v: unknown): KindDef[] {
+  if (!Array.isArray(v)) return DEFAULT_KINDS;
+  const ok = v.filter(
+    (k): k is KindDef =>
+      !!k && typeof k.id === "string" && typeof k.label === "string" && typeof k.color === "string" && Array.isArray(k.exts) && k.exts.every((x: unknown) => typeof x === "string"),
+  );
+  return ok.length ? ok : DEFAULT_KINDS;
 }
 
 const clampRatio = (r: unknown) => (typeof r === "number" && isFinite(r) ? Math.min(1 - MIN_RATIO, Math.max(MIN_RATIO, r)) : 0.5);
@@ -82,6 +93,9 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const panesRef = useRef<HTMLDivElement>(null);
   useAutoUpdate();
+
+  // 종류 표는 아이콘처럼 설정을 받지 않는 곳도 보므로 그리기 전에 넣는다 (같은 목록이면 다시 세우지 않는다).
+  setKinds(view.kinds);
 
   const split = sides[1] != null;
   const activeId = sides[split ? focus : 0] as number;

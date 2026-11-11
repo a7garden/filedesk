@@ -159,45 +159,50 @@ export const PROTECTED_ROLES = new Set(["received", "archive", "history"]);
  *  2026.11.11 : 「유형」 열(셸의 긴 종류 이름)을 빼고 「판」을 넣었다 — 확장자는 이름 끝에 흐리게 보인다. */
 export const DEFAULT_COLS = [280, 170, 110, 84];
 
-/** 종류마다의 색 — filedesk 아이콘의 띠 색. 밝게 · 어둡게 모두에서 읽히는 중간 밝기. */
-export const KIND_COLOR: Record<string, string> = {
-  doc: "#3f72d9",
-  sheet: "#2f9e5a",
-  slide: "#e0732c",
-  pdf: "#d64545",
-  image: "#8e4ec6",
-  media: "#c2417e",
-  archive: "#a07a3c",
-  code: "#5b6470",
-  other: "#8b8f96",
-};
+/** 파일 종류 — 목록 위 「종류」 거르기 · filedesk 아이콘의 띠 색. 셸의 긴 종류 이름 대신 일에서 쓰는 말로 묶는다.
+ *  2026.11.11 : 고정 표였던 것을 설정(보기 › 종류)에서 고치게 했다 — 쓰는 사람마다 「발표」 · 「표」 같은 묶음이 맞지 않았다.
+ *  「폴더」 · 「기타」(어느 종류에도 없는 확장자)는 고정이라 이 목록에 없다. 확장자가 두 종류에 있으면 앞 종류가 갖는다. */
+export type KindDef = { id: string; label: string; exts: string[]; color: string };
+export const FOLDER = "folder";
+export const OTHER = "other";
+const xs = (s: string) => s.split(" ");
+export const DEFAULT_KINDS: KindDef[] = [
+  { id: "doc", label: "문서", color: "#3f72d9", exts: xs("hwp hwpx doc docx odt rtf txt md") },
+  { id: "sheet", label: "표", color: "#2f9e5a", exts: xs("xls xlsx xlsm csv ods cell") },
+  { id: "slide", label: "발표", color: "#e0732c", exts: xs("ppt pptx odp show key") },
+  { id: "pdf", label: "PDF", color: "#d64545", exts: xs("pdf") },
+  { id: "image", label: "그림", color: "#8e4ec6", exts: xs("png jpg jpeg gif bmp webp svg tif tiff heic ico psd ai") },
+  { id: "media", label: "영상 · 소리", color: "#c2417e", exts: xs("mp4 mov avi mkv wmv webm mp3 wav m4a flac") },
+  { id: "archive", label: "압축", color: "#a07a3c", exts: xs("zip 7z rar alz egg tar gz tgz") },
+  { id: "code", label: "코드", color: "#5b6470", exts: xs("js ts tsx jsx java jsp py rs go c cpp h cs sql xml json yml yaml html css sh ps1 bat") },
+];
+/** 새 종류에 돌려 가며 주는 색 — 기본 종류 색과 겹치지 않는 중간 밝기. */
+export const KIND_PALETTE = ["#1f8a9e", "#b8862b", "#6a5acd", "#3d8b3d", "#c0504d", "#4a7ab5"];
+const OTHER_COLOR = "#8b8f96";
 
-/** 파일 종류 묶음 — 목록 위 「종류」 거르기. 셸의 긴 종류 이름 대신 일에서 쓰는 말로 묶는다. */
-export type KindGroup = "folder" | "doc" | "sheet" | "slide" | "pdf" | "image" | "media" | "archive" | "code" | "other";
-export const KIND_ORDER: KindGroup[] = ["folder", "doc", "sheet", "slide", "pdf", "image", "media", "archive", "code", "other"];
-export const KIND_LABEL: Record<KindGroup, string> = {
-  folder: "폴더",
-  doc: "문서",
-  sheet: "표",
-  slide: "발표",
-  pdf: "PDF",
-  image: "그림",
-  media: "영상 · 소리",
-  archive: "압축",
-  code: "코드",
-  other: "기타",
-};
-const EXT_KIND: Record<string, KindGroup> = {};
-const add = (k: KindGroup, exts: string) => exts.split(" ").forEach((x) => (EXT_KIND[x] = k));
-add("doc", "hwp hwpx doc docx odt rtf txt md");
-add("sheet", "xls xlsx xlsm csv ods cell");
-add("slide", "ppt pptx odp show key");
-add("pdf", "pdf");
-add("image", "png jpg jpeg gif bmp webp svg tif tiff heic ico psd ai");
-add("media", "mp4 mov avi mkv wmv webm mp3 wav m4a flac");
-add("archive", "zip 7z rar alz egg tar gz tgz");
-add("code", "js ts tsx jsx java jsp py rs go c cpp h cs sql xml json yml yaml html css sh ps1 bat");
+/** 확장자 글을 목록으로 — 빈칸 · 쉼표로 나누고, 앞의 점은 떼고, 소문자로. */
+export const parseExts = (s: string) => [...new Set(s.split(/[\s,·]+/).map((x) => x.replace(/^\*?\./, "").toLowerCase()).filter(Boolean))];
 
-export function kindOf(e: Pick<Entry, "isDir" | "ext">): KindGroup {
-  return e.isDir ? "folder" : (EXT_KIND[e.ext] ?? "other");
+// 지금 쓰는 종류 — App 이 설정을 읽은 뒤 setKinds 로 넣는다. 아이콘(glyphs)처럼 설정을 받지 않는 곳도 같은 표를 본다.
+let kinds: KindDef[] = DEFAULT_KINDS;
+let extKind = new Map<string, KindDef>();
+export function setKinds(list: KindDef[]) {
+  if (list === kinds && extKind.size) return;
+  kinds = list;
+  extKind = new Map();
+  for (const k of list) for (const x of k.exts) if (!extKind.has(x)) extKind.set(x, k);
+}
+setKinds(DEFAULT_KINDS);
+
+/** 거르기 단추 순서 — 폴더 · 설정의 종류 순서 · 기타. */
+export const kindOrder = () => [FOLDER, ...kinds.map((k) => k.id), OTHER];
+export const kindLabel = (id: string) => (id === FOLDER ? "폴더" : id === OTHER ? "기타" : (kinds.find((k) => k.id === id)?.label ?? "기타"));
+export const kindColor = (id: string) => kinds.find((k) => k.id === id)?.color ?? OTHER_COLOR;
+
+/** 격자에서 내용을 미리 보일 수 있는 확장자 — 셸 미리보기가 그리는 것이라 종류 설정과 따로 둔다. */
+const THUMB_EXTS = new Set(["image", "pdf", "media"].flatMap((id) => DEFAULT_KINDS.find((k) => k.id === id)!.exts));
+export const canThumb = (ext: string) => THUMB_EXTS.has(ext.toLowerCase());
+
+export function kindOf(e: Pick<Entry, "isDir" | "ext">): string {
+  return e.isDir ? FOLDER : (extKind.get(e.ext.toLowerCase())?.id ?? OTHER);
 }
