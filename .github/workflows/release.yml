@@ -1,0 +1,71 @@
+name: release
+
+# v* 태그를 밀거나 Actions 에서 손으로 돌리면 시험을 거쳐 Windows 설치 파일(NSIS)을 만들어 릴리즈에 올린다. main · PR 은 시험만 돈다.
+# 설치된 앱은 릴리즈의 latest.json 을 보고 새 판을 알린다 (apps/desktop/src/updater.ts). 서명 키가 없으면 latest.json 이 안 생겨 업데이트가 끊긴다.
+# 2026.11.11 : docket 의 release.yml 을 옮겨 왔다 — 이 저장소는 루트가 Cargo 작업 공간이고 화면은 apps/desktop(bun)이다.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+
+      - run: bun install --frozen-lockfile
+        working-directory: apps/desktop
+
+      # Tauri 는 컴파일할 때 화면 빌드 결과(dist)를 읽으므로 먼저 빌드한다.
+      - run: bun run build
+        working-directory: apps/desktop
+
+      - run: cargo test --workspace
+
+  windows:
+    needs: test
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+
+      - run: bun install --frozen-lockfile
+        working-directory: apps/desktop
+
+      # CHANGELOG.md 의 이번 판 구획이 릴리즈 노트가 되고, latest.json 을 거쳐 앱의 새 판 알림에 보인다.
+      - name: 릴리즈 노트
+        id: notes
+        run: node .github/scripts/release-notes.mjs
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: apps/desktop
+          tauriScript: bun tauri
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'v__VERSION__' }}
+          releaseName: filedesk v__VERSION__
+          releaseBody: ${{ steps.notes.outputs.body }}
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: true

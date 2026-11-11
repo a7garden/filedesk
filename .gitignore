@@ -1,0 +1,6 @@
+/target/
+node_modules/
+/apps/desktop/dist/
+/apps/desktop/src-tauri/gen/
+# 계획 · 측정 · 진행 기록 — 이 PC 의 폴더 · 과업 이야기라 공개 저장소에 두지 않는다 (2026.11.11)
+/PLAN.md

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- filedesk 아이콘: 판 눈금 — 지난 판 둘(흐린 점) 다음 최신판 하나(큰 찬 점). 목록 「판」 열의 그 모양에서 왔다.
+       2026.11.11 : 겹친 종이 · 글줄을 지우고 점 셋만 남겼다 (미니멀하게 — 사용자 요청).
+       화면의 빈 고리 · 축 선은 16px 에서 뭉개져 흐린 점으로 바꾸고 선은 뺐다. 점 사이를 넓게 두어 작은 크기에서도 셋이 갈린다. -->
+  <rect x="64" y="64" width="896" height="896" rx="224" fill="#1f6f5c"/>
+  <circle cx="264" cy="512" r="68" fill="#ffffff" fill-opacity="0.38"/>
+  <circle cx="472" cy="512" r="68" fill="#ffffff" fill-opacity="0.62"/>
+  <circle cx="712" cy="512" r="116" fill="#ffffff"/>
+</svg>

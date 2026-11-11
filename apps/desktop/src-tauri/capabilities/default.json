@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "주 창 권한 — 이벤트 · 끌어다 놓기 이벤트 · 창 틀 색(화면 색) · 직접 그린 제목 줄(끌기 · 최소화 · 최대화 · 닫기) · 업데이트",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-set-theme",
+    "core:window:allow-start-dragging",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-is-maximized",
+    "core:window:allow-close",
+    "updater:default",
+    "process:allow-restart"
+  ]
+}

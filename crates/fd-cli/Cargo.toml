@@ -1,0 +1,18 @@
+[package]
+name = "fd-cli"
+description = "filedesk 명령줄 창구 — 에이전트 · 스크립트가 화면과 같은 조회를 JSON 으로 받는다"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "fd"
+path = "src/main.rs"
+
+[dependencies]
+fd-core = { workspace = true }
+fd-shell = { workspace = true }
+serde_json = { workspace = true }
+clap = { workspace = true }

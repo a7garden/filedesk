@@ -1,0 +1,1110 @@
+/* filedesk — 표면은 절제, 구조로 말한다.
+   무채색 바탕 · 먹색 글자 · 강조 한 가지(짙은 초록). 상자 · 구분선 대신 정렬과 여백으로 묶는다.
+   글꼴은 이 PC 에 깔린 Pretendard — 맑은 고딕(Windows 얼굴)을 쓰지 않는다. */
+
+:root {
+  /* 2026.11.11 : 화면 색 고르기 — 기본은 시스템(Windows 밝게 · 어둡게)을 따르고, data-theme 로 하나를 고정한다.
+     값마다 light-dark(밝게, 어둡게) 한 줄로 둔다 — 밝은 표 · 어두운 표를 따로 두면 한쪽만 고치는 일이 생긴다. */
+  color-scheme: light dark;
+  /* 2026.11.11 : 밝게의 아이보리(누런 종이색 #f6f5f1 계열)를 빼고 무채색 회색으로 다시 잡았다 — 사용자 요청.
+     흐린 글자(--muted)는 바탕 · 왼쪽 열 모두에서 4.5:1 을 넘게 한 단 진하게 (예전 3.2:1). 어둡게는 그대로. */
+  --paper:      light-dark(#f8f9fa, #1b1b1a);
+  --side:       light-dark(#eff1f3, #161615);
+  --raise:      light-dark(#ffffff, #232322);
+  --ink:        light-dark(#1a1d21, #ecebe7);
+  --ink-2:      light-dark(#474c54, #bdbab2);
+  --muted:      light-dark(#676d75, #8a867e);
+  --faint:      light-dark(#b2b7be, #5e5b55);
+  --hover:      light-dark(rgba(26, 29, 33, 0.05), rgba(255, 255, 255, 0.045));
+  --sel:        light-dark(rgba(31, 111, 92, 0.11), rgba(99, 181, 156, 0.16));
+  --accent:     light-dark(#1f6f5c, #63b59c);
+  --accent-ink: light-dark(#ffffff, #10201b);
+  --warn:       light-dark(#a83a1e, #f0a07f);
+  --warn-bg:    light-dark(rgba(168, 58, 30, 0.08), rgba(240, 160, 127, 0.1));
+  --ok:         light-dark(#1f6f5c, #63b59c);
+  --line:       light-dark(rgba(26, 29, 33, 0.08), rgba(255, 255, 255, 0.07));
+  --focus:      light-dark(rgba(31, 111, 92, 0.55), rgba(99, 181, 156, 0.6));
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font: 13.5px/1.45 "Pretendard", "Pretendard Variable", system-ui, sans-serif;
+  font-feature-settings: "tnum";
+  overflow: hidden;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+button:disabled {
+  cursor: default;
+}
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+.muted {
+  color: var(--muted);
+}
+
+/* 뼈대: 왼쪽 열이 위아래를 다 차지하고, 탭은 화면 위에만 — 탭이 왼쪽까지 덮어 과업 줄을 밀어내지 않게 */
+.app {
+  display: grid;
+  grid-template-columns: 228px 1fr;
+  grid-template-rows: auto 1fr;
+  height: 100%;
+}
+.body {
+  display: contents;
+}
+
+/* ── 제목 줄: 창 틀을 직접 그린다 (decorations: false). 탭 줄이 곧 제목 줄 — 빈 자리를 잡아 창을 끈다 ── */
+.titlebar {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  align-items: stretch;
+  height: 38px;
+  min-width: 0;
+}
+.titlebar .drag {
+  flex: 1 1 auto;
+  min-width: 48px;
+}
+/* 창 단추: Windows 와 같은 자리 · 크기 (46 × 제목 줄 높이). 닫기만 빨강 — 손에 익은 관습이라 바꾸지 않는다 */
+.winctl {
+  display: flex;
+  flex: none;
+}
+.winctl button {
+  width: 46px;
+  display: grid;
+  place-items: center;
+  color: var(--ink-2);
+}
+.winctl button:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.winctl button.close:hover {
+  background: #c42b1c;
+  color: #ffffff;
+}
+/* 새 판 알림: 평소엔 없다. 있을 때만 창 단추 왼쪽에 글자 하나 */
+.upd {
+  align-self: center;
+  flex: none;
+  margin-right: 10px;
+  padding: 0 10px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  border-radius: 12px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.upd.muted {
+  color: var(--muted);
+}
+.upd.warn {
+  color: var(--warn);
+}
+.upd.new {
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.upd.new:hover,
+.upd.new[aria-expanded="true"] {
+  background: var(--sel);
+}
+.upd-wrap {
+  position: relative;
+  display: flex;
+}
+.upd-panel {
+  position: absolute;
+  top: 34px;
+  right: 10px;
+  z-index: 20;
+  width: 340px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--raise);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.14), inset 0 0 0 1px var(--line);
+  display: grid;
+  gap: 8px;
+}
+.upd-notes {
+  max-height: 240px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  user-select: text;
+}
+.upd-acts {
+  display: flex;
+  gap: 6px;
+}
+
+/* ── 탭: 글자만, 지금 탭은 밑줄 한 가닥 ── */
+.tabs {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  align-items: stretch;
+  gap: 2px;
+  padding: 0 0 0 16px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 200px;
+  padding: 0 4px 0 10px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.tab:hover {
+  color: var(--ink-2);
+}
+.tab.active {
+  color: var(--ink);
+  font-weight: 600;
+}
+.tab.active::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tab-close {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  color: var(--faint);
+  visibility: hidden;
+}
+.tab:hover .tab-close,
+.tab.active .tab-close {
+  visibility: visible;
+}
+.tab-close:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.tab-add {
+  align-self: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 16px;
+}
+.tab-add:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+/* ── 왼쪽: 과업 → 자리 · 고정 · 들어온 곳 · 드라이브 ── */
+.side {
+  grid-column: 1;
+  grid-row: 1 / 3;
+  background: var(--side);
+  overflow-y: auto;
+  padding: 14px 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.side h2 {
+  margin: 0 8px 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+.side ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  text-align: left;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.nav-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nav-item:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.nav-item.current {
+  background: var(--sel);
+  color: var(--ink);
+  font-weight: 600;
+}
+.nav-item .glyph {
+  flex: none;
+  color: var(--muted);
+}
+/* 들어온 파일 수는 배경 정보다 — 연도 옆 사업 수와 같은 흐린 숫자. 채운 강조색이면 늘 화면에서 가장 진해 고른 줄 · 주 동작과 다툰다 */
+.count {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.project-name {
+  font-weight: 600;
+  color: var(--ink);
+}
+.side .areas {
+  margin: 2px 0 0 10px;
+}
+/* 자리 역할 = 왼쪽 표시선 모양: 정본 실선 · 받은 것 점선 · 보관 흐린 실선 · 글은 선 없이 흐리게 */
+.area {
+  padding-left: 16px;
+  height: 26px;
+}
+.area::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  bottom: 6px;
+  border-left: 2px solid transparent;
+}
+.area.role-canon::before {
+  border-left-color: var(--accent);
+}
+.area.role-received::before {
+  border-left: 2px dashed var(--ink-2);
+}
+.area.role-archive,
+.area.role-notes {
+  color: var(--muted);
+}
+.area.role-archive::before {
+  border-left-color: var(--faint);
+}
+.row-with-x {
+  position: relative;
+}
+.unpin {
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  color: var(--muted);
+  visibility: hidden;
+}
+.row-with-x:hover > .unpin {
+  visibility: visible;
+}
+.unpin:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.drives {
+  margin-top: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 0 2px;
+}
+.drives .nav-item {
+  width: auto;
+  height: 24px;
+  padding: 0 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.theme-btn {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 5px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.ver-btn {
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 5px;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+.ver-btn:hover {
+  background: var(--hover);
+  color: var(--ink-2);
+}
+.theme-btn:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+/* ── 화면 ── */
+.panes {
+  grid-column: 2;
+  grid-row: 2;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+.pane {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.pane[hidden] {
+  display: none;
+}
+
+/* 자리 머리: 경로가 제목 */
+.head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px 8px 12px;
+}
+.nav-btns {
+  display: flex;
+}
+.nav-btns button {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: var(--ink-2);
+  font-size: 15px;
+}
+.nav-btns button:hover:not(:disabled) {
+  background: var(--hover);
+}
+.nav-btns button:disabled {
+  color: var(--faint);
+}
+.crumbs {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 34px;
+  overflow: hidden;
+  white-space: nowrap;
+  cursor: text;
+}
+.crumb-wrap {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}
+/* 마지막 조각(지금 폴더)만 줄어들 수 있다 — 긴 이름은 말줄임 */
+.crumb-wrap:last-of-type {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.crumb.here {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.crumb {
+  padding: 0 4px;
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 26px;
+}
+.crumb:hover {
+  color: var(--ink);
+  background: var(--hover);
+}
+.crumb.here {
+  color: var(--ink);
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 30px;
+}
+.crumb-sep {
+  color: var(--faint);
+  padding: 0 1px;
+}
+.role-tag {
+  flex: none;
+  margin-left: 10px;
+  padding: 1px 8px;
+  border-radius: 9px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.role-tag.role-canon {
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+/* 고치지 않는 자리: 점선 테두리로 (색 말고 모양) */
+.role-tag.role-received,
+.role-tag.role-archive,
+.role-tag.role-history {
+  box-shadow: none;
+  border: 1px dashed var(--ink-2);
+  padding: 0 7px;
+}
+.path-input {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--raise);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+  user-select: text;
+}
+.path-input:focus {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.path-input.invalid {
+  box-shadow: inset 0 0 0 1.5px var(--warn);
+}
+.path-error {
+  position: absolute;
+  left: 110px;
+  top: 46px;
+  z-index: 3;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--raise);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  color: var(--warn);
+}
+.head-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.filter {
+  width: 180px;
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--hover);
+  color: var(--ink);
+  font: inherit;
+  outline: none;
+  user-select: text;
+}
+.filter::placeholder {
+  color: var(--muted);
+}
+.filter:focus {
+  background: var(--raise);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+/* 알림 줄: 결과 · 확인을 목록 바로 위에 띄운다. 자리를 밀어내지 않는다 — 줄이 밀리면 누르려던 줄을 잘못 누른다 */
+.pane {
+  position: relative;
+}
+.msg {
+  position: absolute;
+  top: 52px;
+  left: 16px;
+  right: 16px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  padding: 5px 6px 5px 12px;
+  border-radius: 7px;
+  background: var(--raise);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1), inset 0 0 0 1px var(--line);
+  color: var(--ink-2);
+}
+.msg.warn {
+  background: linear-gradient(var(--warn-bg), var(--warn-bg)), var(--raise);
+  color: var(--warn);
+}
+.msg.ok {
+  color: var(--ok);
+}
+.msg > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.act {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 5px;
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--line);
+  background: var(--raise);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.act:hover {
+  box-shadow: inset 0 0 0 1px var(--ink-2);
+}
+.act.primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: none;
+  font-weight: 600;
+}
+/* 규칙을 넘는 확인(받은 것 · 정본 자리)에서는 「그래도 하기」를 평소 주 동작의 초록으로 칠하지 않는다 — 멈추라는 글과 가라는 색이 부딪친다 */
+.msg.warn .act.primary {
+  background: var(--raise);
+  color: var(--warn);
+  box-shadow: inset 0 0 0 1px var(--warn);
+}
+
+/* ── 목록 ── */
+.cols,
+.row {
+  display: grid;
+  grid-template-columns: var(--cols);
+  align-items: center;
+}
+.cols {
+  padding: 0 24px 0 16px;
+  height: 26px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.col {
+  position: relative;
+  padding: 0 8px;
+  min-width: 0;
+}
+.col.right {
+  text-align: right;
+}
+.col-btn {
+  color: inherit;
+  font-weight: 500;
+}
+.col-btn.sorted {
+  color: var(--ink);
+}
+.sort-mark {
+  margin-left: 4px;
+}
+.resizer {
+  position: absolute;
+  top: 2px;
+  right: -3px;
+  width: 6px;
+  height: 22px;
+  cursor: col-resize;
+  border-radius: 3px;
+}
+.resizer:hover {
+  background: var(--line);
+}
+
+.list {
+  position: relative;
+  flex: 1;
+  overflow: auto;
+  padding: 0 8px 12px;
+}
+.list.drop-hover {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  border-radius: 8px;
+}
+.list-inner {
+  position: relative;
+}
+.empty {
+  position: absolute;
+  inset: 48px 0 auto;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+}
+.empty.error {
+  color: var(--warn);
+  user-select: text;
+}
+.row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 30px;
+  padding: 0 16px 0 8px;
+  border-radius: 6px;
+}
+.row:hover {
+  background: var(--hover);
+}
+.row.selected {
+  background: var(--sel);
+}
+.row.selected::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.row.focused:not(.selected) {
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.row.drop-hover,
+.nav-item.drop-hover {
+  background: var(--sel);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.cell {
+  min-width: 0;
+  padding: 0 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cell.name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.cell.name img,
+.cell.name .glyph {
+  flex: none;
+}
+.glyph {
+  color: var(--ink-2);
+}
+.glyph.faint {
+  color: var(--faint);
+}
+.twisty,
+.twisty-space {
+  flex: none;
+  width: 16px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: var(--muted);
+}
+.twisty:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.chev {
+  transition: transform 0.15s ease;
+}
+.chev.open {
+  transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .chev {
+    transition: none;
+  }
+}
+.label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.label.dir {
+  font-weight: 600;
+}
+.label.faint {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+/* 메모: 이름 바로 곁에 붙은 사용자 글. 이름보다 한 단 흐리게 · 옅은 바탕으로 「붙여 둔 쪽지」임을 말한다. 누르면 그 자리에서 고친다.
+   이름이 먼저 보이도록 메모가 먼저 줄어든다 (flex-shrink 큰 쪽) */
+.memo {
+  flex: 0 100 auto;
+  min-width: 48px;
+  max-width: 60%;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 4px;
+  background: var(--hover);
+  color: var(--ink-2);
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.memo:hover {
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--ink);
+}
+/* 메모가 없는 줄은 올려놓거나 고른 때만 「메모」 단추가 보인다 — 늘 보이면 줄마다 같은 글이 깔린다 */
+.memo-add {
+  flex: none;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 11.5px;
+  opacity: 0;
+}
+.row:hover .memo-add,
+.row.selected .memo-add,
+.memo-add:focus-visible {
+  opacity: 1;
+}
+.memo-add:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.rename.memo-input {
+  flex: 1 1 auto;
+  min-width: 120px;
+  height: 22px;
+}
+.ext {
+  color: var(--faint);
+}
+.where {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.cell.ver {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-2);
+}
+.ver-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-date {
+  color: var(--muted);
+}
+
+/* 판 눈금 (EditionTicks): 찬 점 = 같은 자리 · 빈 점 = 이전판. 어긋난 점만 경고색 — 색 말고 모양(고리 · 처짐 · 찬 점 여럿)으로도 읽힌다 */
+.ticks {
+  flex: none;
+  overflow: visible;
+}
+.tick-axis {
+  stroke: var(--line);
+}
+.tick-today {
+  stroke: var(--faint);
+}
+.tick {
+  fill: var(--paper);
+  stroke: var(--muted);
+  stroke-width: 1.2;
+}
+.tick.here {
+  fill: var(--ink-2);
+  stroke: none;
+}
+.tick.bad {
+  stroke: var(--warn);
+}
+.tick.here.bad {
+  fill: var(--warn);
+}
+.tick-arc {
+  fill: none;
+  stroke: var(--warn);
+  stroke-width: 1.2;
+}
+
+/* 문제 줄: 문서 바로 밑, 꺾쇠로 그 문서에 매단다. 고칠 동작은 문장 바로 곁에 (줄 끝으로 떼지 않는다) */
+.row.issue-line {
+  display: flex;
+  align-items: center;
+  padding-left: 40px;
+}
+.row.issue-line:hover {
+  background: none;
+}
+.row.issue-line::before {
+  content: "";
+  flex: none;
+  width: 9px;
+  height: 9px;
+  margin: -8px 2px 0 0;
+  border-left: 1.5px solid var(--warn);
+  border-bottom: 1.5px solid var(--warn);
+  border-radius: 0 0 0 3px;
+}
+.row.issue-line .issue-text {
+  font-size: 12.5px;
+}
+
+/* 「문제 N문서」: 누르면 그 문서만 거른다. 켜지면 바탕이 찬다 */
+.issue-chip {
+  flex: none;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 13px;
+  font-size: 12.5px;
+  color: var(--warn);
+  box-shadow: inset 0 0 0 1px var(--warn);
+  white-space: nowrap;
+}
+.issue-chip:hover,
+.issue-chip[aria-pressed="true"] {
+  background: var(--warn-bg);
+}
+.issue-chip[aria-pressed="true"] {
+  font-weight: 600;
+}
+.cell.date {
+  color: var(--muted);
+}
+.cell.size {
+  text-align: right;
+  color: var(--muted);
+}
+
+/* 펼친 판: 들여 쓰고 흐리게 — 최신판(위 줄)이 주인공 */
+.row.sub {
+  padding-left: 40px;
+}
+.row.sub .label {
+  color: var(--ink-2);
+}
+.row.sub::after {
+  content: "";
+  position: absolute;
+  left: 23px;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--line);
+}
+.row.open .label {
+  font-weight: 600;
+}
+.row.edition {
+  display: flex;
+  align-items: center;
+}
+.row.edition:hover {
+  background: none;
+}
+.edition-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 0 8px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.edition-line b {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.issue-text {
+  color: var(--warn);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.rename {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--raise);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+  color: var(--ink);
+  font: inherit;
+  outline: none;
+  user-select: text;
+}
+
+/* 바닥: 셈과 판 접기 */
+.foot {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 30px;
+  padding: 0 20px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.foot-toggle {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 5px;
+  color: var(--muted);
+}
+.foot-toggle:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.foot-toggle[aria-pressed="true"] {
+  color: var(--accent);
+}
+
+/* 좁은 창: 왼쪽 열 · 거르기 칸을 줄인다 (이름 · 판이 남는다) */
+@media (max-width: 860px) {
+  .app {
+    grid-template-columns: 184px 1fr;
+  }
+  .filter {
+    width: 120px;
+  }
+}
+
+/* 사업: 연도 → 사업 → (지금 사업만) 자리 */
+.side-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+.side-head h2 {
+  margin-bottom: 0;
+}
+.side-add {
+  padding: 2px 8px;
+  border-radius: 5px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.side-add:hover {
+  background: var(--hover);
+  color: var(--accent);
+}
+.side-new {
+  padding: 2px 4px 6px;
+}
+.side-new input {
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--raise);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+  color: var(--ink);
+  font: inherit;
+  outline: none;
+  user-select: text;
+}
+.side-err {
+  padding: 4px 4px 0;
+  font-size: 12px;
+  color: var(--warn);
+}
+.year-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.year-btn:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.year-count {
+  margin-left: auto;
+  font-weight: 400;
+  font-size: 11.5px;
+}
+.year > ul {
+  margin-left: 8px;
+}
+.nav-item.project .project-name {
+  font-weight: 500;
+}
+.nav-item.project.current .project-name,
+.nav-item.project:hover .project-name {
+  color: var(--ink);
+}
+.side-empty {
+  padding: 2px 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
