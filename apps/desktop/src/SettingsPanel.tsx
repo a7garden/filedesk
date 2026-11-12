@@ -7,6 +7,7 @@
 //   화면 색     시스템 · 밝게 · 어둡게 — 작은 창 그림으로 고른다
 //   아이콘      Windows · filedesk · 아이콘 팩 — 같은 파일 몇 개가 셋에서 어떻게 보이는지 나란히
 //   종류       목록 위 종류 · 아이콘 색의 묶음. 확장자 칩을 다른 종류로 끌어 옮긴다
+//   색인       빠른 색인 서비스 설치 · 드라이브마다 상태 · 문서 본문 색인 진행 · 빼는 폴더 (IndexSettings) — 2026.11.12
 //   Claude 스킬 앱 옆 fd.exe 를 부르는 안내서를 `~/.claude/skills/filedesk` 에 쓴다
 //
 //   2026.11.11 : 칸을 넘기는 대화 창(왼쪽 목차 · 오른쪽 입력 칸)을 한 장으로 바꿨다. 칸을 넘기면 다른 설정이 보이지 않아
@@ -19,6 +20,7 @@ import { useEffect, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { api, iconUrl, type ColKey, type Entry, type SkillStatus, type Theme, type ViewPrefs } from "./api";
 import { FileGlyph, FolderGlyph } from "./glyphs";
+import IndexSettings from "./IndexSettings";
 import SizeLadder from "./SizeLadder";
 import { checkUpdate } from "./updater";
 import { DEFAULT_KINDS, errText, formatSize, KIND_PALETTE, type KindDef, parseExts, relDate, type SortKey } from "./util";
@@ -45,6 +47,7 @@ const SECTIONS = [
   { id: "theme", label: "화면 색" },
   { id: "icons", label: "아이콘" },
   { id: "kinds", label: "종류" },
+  { id: "index", label: "색인" },
   { id: "skill", label: "Claude 스킬" },
 ] as const;
 type SectionId = (typeof SECTIONS)[number]["id"];
@@ -242,7 +245,8 @@ export default function SettingsPanel(props: Props) {
               <div>
                 {check("숨김 · 시스템 파일", showHidden, setShowHidden, "Ctrl+H")}
                 {check("격자에서 그림 · PDF · 영상의 내용 미리보기", view.thumbs, (thumbs) => setView((v) => ({ ...v, thumbs })))}
-                {check("왼쪽 열의 최근 파일 (다운로드 · 바탕화면에 최근 생긴 것)", view.recent, (recent) => setView((v) => ({ ...v, recent })))}
+                {check("왼쪽 열의 스마트 폴더 (최근 파일 · 저장한 조건)", view.recent, (recent) => setView((v) => ({ ...v, recent })))}
+                {check("왼쪽 열의 연결 (NAS · 공유 폴더)", view.links, (links) => setView((v) => ({ ...v, links })))}
               </div>
             </div>
           </section>
@@ -414,6 +418,11 @@ export default function SettingsPanel(props: Props) {
           <section id="set-kinds" aria-labelledby="h-kinds">
             <h3 id="h-kinds">종류</h3>
             <KindsEditor kinds={view.kinds} set={(kinds) => setView((v) => ({ ...v, kinds }))} />
+          </section>
+
+          <section id="set-index" aria-labelledby="h-index">
+            <h3 id="h-index">색인</h3>
+            <IndexSettings current={current} />
           </section>
 
           <section id="set-skill" aria-labelledby="h-skill">

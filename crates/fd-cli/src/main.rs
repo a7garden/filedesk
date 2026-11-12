@@ -81,6 +81,33 @@ enum Cmd {
         #[arg(long)]
         content: bool,
     },
+    /// 조건으로 찾기 — `fd query "보고 고친:7일 종류:문서"`. 화면 찾기 칸 · 스마트 폴더와 같은 문법.
+    /// `--in` 이 없으면 모든 고정 드라이브. 색인 서비스가 있으면 색인으로, 없거나 `--live` 면 그 자리에서 훑는다
+    Query {
+        /// 찾는 말과 조건 (`고친:3일` · `크기:>10MB` · `확장자:pdf` · `종류:문서` · `색:빨강` · `메모:있음` · `-뺄말`)
+        text: String,
+        /// 찾을 폴더 (여럿). 없으면 모든 고정 드라이브
+        #[arg(long = "in")]
+        dirs: Vec<PathBuf>,
+        /// `--in` 폴더의 하위 폴더는 보지 않는다
+        #[arg(long)]
+        no_recurse: bool,
+        /// 문서 본문까지 (본문 색인이 있으면 그것을, 없으면 그 자리에서 읽는다)
+        #[arg(long)]
+        content: bool,
+        /// 색인을 쓰지 않고 그 자리에서 훑는다
+        #[arg(long)]
+        live: bool,
+        /// 숨김 · 시스템 항목도
+        #[arg(long)]
+        all: bool,
+        /// 최대 개수
+        #[arg(long, default_value_t = 500)]
+        limit: usize,
+    },
+    /// 색인 — 상태 · 다시 만들기 (색인 서비스에 묻는다)
+    #[command(subcommand)]
+    Index(IndexCmd),
     /// 폴더 이름 관례 — 이 폴더(모자라면 형제 · 부모)가 쓰는 파일 · 하위 폴더 이름 꼴, 새 폴더 이름 머리, 꼴과 다른 이름과 그 제안. 아무것도 바꾸지 않는다
     Conv { dir: PathBuf },
     /// 이름 제안 — 이 파일 · 폴더를 그 자리(또는 `--to` 폴더)의 관례로 다시 지은 이름. 아무것도 바꾸지 않는다
@@ -101,6 +128,14 @@ enum Cmd {
     /// Claude Code 스킬
     #[command(subcommand)]
     Skill(SkillCmd),
+}
+
+#[derive(Subcommand)]
+enum IndexCmd {
+    /// 드라이브마다 방법(ntfs · walk) · 파일 수 · 맞춘 때 · 상태, 본문 색인 문서 수
+    Status,
+    /// 이름 색인을 처음부터 다시 만든다 (본문 색인은 앱이 다시 채운다)
+    Rebuild,
 }
 
 #[derive(Subcommand)]
@@ -169,6 +204,8 @@ fn main() -> ExitCode {
         Cmd::Edition { file, today, apply } => done(edition(&abs(file), today, apply)),
         Cmd::Retire { dir, doc, apply } => done(retire(&abs(dir), doc.as_deref(), apply)),
         Cmd::Find { dir, query, all, limit, content } => done(find(&abs(dir), &query, all, limit, content)),
+        Cmd::Query { text, dirs, no_recurse, content, live, all, limit } => done(query(&text, dirs.into_iter().map(abs).collect(), !no_recurse, content, live, all, limit)),
+        Cmd::Index(c) => done(index(c)),
         Cmd::Conv { dir } => done(conv(&abs(dir))),
         Cmd::Name { path, to, date } => done(name(&abs(path), to.map(abs), date)),
         Cmd::Trash { paths } => done(trash(paths.into_iter().map(abs).collect())),
@@ -299,6 +336,98 @@ fn find(dir: &Path, query: &str, all: bool, limit: usize, content: bool) -> Out 
         .unwrap_or_default();
     let r = fd_core::search::find(dir, query, all, &memos, content, limit, std::time::Duration::from_secs(20), None);
     serde_json::to_value(r).map_err(|e| e.to_string())
+}
+
+/// 조건으로 찾기. 화면(`apps/desktop/src-tauri/src/index.rs` `run_query`)과 같은 차례를 줄여서 따른다 —
+/// 메모 · 색 조건이면 메모 파일에서, 아니면 색인 서비스(없거나 `--live` 면 그 자리 훑기), 본문은 본문 색인(읽기만).
+fn query(text: &str, dirs: Vec<PathBuf>, recursive: bool, content: bool, live: bool, all: bool, limit: usize) -> Out {
+    use fd_index::proto::{Request, Response};
+    for d in &dirs {
+        if !d.is_dir() {
+            return Err(format!("{}: 폴더가 아니다", d.display()));
+        }
+    }
+    let tz = fd_shell::clock::offset_min();
+    let mut spec = fd_core::query::parse(text, fd_core::query::Clock::now(tz));
+    spec.resolve_kinds(&fd_core::query::default_kinds());
+    if spec.is_empty() {
+        return Err("찾을 말이나 조건이 없다".into());
+    }
+    let roots: Vec<fd_core::search::Root> = dirs.iter().map(|d| fd_core::search::Root { path: d.to_string_lossy().into_owned(), recursive }).collect();
+    let (memos, colors) = fd_core::search::load_notes();
+    let mut sources = Vec::new();
+    let mut items: Vec<fd_core::search::Found> = Vec::new();
+    let mut truncated = false;
+    let mut live_roots = roots.clone();
+    if !live && !spec.needs_notes() {
+        let req = Request::Query { spec: spec.clone(), roots: (!roots.is_empty()).then(|| roots.clone()), all, limit };
+        if let Ok(Response::Query(out)) = fd_index::client::call(&req) {
+            sources.push("service");
+            truncated |= out.truncated;
+            for e in out.items {
+                let k = fd_core::memo::key(&e.path);
+                let (m, c) = (memos.get(&k), colors.get(&k));
+                if spec.entry_ok(&e, m.map(String::as_str), c.map(String::as_str)).is_some() {
+                    items.push(fd_core::search::Found { entry: e, memo: m.cloned(), snippet: None });
+                }
+            }
+            live_roots = out.unresolved;
+        }
+    }
+    if live_roots.is_empty() && roots.is_empty() && sources.is_empty() {
+        // 서비스가 없는데 「모든 고정 드라이브」 — 드라이브마다 훑는다 (느리다)
+        live_roots = fd_shell::places::drive_details().into_iter().filter(|d| d.kind == "fixed").map(|d| fd_core::search::Root { path: d.path, recursive: true }).collect();
+    }
+    if !live_roots.is_empty() {
+        sources.push("live");
+        let r = fd_core::search::query(&live_roots, &spec, all, &memos, &colors, content, limit, std::time::Duration::from_secs(30), None);
+        truncated |= r.truncated;
+        items.extend(r.items);
+    }
+    if content
+        && !spec.terms.is_empty()
+        && let Some(dir) = fd_content::default_dir()
+        && dir.is_dir()
+        && let Ok(ix) = fd_content::ContentIndex::open(&dir, false)
+        && let Some(hits) = ix.search(&spec.terms, limit)
+    {
+        sources.push("content");
+        for h in hits {
+            let inside = roots.is_empty() || roots.iter().any(|r| fd_index::is_under(&fd_index::norm(&h.path), &fd_index::norm(&r.path)));
+            if !inside || items.iter().any(|f| fd_index::norm(&f.entry.path) == fd_index::norm(&h.path)) {
+                continue;
+            }
+            if let Some(e) = fd_core::list::entry_at(Path::new(&h.path))
+                && spec.meta_ok(e.is_dir, &e.ext, e.size, e.modified, e.created)
+            {
+                items.push(fd_core::search::Found { entry: e, memo: None, snippet: Some(h.snippet) });
+            }
+        }
+    }
+    if items.len() > limit {
+        items.truncate(limit);
+        truncated = true;
+    }
+    Ok(serde_json::json!({ "spec": spec, "sources": sources, "truncated": truncated, "items": items }))
+}
+
+fn index(c: IndexCmd) -> Out {
+    use fd_index::proto::{Request, Response};
+    match c {
+        IndexCmd::Status => {
+            let svc = match fd_index::client::call(&Request::Status) {
+                Ok(Response::Status(s)) => serde_json::to_value(s).map_err(|e| e.to_string())?,
+                _ => serde_json::json!({ "service": false, "note": "색인 서비스가 없다 — 앱이 켜져 있으면 앱 안 엔진이 색인한다 (명령줄은 그 자리에서 훑는다)" }),
+            };
+            let content = fd_content::default_dir().filter(|d| d.is_dir()).and_then(|d| fd_content::ContentIndex::open(&d, false).ok()).map(|ix| ix.count());
+            Ok(serde_json::json!({ "index": svc, "contentDocuments": content }))
+        }
+        IndexCmd::Rebuild => match fd_index::client::call(&Request::Rebuild) {
+            Ok(Response::Ok) => Ok(serde_json::json!({ "rebuilding": true })),
+            Ok(Response::Error { message }) => Err(message),
+            _ => Err("색인 서비스가 없다 — 앱의 설정 › 색인에서 다시 만든다".into()),
+        },
+    }
 }
 
 fn trash(paths: Vec<PathBuf>) -> Out {

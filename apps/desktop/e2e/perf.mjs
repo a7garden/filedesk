@@ -1,4 +1,5 @@
 // 큰 폴더 성능 — 배포판 exe 로 파일 수만 개짜리 폴더를 열어 첫 줄이 그려지기까지 · 끝까지 내리기 · 정렬 시간을 잰다.
+// 2026.11.12 : 색인도 잰다 — 이름 색인이 다 서기까지 · 「모든 드라이브」 이름 · 조건 찾기 시간 · 본문 색인 진행 (`index`).
 //
 //   node e2e/perf.mjs [파일 수=20000]
 //
@@ -66,7 +67,31 @@ try {
     return { n, worst: Math.round(worst) };
   });
   const mem = await page.evaluate(() => (performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null));
-  console.log(JSON.stringify({ files: N, firstRowsMs: first, endKeyMs: endMs, scroll120Frames: frames, jsHeapMB: mem, rowsInDom: await page.locator(".row").count() }));
+  // 색인 (2026.11.12) — 이름 색인이 다 서기까지 · 「모든 드라이브」 조건 찾기 · 본문 색인 진행. 서비스가 깔려 있으면 서비스 것을 잰다.
+  const index = await page.evaluate(async () => {
+    const invoke = window.__TAURI_INTERNALS__.invoke;
+    const t0 = performance.now();
+    let st = await invoke("index_status");
+    while (performance.now() - t0 < 600000 && (!st.index.volumes.length || st.index.volumes.some((v) => v.state === "building" || v.state === "rebuild"))) {
+      await new Promise((r) => setTimeout(r, 1000));
+      st = await invoke("index_status");
+    }
+    const readyMs = Math.round(performance.now() - t0);
+    const q = async (text, content = false) => {
+      const s = performance.now();
+      const r = await invoke("query_files", { args: { scope: { all: true, roots: [] }, text, content, tzOffsetMin: 540, limit: 2000, background: true } });
+      return { ms: Math.round(performance.now() - s), n: r.items.length, sources: r.sources };
+    };
+    return {
+      service: st.index.service,
+      readyMs,
+      files: st.index.volumes.reduce((n, v) => n + v.files, 0),
+      byName: await q("보고서"),
+      byCondition: await q("확장자:hwpx 고친:30일"),
+      content: st.content,
+    };
+  });
+  console.log(JSON.stringify({ files: N, firstRowsMs: first, endKeyMs: endMs, scroll120Frames: frames, jsHeapMB: mem, rowsInDom: await page.locator(".row").count(), index }));
 } finally {
   await browser?.close().catch(() => {});
   app.kill();

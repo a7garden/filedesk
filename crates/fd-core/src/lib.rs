@@ -7,6 +7,7 @@ pub mod docs;
 pub mod edition;
 pub mod list;
 pub mod memo;
+pub mod query;
 pub mod search;
 pub mod skill;
 pub mod text;

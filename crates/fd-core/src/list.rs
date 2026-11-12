@@ -4,14 +4,18 @@ use std::io;
 use std::path::Path;
 use std::time::UNIX_EPOCH;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Windows 파일 특성 비트. 숨김 · 시스템을 걸러 탐색기 기본 보기와 같게 한다.
-const ATTR_HIDDEN: u32 = 0x2;
-const ATTR_SYSTEM: u32 = 0x4;
-const ATTR_DIRECTORY: u32 = 0x10;
+pub const ATTR_HIDDEN: u32 = 0x2;
+pub const ATTR_SYSTEM: u32 = 0x4;
+pub const ATTR_DIRECTORY: u32 = 0x10;
+/// 연결 지점(정션 · 심볼릭 링크) — 따라가면 같은 곳을 두 번 · 끝없이 돈다.
+pub const ATTR_REPARSE: u32 = 0x400;
 
-#[derive(Debug, Clone, Serialize)]
+/// 2026.11.12 : `created` 를 더했다 — 찾기 조건 「고친:3일」이 받은 파일(고친 때가 옛날 그대로)도 잡게.
+/// 색인 서비스가 파이프로 주고받으려고 `Deserialize` 도 단다.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Entry {
     pub name: String,
@@ -20,6 +24,9 @@ pub struct Entry {
     pub size: u64,
     /// 수정 시각 (유닉스 밀리초). 읽지 못하면 0.
     pub modified: i64,
+    /// 만든 시각 (유닉스 밀리초). 읽지 못하면 0.
+    #[serde(default)]
+    pub created: i64,
     pub attrs: u32,
     /// 소문자 확장자. 폴더 · 확장자 없음은 빈 문자열.
     pub ext: String,
@@ -69,18 +76,14 @@ fn entry_from(path: std::path::PathBuf, name: String, meta: &std::fs::Metadata) 
             .map(|e| e.to_string_lossy().to_lowercase())
             .unwrap_or_default()
     };
-    let modified = meta
-        .modified()
-        .ok()
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0);
+    let ms = |t: io::Result<std::time::SystemTime>| t.ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_millis() as i64).unwrap_or(0);
     Entry {
         path: path.to_string_lossy().into_owned(),
         name,
         is_dir,
         size: if is_dir { 0 } else { meta.len() },
-        modified,
+        modified: ms(meta.modified()),
+        created: ms(meta.created()),
         attrs,
         ext,
         kind: String::new(),

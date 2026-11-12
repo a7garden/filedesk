@@ -63,6 +63,12 @@ pub struct DocFile {
     /// `이전판/` 안에 있는가.
     pub in_history: bool,
     pub parsed: DocName,
+    /// 옮길 판 — 이전판 밖인데 같은 폴더의 최신판이 아니다. 판 눈금이 경고색으로 칠하는 것은 이것뿐이다.
+    pub retire: bool,
+    /// 같은 판 번호가 여러 날짜에 있다 (날짜 있는 판끼리만 본다).
+    pub dup_ver: bool,
+    /// 앞선 날짜의 판보다 번호가 작다 (날짜 있는 판끼리만 본다).
+    pub back_order: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -120,6 +126,9 @@ fn read_files(dir: &Path, in_history: bool, recursive: bool, out: &mut Vec<DocFi
             size: meta.len(),
             modified,
             in_history,
+            retire: false,
+            dup_ver: false,
+            back_order: false,
         });
     }
 }
@@ -140,6 +149,7 @@ pub fn group_files(files: Vec<DocFile>) -> Vec<DocGroup> {
         .into_iter()
         .map(|(key, mut files)| {
             files.sort_by(|a, b| rank(b).cmp(&rank(a)));
+            mark(&mut files);
             let title = files[0].parsed.title.clone();
             let issues = group_issues(&files);
             DocGroup { key, title, files, issues }
@@ -189,45 +199,97 @@ pub fn history_collisions(paths: &[String], history: &Path) -> Vec<String> {
         .collect()
 }
 
-fn group_issues(files: &[DocFile]) -> Vec<String> {
-    let mut issues = Vec::new();
+fn parent_dir(f: &DocFile) -> PathBuf {
+    Path::new(&f.path).parent().map(Path::to_path_buf).unwrap_or_default()
+}
+
+/// 판 번호와 날짜가 다 있는 파일 — 번호 겹침 · 순서 어긋남은 이것끼리만 본다.
+/// 날짜 없는 판은 고친 시각밖에 없어 언제 낸 판인지 믿을 수 없고, 같은 날 시각만 다른 판은 그날 다시 저장한 것으로 본다.
+fn is_dated(f: &DocFile) -> bool {
+    !f.parsed.version.is_empty() && !f.parsed.date.is_empty()
+}
+
+/// 파일마다 옮길 판 · 번호 겹침 · 순서 어긋남 표시를 단다. `files` 는 최신이 앞이어야 한다.
+/// 2026.11.12 : 판 눈금(화면)과 문제 문장(여기)이 따로 판단해 어긋났다 — 판단은 여기 한 곳에서 하고, 화면은 이 표시만 칠한다.
+fn mark(files: &mut [DocFile]) {
+    // 옮길 판 — 폴더마다 이전판 밖 첫 파일이 그 폴더의 최신판이고, 판이 다른 것은 옮길 판이다.
+    let mut latest: BTreeMap<PathBuf, (Vec<u32>, String, String)> = BTreeMap::new();
+    for f in files.iter_mut().filter(|f| !f.in_history) {
+        let ed = edition(f);
+        let now = latest.entry(parent_dir(f)).or_insert_with(|| ed.clone());
+        f.retire = *now != ed;
+    }
 
     // 같은 판 번호에 날짜가 둘 이상 — 판 번호를 다시 썼다.
     let mut dates_by_ver: BTreeMap<Vec<u32>, Vec<String>> = BTreeMap::new();
-    for f in files.iter().filter(|f| !f.parsed.version.is_empty() && !f.parsed.date.is_empty()) {
+    for f in files.iter().filter(|f| is_dated(f)) {
         let d = dates_by_ver.entry(f.parsed.version.clone()).or_default();
         if !d.contains(&f.parsed.date) {
             d.push(f.parsed.date.clone());
         }
     }
-    for (v, mut ds) in dates_by_ver {
-        if ds.len() > 1 {
-            ds.sort();
-            let label = format!("v{}", v.iter().map(|n| n.to_string()).collect::<Vec<_>>().join("."));
-            let days: Vec<String> = ds.iter().map(|d| format!("{}-{}", &d[4..6], &d[6..8])).collect();
-            issues.push(format!("{label} 이 여러 날짜에 있다 ({})", days.join(" · ")));
-        }
+    for f in files.iter_mut().filter(|f| is_dated(f)) {
+        f.dup_ver = dates_by_ver.get(&f.parsed.version).is_some_and(|d| d.len() > 1);
     }
 
-    // 날짜는 늦은데 판 번호가 작다 — 판 번호를 다시 매겼거나 잘못 붙였다.
-    let mut dated: Vec<&DocFile> = files.iter().filter(|f| !f.parsed.version.is_empty() && !f.parsed.date.is_empty()).collect();
-    dated.sort_by(|a, b| (&a.parsed.date, &a.parsed.version).cmp(&(&b.parsed.date, &b.parsed.version)));
-    if dated.windows(2).any(|w| w[1].parsed.date > w[0].parsed.date && w[1].parsed.version < w[0].parsed.version) {
+    // 날짜는 늦은데 판 번호가 작다 — 앞선 날짜의 가장 큰 번호보다 작은 판에 단다.
+    let mut order: Vec<usize> = (0..files.len()).filter(|&i| is_dated(&files[i])).collect();
+    order.sort_by(|&a, &b| files[a].parsed.date.cmp(&files[b].parsed.date));
+    let mut top: Option<Vec<u32>> = None;
+    let mut i = 0;
+    while i < order.len() {
+        let day = files[order[i]].parsed.date.clone();
+        let mut j = i;
+        let mut day_top: Option<Vec<u32>> = None;
+        while j < order.len() && files[order[j]].parsed.date == day {
+            let ver = files[order[j]].parsed.version.clone();
+            files[order[j]].back_order = top.as_ref().is_some_and(|t| ver < *t);
+            if day_top.as_ref().map_or(true, |t| ver > *t) {
+                day_top = Some(ver);
+            }
+            j += 1;
+        }
+        if day_top > top {
+            top = day_top;
+        }
+        i = j;
+    }
+}
+
+/// 묶음의 문제 문장 — `mark` 가 단 표시에서 만든다.
+fn group_issues(files: &[DocFile]) -> Vec<String> {
+    let mut issues = Vec::new();
+
+    let mut dup: BTreeMap<Vec<u32>, Vec<String>> = BTreeMap::new();
+    for f in files.iter().filter(|f| f.dup_ver) {
+        let d = dup.entry(f.parsed.version.clone()).or_default();
+        if !d.contains(&f.parsed.date) {
+            d.push(f.parsed.date.clone());
+        }
+    }
+    for (v, mut ds) in dup {
+        ds.sort();
+        let label = format!("v{}", v.iter().map(|n| n.to_string()).collect::<Vec<_>>().join("."));
+        let days: Vec<String> = ds.iter().map(|d| format!("{}-{}", &d[4..6], &d[6..8])).collect();
+        issues.push(format!("{label} 이 여러 날짜에 있다 ({})", days.join(" · ")));
+    }
+
+    if files.iter().any(|f| f.back_order) {
         issues.push("날짜 순서와 판 순서가 어긋난다".into());
     }
 
-    // 정본 자리(이전판 밖)에 판이 여럿 — 폴더마다 센다.
-    let mut current: BTreeMap<PathBuf, Vec<(Vec<u32>, String, String)>> = BTreeMap::new();
+    // 정본 자리(이전판 밖)에 판이 여럿 — 옮길 판이 있는 폴더마다, 그 폴더의 판 수를 센다.
+    let mut current: BTreeMap<PathBuf, (Vec<(Vec<u32>, String, String)>, bool)> = BTreeMap::new();
     for f in files.iter().filter(|f| !f.in_history) {
-        let parent = Path::new(&f.path).parent().map(Path::to_path_buf).unwrap_or_default();
-        let e = current.entry(parent).or_default();
+        let (eds, retire) = current.entry(parent_dir(f)).or_default();
         let ed = edition(f);
-        if !e.contains(&ed) {
-            e.push(ed);
+        if !eds.contains(&ed) {
+            eds.push(ed);
         }
+        *retire |= f.retire;
     }
-    for (dir, eds) in current {
-        if eds.len() > 1 {
+    for (dir, (eds, retire)) in current {
+        if retire {
             let folder = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             // 2026.11.11 : 「— 최신판 하나만 두고 나머지는 이전판으로」를 뺐다. 화면은 문제 줄 곁의 「지난 판을 이전판으로」 단추가 그 말을 한다.
             issues.push(format!("「{folder}」 폴더에 판이 {}개", eds.len()));
@@ -248,6 +310,9 @@ mod tests {
             size: 1,
             modified: 0,
             in_history: hist,
+            retire: false,
+            dup_ver: false,
+            back_order: false,
         }
     }
 
@@ -289,5 +354,62 @@ mod tests {
         let stale = stale_in_place(&g[0]);
         assert_eq!(stale.len(), 1, "{stale:?}");
         assert!(stale[0].contains("v1.0"));
+    }
+
+    fn by_name<'a>(g: &'a DocGroup, part: &str) -> &'a DocFile {
+        g.files.iter().find(|f| f.name.contains(part)).unwrap()
+    }
+
+    #[test]
+    fn retire_marks_only_old_editions_in_place() {
+        let g = &group_files(vec![
+            f("회의자료_v2_20261005.pptx", "산출물", false),
+            f("회의자료_v2_20261005.pdf", "산출물", false),
+            f("회의자료_v1_20261001.pptx", "산출물", false),
+            f("회의자료_v0_20260901.pptx", r"산출물\이전판", true),
+        ])[0];
+        assert!(!by_name(g, "v2_20261005.pptx").retire);
+        assert!(!by_name(g, "v2_20261005.pdf").retire);
+        assert!(by_name(g, "v1_").retire);
+        assert!(!by_name(g, "v0_").retire, "이전판 안은 옮길 판이 아니다");
+        // 옮기기 단추가 옮기는 것과 같다
+        let marked: Vec<String> = g.files.iter().filter(|f| f.retire).map(|f| f.path.clone()).collect();
+        assert_eq!(marked, stale_in_place(g));
+    }
+
+    #[test]
+    fn dup_and_back_order_mark_the_right_files() {
+        let g = &group_files(vec![
+            f("D09_v1.6_20261007.xlsx", r"D09\이전판", true),
+            f("D09_v1.6_20261015.xlsx", "D09", false),
+            f("D09_v1.5_20261010.xlsx", r"D09\이전판", true),
+        ])[0];
+        assert!(by_name(g, "v1.6_20261007").dup_ver && by_name(g, "v1.6_20261015").dup_ver);
+        assert!(!by_name(g, "v1.5").dup_ver);
+        // v1.6(10-07) 다음 날짜에 v1.5 — v1.5 만 어긋남
+        assert!(by_name(g, "v1.5").back_order);
+        assert!(!by_name(g, "v1.6_20261007").back_order && !by_name(g, "v1.6_20261015").back_order);
+        assert!(g.issues.iter().any(|i| i.starts_with("v1.6 이 여러 날짜")), "{:?}", g.issues);
+        assert!(g.issues.iter().any(|i| i.contains("어긋난다")));
+    }
+
+    #[test]
+    fn same_day_or_undated_editions_are_not_problems() {
+        // 같은 번호 · 같은 날 · 시각만 다름, 한쪽에만 날짜, 날짜 없는 판이 섞인 순서 — 문제로 보지 않는다
+        let g = &group_files(vec![
+            f("보고_v3_20261101_0900.pptx", r"보고\이전판", true),
+            f("보고_v3_20261101_1700.pptx", "보고", false),
+            f("보고_v3.pptx", r"보고\이전판", true),
+            f("보고_v1.pptx", r"보고\이전판", true),
+        ])[0];
+        assert!(g.files.iter().all(|f| !f.dup_ver && !f.back_order), "{:?}", g.files.iter().map(|f| (&f.name, f.dup_ver, f.back_order)).collect::<Vec<_>>());
+        assert!(g.issues.is_empty(), "{:?}", g.issues);
+    }
+
+    #[test]
+    fn one_edition_per_folder_is_fine() {
+        let g = &group_files(vec![f("안내_v2_20261102.pptx", "가", false), f("안내_v1_20261101.pptx", "나", false)])[0];
+        assert!(g.files.iter().all(|f| !f.retire));
+        assert!(g.issues.is_empty(), "{:?}", g.issues);
     }
 }

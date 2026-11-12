@@ -1,5 +1,5 @@
 /* filedesk — 표면은 절제, 구조로 말한다.
-   무채색 바탕 · 먹색 글자 · 강조 한 가지(짙은 초록). 상자 · 구분선 대신 정렬과 여백으로 묶는다.
+   무채색 바탕 · 먹색 글자 · 강조 한 가지(쪽빛 파랑). 상자 · 구분선 대신 정렬과 여백으로 묶는다.
    글꼴은 이 PC 에 깔린 Pretendard — 맑은 고딕(Windows 얼굴)을 쓰지 않는다. */
 
 :root {
@@ -16,14 +16,16 @@
   --muted:      light-dark(#676d75, #8a867e);
   --faint:      light-dark(#b2b7be, #5e5b55);
   --hover:      light-dark(rgba(26, 29, 33, 0.05), rgba(255, 255, 255, 0.045));
-  --sel:        light-dark(rgba(31, 111, 92, 0.11), rgba(99, 181, 156, 0.16));
-  --accent:     light-dark(#1f6f5c, #63b59c);
-  --accent-ink: light-dark(#ffffff, #10201b);
+  /* 2026.11.12 : 강조색을 짙은 초록에서 쪽빛 파랑으로 바꿨다 — 사용자 요청. 앱 아이콘과 같은 색.
+     --ok(완료 표시)는 초록으로 남겨 강조색과 뗀다 — 「다 됐다」는 뜻이 파랑에 묻히지 않게. */
+  --sel:        light-dark(rgba(43, 95, 217, 0.11), rgba(134, 168, 255, 0.16));
+  --accent:     light-dark(#2b5fd9, #86a8ff);
+  --accent-ink: light-dark(#ffffff, #0f1a33);
   --warn:       light-dark(#a83a1e, #f0a07f);
   --warn-bg:    light-dark(rgba(168, 58, 30, 0.08), rgba(240, 160, 127, 0.1));
   --ok:         light-dark(#1f6f5c, #63b59c);
   --line:       light-dark(rgba(26, 29, 33, 0.08), rgba(255, 255, 255, 0.07));
-  --focus:      light-dark(rgba(31, 111, 92, 0.55), rgba(99, 181, 156, 0.6));
+  --focus:      light-dark(rgba(43, 95, 217, 0.55), rgba(134, 168, 255, 0.6));
   /* 2026.11.11 : 채운 폴더 · 파일 종이 (glyphs.tsx). 폴더는 무채색 바탕에서 튀지 않는 푸른 회색 두 겹 — 뒤판이 한 단 진하다. */
   --folder-back:  light-dark(#7f8b99, #6c7785);
   --folder-front: light-dark(#a3aebb, #8994a2);
@@ -583,8 +585,9 @@ button:disabled {
   grid-template-columns: var(--cols);
   align-items: center;
 }
+/* 오른쪽 여백에 목록 스크롤바 너비(--sbw, Pane 이 잰다)를 더한다 — 그래야 머리 · 열 경계선 · 줄 칸이 한 줄에 선다 */
 .cols {
-  padding: 0 24px 0 16px;
+  padding: 0 calc(24px + var(--sbw, 0px)) 0 16px;
   height: 26px;
   color: var(--muted);
   font-size: 12px;
@@ -607,17 +610,14 @@ button:disabled {
 .sort-mark {
   margin-left: 4px;
 }
+/* 열 너비 손잡이 — 열 경계선 바로 위, 머리 높이 전체. 손잡이 자체는 그리지 않고, 올리거나 끄는 동안 그 열의 경계선이 진해진다 (.col-guides) */
 .resizer {
   position: absolute;
-  top: 2px;
+  top: 0;
+  bottom: 0;
   left: -3px;
   width: 6px;
-  height: 22px;
   cursor: col-resize;
-  border-radius: 3px;
-}
-.resizer:hover {
-  background: var(--line);
 }
 /* 끄는 동안 — 마우스가 손잡이를 벗어나도 모양을 지키고, 지나간 줄 글자가 골라지지 않게 */
 body.col-resizing,
@@ -626,11 +626,53 @@ body.col-resizing * {
   user-select: none !important;
 }
 
+/* 열 경계선 — 머리부터 목록 끝까지 한 번만 긋는다. 줄마다 그리면 가상 스크롤의 빈 아래쪽에서 선이 끊긴다.
+   줄 바탕(--hover · --sel)이 반투명이라 줄 뒤로도 비친다. 문제 줄 · 판 줄은 열을 쓰지 않지만 선은 그 위로도 지나간다 (2026.11.12) */
+.list-area {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.col-guides {
+  position: absolute;
+  inset: 0;
+  padding: 0 calc(24px + var(--sbw, 0px)) 0 16px;
+  display: grid;
+  grid-template-columns: var(--cols);
+  pointer-events: none;
+}
+.guide {
+  position: relative;
+}
+.guide:not(.col-0)::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -0.5px;
+  width: 1px;
+  background: var(--line);
+}
+.pane:has(.cols .col-1 > .resizer:hover) .guide.col-1::before,
+.pane:has(.cols .col-2 > .resizer:hover) .guide.col-2::before,
+.pane:has(.cols .col-3 > .resizer:hover) .guide.col-3::before,
+.pane[data-resizing="1"] .guide.col-1::before,
+.pane[data-resizing="2"] .guide.col-2::before,
+.pane[data-resizing="3"] .guide.col-3::before {
+  left: -1px;
+  width: 2px;
+  background: var(--accent);
+}
+
 .list {
   position: relative;
   flex: 1;
   overflow: auto;
   padding: 0 8px 12px;
+  /* 스크롤바 자리를 늘 비워 둔다 — 넘칠 때만 생기면 열 경계선과 줄 칸이 그만큼 어긋났다 풀렸다 한다 */
+  scrollbar-gutter: stable;
 }
 .list.drop-hover {
   box-shadow: inset 0 0 0 2px var(--accent);
@@ -638,6 +680,15 @@ body.col-resizing * {
 }
 .list-inner {
   position: relative;
+}
+/* 끌어서 고르기 네모 — 고른 줄과 같은 색을 옅게. 항목 위에 떠 있지만 마우스는 받지 않는다 (2026.11.12) */
+.marquee {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
 }
 .empty {
   position: absolute;
@@ -817,9 +868,11 @@ body.col-resizing * {
 }
 .doc-date {
   color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
-/* 판 눈금 (EditionTicks): 찬 점 = 같은 자리 · 빈 점 = 이전판. 어긋난 점만 경고색 — 색 말고 모양(고리 · 처짐 · 찬 점 여럿)으로도 읽힌다 */
+/* 판 눈금 (EditionTicks): 찬 점 = 이 폴더 · 빈 점 = 이전판 · 세로 금 = 이름에 날짜 없는 판.
+   경고색 채움은 옮길 판에만, 판 번호 · 순서가 어긋난 판은 테두리만 경고색 — 무엇이 문제인지는 문제 문장이 말한다 */
 .ticks {
   flex: none;
   overflow: visible;
@@ -839,16 +892,23 @@ body.col-resizing * {
   fill: var(--ink-2);
   stroke: none;
 }
-.tick.bad {
+.tick.flag {
   stroke: var(--warn);
 }
-.tick.here.bad {
+.tick.here.retire {
   fill: var(--warn);
 }
-.tick-arc {
-  fill: none;
+.tick-undated {
+  stroke: var(--muted);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+.tick-undated.here {
+  stroke: var(--ink-2);
+}
+.tick-undated.here.retire,
+.tick-undated.flag {
   stroke: var(--warn);
-  stroke-width: 1.2;
 }
 
 /* 문제 줄: 문서 바로 밑, 꺾쇠로 그 문서에 매단다. 고칠 동작은 문장 바로 곁에 (줄 끝으로 떼지 않는다) */
@@ -892,12 +952,15 @@ body.col-resizing * {
 .issue-chip[aria-pressed="true"] {
   font-weight: 600;
 }
+/* 날짜 · 크기는 고정폭 숫자 — 줄마다 자릿수가 위아래로 맞는다 */
 .cell.date {
   color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 .cell.size {
   text-align: right;
   color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 /* 펼친 판: 들여 쓰고 흐리게 — 최신판(위 줄)이 주인공 */
@@ -983,8 +1046,9 @@ body.col-resizing * {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* 2026.11.12 : 크기 사다리(margin-left: auto)에 붙여 오른쪽 끝에 모은다. 둘 다 auto 이면 남는 자리를 반씩 나눠 사다리가 바닥 줄 가운데로 떠서
+   즐겨찾기 독을 여는 자리를 가렸다. */
 .foot-toggle {
-  margin-left: auto;
   padding: 2px 8px;
   border-radius: 5px;
   color: var(--muted);
@@ -1298,6 +1362,26 @@ body.resizing-y * {
   text-overflow: ellipsis;
 }
 
+/* 바로가기 — 가리키는 것의 그림 왼쪽 아래에 작은 화살표 딱지 (탐색기와 같은 자리). 2026.11.12 */
+.shortcut-glyph {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+}
+.shortcut-arrow {
+  position: absolute;
+  left: -1px;
+  bottom: -1px;
+  width: max(8px, 40%);
+  height: max(8px, 40%);
+  fill: var(--paper);
+  stroke: var(--ink-2);
+  stroke-width: 1.1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 /* ── 색 표시 (Finder 꼬리표처럼) ──
    이름 곁 작은 점 하나. 색만으로 말하지 않게 title · aria-label 에 색 이름을 둔다. */
 .tag-dot {
@@ -1316,10 +1400,6 @@ body.resizing-y * {
 .tag-blue   { --tag: light-dark(#3478f6, #5e9bff); }
 .tag-purple { --tag: light-dark(#8e4ec6, #b17ce8); }
 .tag-gray   { --tag: light-dark(#8b8f96, #9a9da3); }
-.nav-item .tag-dot {
-  margin-left: auto;
-  margin-right: 4px;
-}
 .tag-add {
   flex: none;
   height: 20px;
@@ -1422,7 +1502,7 @@ body.resizing-y * {
   background: var(--sel);
   box-shadow: inset 0 0 0 1.5px var(--accent);
 }
-/* 제목 줄 오른쪽 + — 마우스를 댄 동안 · 열려 있는 동안만 또렷하게 */
+/* 연결 제목 — 폴더를 끌어 놓는 자리를 겸한다 */
 .side-head {
   display: flex;
   align-items: center;
@@ -1434,25 +1514,45 @@ body.resizing-y * {
   box-shadow: inset 0 0 0 1.5px var(--accent);
   color: var(--ink);
 }
-.head-add {
-  width: 20px;
-  height: 18px;
-  border-radius: 4px;
-  font-size: 14px;
-  line-height: 1;
-  color: var(--faint);
+/* 연결 — 서버 이름 한 줄 밑에 그 공유들 (2026.11.12).
+   서버 줄은 누르는 곳이 아니라 묶음 이름이라 작고 흐린 고정폭 글. 공유 줄은 서버 그림 자리만큼 들여 「그 서버의 것」으로 읽힌다.
+   열 수 없는 공유는 흐리게 — 눌러도 열리지 않는다는 것을 누르기 전에 안다. 색만으로 말하지 않게 「끊김」 글을 함께 둔다 */
+.link-host + .link-host {
+  margin-top: 4px;
 }
-.side-head:hover .head-add,
-.head-add[aria-expanded="true"],
-.head-add:focus-visible {
-  color: var(--ink-2);
+.link-server {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 8px;
+  font: 11.5px/1 ui-monospace, "Cascadia Mono", Consolas, monospace;
+  color: var(--muted);
+  white-space: nowrap;
 }
-.head-add:hover {
-  background: var(--hover);
+.link-server span {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+.link-server em,
+.link-share.off .count {
+  margin-left: auto;
+  font-size: 11px;
+  font-style: normal;
+  color: var(--warn);
+}
+.link-server.off > :not(em) {
+  opacity: 0.55;
+}
+.nav-item.link-share {
+  padding-left: 28px;
+}
+.nav-item.link-share.off > span:first-child {
+  opacity: 0.55;
+}
+/* 맨 아래 주소 칸 — 평소에는 글처럼 조용하다가, 마우스를 대면 칸 테두리가, 누르면 입력 칸이 선다 */
 .link-form {
-  margin: 0 0 4px;
-  padding: 0 2px;
+  margin: 2px 0 0;
 }
 .link-form input {
   width: 100%;
@@ -1460,15 +1560,74 @@ body.resizing-y * {
   padding: 0 8px;
   border: 0;
   border-radius: 6px;
-  background: var(--raise);
-  box-shadow: inset 0 0 0 1px var(--line);
+  background: transparent;
   color: var(--ink);
   font: inherit;
+  font-size: 12px;
   outline: none;
   user-select: text;
 }
+.link-form input::placeholder {
+  color: var(--faint);
+}
+.link-form input:hover {
+  box-shadow: inset 0 0 0 1px var(--line);
+}
 .link-form input:focus {
+  background: var(--raise);
   box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.link-form.drop-hover input {
+  background: var(--sel);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+/* 색 표시 — 일곱 건반 한 줄 (2026.11.12). 자리가 Alt+1~7 과 같다.
+   단 것: 찬 원 + 밑에 개수 · 안 단 것: 빈 고리(누르지 않는다). 찬 것과 빈 것이 모양으로 갈려 색을 못 봐도 「단 것이 있다」가 읽힌다 */
+.tag-keys {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  padding: 0 2px;
+}
+.tag-key {
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 3px;
+  height: 40px;
+  padding-top: 7px;
+  border-radius: 6px;
+}
+.tag-key-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--tag);
+  opacity: 0.45;
+}
+.tag-key.used .tag-key-dot {
+  background: var(--tag);
+  opacity: 1;
+}
+.tag-key-n {
+  min-height: 12px;
+  font-size: 11px;
+  line-height: 12px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.tag-key.used:hover {
+  background: var(--hover);
+}
+.tag-key:not(.used) {
+  cursor: default;
+}
+.tag-key.drop-hover {
+  background: var(--sel);
+  box-shadow: inset 0 0 0 1.5px var(--tag);
+}
+.tag-key.drop-hover .tag-key-dot {
+  background: var(--tag);
+  opacity: 1;
 }
 .link-form .side-hint {
   margin: 4px 6px 0;
@@ -1506,7 +1665,10 @@ body.resizing-y * {
    여는 데 90ms 를 기다린다 — 칸 바닥(셈 · 판 접기 줄)으로 가는 마우스가 지나가다 열지 않게.
    닫는 데 260ms 를 기다린다 — 선반 위 항목으로 옮겨 가는 길에 잠깐 벗어나도 접히지 않게.
    키보드로 Tab 해 들어오면 초점이 있는 동안 열려 있다 (마우스로 누른 초점은 세지 않는다 — 누른 뒤에도 안 닫히게 된다).
-   움직임은 이 오르내림 하나뿐이다. 칸과 같은 칸(격자 2열 2행)에 겹쳐 놓아 좁은 창에서 왼쪽 열 너비가 바뀌어도 따라간다. */
+   움직임은 이 오르내림 하나뿐이다. 칸과 같은 칸(격자 2열 2행)에 겹쳐 놓아 좁은 창에서 왼쪽 열 너비가 바뀌어도 따라간다.
+   2026.11.12 : 여는 자리를 7px 띠 → 칸 바닥 줄(30px) 가운데 절반으로 넓혔다. 띠가 작아 겨누어야 열렸다.
+                .dock 은 마우스를 받지 않는다 — 바닥 줄의 단추(크기 사다리 · 판 접기)를 덮지 않게. 그 넓이 안에 마우스가 들어왔는지는 FavDock 이 보고 near 를 단다.
+                선반은 바닥 줄 위에 선다 — 열린 동안에도 바닥 줄 단추를 가리지 않는다. */
 .dock {
   grid-column: 2;
   grid-row: 2;
@@ -1514,37 +1676,39 @@ body.resizing-y * {
   justify-self: center;
   position: relative;
   z-index: 20;
-  /* 입술 자리만 마우스를 받는다 — 칸 바닥 줄의 단추를 덮지 않게 얇게 */
-  width: 320px;
-  max-width: 70%;
-  height: 7px;
+  width: max(360px, 50%);
+  max-width: 100%;
+  height: 30px;
+  pointer-events: none;
+}
+.dock-shelf {
+  pointer-events: auto;
 }
 .dock-lip {
   position: absolute;
   inset: 0;
   display: flex;
   justify-content: center;
-  align-items: flex-end;
+  align-items: center;
   gap: 3px;
-  padding-bottom: 2px;
   transition: opacity 120ms ease 260ms;
 }
 .dock-tick {
-  width: 10px;
-  height: 3px;
+  width: 12px;
+  height: 4px;
   border-radius: 2px;
   background: var(--tag, var(--faint));
 }
 .dock-tick.here {
   background: var(--accent);
-  height: 4px;
+  height: 5px;
 }
 .dock-tick.empty {
   width: 28px;
 }
 .dock-shelf {
   position: absolute;
-  bottom: 6px;
+  bottom: 100%;
   left: 50%;
   width: max-content;
   max-width: min(880px, calc(100vw - 280px));
@@ -1552,13 +1716,14 @@ body.resizing-y * {
   border-radius: 12px;
   background: var(--raise);
   box-shadow: 0 10px 32px rgba(0, 0, 0, 0.16), inset 0 0 0 1px var(--line);
-  transform: translate(-50%, calc(100% + 12px));
+  transform: translate(-50%, 16px);
   opacity: 0;
   visibility: hidden;
   transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1) 260ms, opacity 150ms ease 260ms, visibility 0s linear 460ms;
 }
 .dock:hover .dock-shelf,
 .dock:has(:focus-visible) .dock-shelf,
+.dock.near .dock-shelf,
 .dock.open .dock-shelf {
   transform: translate(-50%, 0);
   opacity: 1;
@@ -1567,6 +1732,7 @@ body.resizing-y * {
 }
 .dock:hover .dock-lip,
 .dock:has(:focus-visible) .dock-lip,
+.dock.near .dock-lip,
 .dock.open .dock-lip {
   opacity: 0;
   transition-delay: 0s;
@@ -1657,20 +1823,22 @@ body.resizing-y * {
   background: var(--sel);
   box-shadow: inset 0 0 0 1.5px var(--accent);
 }
-.dock-add .dock-icon {
-  font-size: 18px;
-  font-weight: 300;
-  border-radius: 6px;
-  box-shadow: inset 0 0 0 1px var(--faint);
-}
-.dock-add .dock-name {
+/* 즐겨찾기가 없을 때 — 끌어 놓을 자리 하나. 2026.11.12 : 「+ 더하기」 타일을 걷어 내고 남긴 유일한 빈 자리 안내 */
+.dock-empty {
+  display: grid;
+  place-items: center;
+  height: 76px;
+  padding: 0 20px;
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px var(--line);
+  font-size: 12px;
   color: var(--muted);
+  white-space: nowrap;
 }
-.dock-add:disabled {
-  opacity: 0.5;
-}
-.dock-add:disabled:hover {
-  background: none;
+.dock-empty.drop-hover {
+  background: var(--sel);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+  color: var(--ink);
 }
 .dock-x {
   position: absolute;
@@ -1723,9 +1891,12 @@ body.resizing-y * {
   border-radius: 1px;
   background: var(--accent);
 }
-.dock-add.drop-hover .dock-icon {
-  box-shadow: inset 0 0 0 1.5px var(--accent);
-  color: var(--accent);
+/* 끝 자리 — 마지막 타일 뒤. 끝에 붙이는 일이 가장 잦아 사이보다 넓게 둔다 */
+.dock-gap.end {
+  width: 28px;
+}
+.dock-gap.end.drop-hover {
+  width: 56px;
 }
 /* 방금 더한 것 — 타일에 초록 테두리가 한 번 번졌다 가라앉는다. 내려간 뒤에는 입술의 그 눈금이 초록으로 */
 .dock-tile.fresh {
@@ -1743,7 +1914,7 @@ body.resizing-y * {
 /* 창 안에서 파일을 끄는 동안 — 닫힌 입술이 말을 건다 (독이 있는 줄 모르는 사람의 단서) */
 .dock-beckon {
   position: absolute;
-  bottom: 9px;
+  bottom: 100%;
   left: 50%;
   transform: translateX(-50%);
   padding: 3px 10px;
@@ -2332,9 +2503,6 @@ body.resizing-y * {
   margin: 4px 6px;
   background: var(--line);
 }
-.resizer:hover {
-  background: var(--focus);
-}
 .file-glyph {
   color: var(--ink-2);
 }
@@ -2411,10 +2579,12 @@ body.resizing-y * {
 }
 @container pane (max-width: 680px) {
   .cols,
+  .col-guides,
   .row:not(.edition):not(.issue-line) {
     grid-template-columns: var(--cols-narrow);
   }
   .cols > .col-1,
+  .col-guides > .col-1,
   .row .cell.ver {
     display: none;
   }
@@ -2988,4 +3158,245 @@ body.resizing-y * {
 }
 .image-step.next {
   right: 12px;
+}
+
+/* ───────── 찾기 조건 · 스마트 폴더 · 색인 (2026.11.12) ───────── */
+
+/* 조건 칩 — 찾기 칸의 `열쇠:값` 을 읽는 말로. × 로 그 조건만 뗀다 */
+.cond-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 24px;
+  padding: 0 4px 0 9px;
+  border-radius: 12px;
+  font-size: 12.5px;
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--focus);
+}
+.cond-chip.term {
+  padding-right: 9px;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.cond-chip.warn {
+  padding-right: 9px;
+  color: var(--warn);
+  background: var(--warn-bg);
+  box-shadow: none;
+}
+.deep-src {
+  margin-left: 6px;
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 11.5px;
+}
+.kind-edit {
+  margin-left: 6px;
+  padding: 0 6px;
+  height: 20px;
+  border-radius: 10px;
+  color: var(--accent);
+  font-weight: 400;
+  font-size: 12px;
+}
+.kind-edit:hover {
+  background: var(--hover);
+}
+/* 「＋ 조건」 메뉴 */
+.preset-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.preset-menu {
+  position: absolute;
+  top: 28px;
+  left: 0;
+  z-index: 30;
+  display: flex;
+  gap: 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--raise);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18), inset 0 0 0 1px var(--line);
+  animation: pop-in 0.12s ease-out;
+}
+.preset-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 96px;
+}
+.preset-head {
+  margin-bottom: 2px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.preset-group button {
+  text-align: left;
+  padding: 3px 6px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.preset-group button:hover {
+  background: var(--hover);
+}
+.save-smart {
+  margin-left: 6px;
+  color: var(--accent);
+}
+
+/* 왼쪽 「스마트 폴더」 */
+.side-add {
+  margin-left: auto;
+  width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.side-add:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.smart-glyph {
+  flex: none;
+  color: var(--muted);
+}
+.smart-fresh {
+  margin-left: 14px;
+}
+.index-line {
+  margin-top: 4px;
+  font-size: 11.5px;
+  cursor: default;
+}
+
+/* 스마트 폴더 고치기 창 */
+.smart-editor {
+  width: min(560px, calc(100vw - 48px));
+  max-height: calc(100vh - 64px);
+  overflow: auto;
+  padding: 18px 20px 16px;
+  border-radius: 12px;
+  background: var(--raise);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22), inset 0 0 0 1px var(--line);
+  animation: pop-in 0.16s ease-out;
+}
+.smart-editor h3 {
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+.smart-line {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0;
+}
+.smart-line.top {
+  align-items: start;
+}
+.smart-line input,
+.smart-root.add input,
+.index-exclude {
+  width: 100%;
+  min-width: 0;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--line);
+  font: inherit;
+}
+.smart-line input:focus,
+.smart-root.add input:focus,
+.index-exclude:focus {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--focus);
+}
+.smart-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 0 6px 74px;
+}
+.smart-scope {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.smart-roots {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 2px 0 0 24px;
+}
+.smart-root {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.smart-root .set-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.smart-root.add input {
+  flex: 1;
+}
+.smart-preview {
+  min-height: 18px;
+  margin: 10px 0 0;
+  font-size: 12.5px;
+}
+.smart-acts {
+  margin-top: 12px;
+}
+.smart-acts .grow {
+  flex: 1;
+}
+.act.danger {
+  color: var(--warn);
+}
+
+/* 설정 › 색인 */
+.index-table {
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.index-table th {
+  text-align: left;
+  font-weight: 400;
+  color: var(--muted);
+  padding: 2px 14px 4px 0;
+}
+.index-table td {
+  padding: 3px 14px 3px 0;
+}
+.index-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.index-bar {
+  height: 5px;
+  margin: 6px 0;
+  max-width: 320px;
+  border-radius: 3px;
+  background: var(--line);
+  overflow: hidden;
+}
+.index-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.index-exclude {
+  resize: vertical;
+  max-width: 460px;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
 }

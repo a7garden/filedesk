@@ -1,0 +1,14 @@
+[package]
+name = "fd-content"
+description = "filedesk 본문 색인: 문서 본문을 두 글자 조각으로 담는 tantivy 전문 색인과 그것을 채우는 뒷일"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+fd-core = { workspace = true }
+fd-index = { workspace = true }
+serde = { workspace = true }
+tantivy = { workspace = true }

@@ -5,7 +5,7 @@
 // WebView2 의 원격 디버깅 포트로 Playwright 를 붙인다. 셸 메뉴 · 앱 밖 끌기는 창 밖 일이라 여기서 못 본다 (사람이 본다).
 // 시험용 임시 폴더에서만 파일을 만들고 바꾼다. 휴지통 시험은 그 폴더의 빈 파일 하나를 휴지통으로 보낸다.
 // 앱 설정(열어 둔 탭 · 고정 위치)은 시험 전에 떠 두었다가 끝나면 되돌린다 — 시험이 사용자 설정을 바꾸지 않게.
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -52,6 +52,11 @@ const files = {
   // 같은 자리에 판이 둘 — 문제 줄의 「지난 판을 이전판으로」 시험
   "회의자료_v1_20261001.pptx": "m1",
   "회의자료_v2_20261005.pptx": "m2",
+  // 판 눈금 — 이름에 날짜 없는 판(세로 금), 1년 전 문서(축이 1년 넘게 이어진다). 둘 다 문제는 없다.
+  "안내문_v2_20261101.docx": "g2",
+  "이전판/안내문_v1.docx": "g1",
+  "예전계획_v2_20251101.hwpx": "p2",
+  "이전판/예전계획_v1_20251001.hwpx": "p1",
 };
 for (const [n, c] of Object.entries(files)) writeFileSync(join(T, n), c);
 
@@ -94,7 +99,19 @@ try {
   // pptx · pdf 는 한 판으로 센다 — 보고서는 v3(pptx · pdf) · v2 두 판
   check("판 눈금 — 글로도 읽힌다", ticks?.includes("2판") && ticks.includes("「이전판」 폴더 1"), ticks ?? "");
   check("D09 판 겹침은 문제 줄로", (await pane.locator(".row.issue-line", { hasText: "v1.6 이 여러 날짜" }).count()) === 1);
-  check("판 겹침 점은 경고 모양", (await row("LDM_D09").locator(".tick-arc").count()) === 1);
+  check("판 겹침은 두 판 모두 경고 테두리", (await row("LDM_D09").locator(".tick.flag").count()) === 2);
+  // 축이 1년 넘게 이어져도(예전계획) 열흘 사이 두 판(D09 10-07 · 10-15)이 6px 넘게 갈라진다 — 로그 축 · 밀어 찍기
+  const d9x = await row("LDM_D09").locator("circle.tick").evaluateAll((cs) => cs.map((c) => +c.getAttribute("cx")));
+  check("가까운 판도 갈라 찍는다", d9x.length === 2 && Math.abs(d9x[1] - d9x[0]) >= 5.9, d9x.join(" · "));
+  check("찬 점 둘이면 옮길 판만 경고색", (await row("회의자료").locator(".tick.here.retire").count()) === 1 && (await row("회의자료").locator(".tick.here:not(.retire)").count()) === 1);
+  check("날짜 없는 판은 세로 금", (await row("안내문").locator("line.tick-undated").count()) === 1);
+  check("날짜 없는 판은 글로도 알린다", ((await row("안내문").locator("svg.ticks title").textContent()) ?? "").includes("날짜 없음 · 고친 시각"));
+  check("문제 없는 문서는 경고가 없다", (await row("예전계획").locator(".tick.retire, .tick.flag").count()) === 0);
+  // 열 경계선 — 머리 손잡이에 올리면 그 열의 선이 진해진다
+  await pane.locator(".cols .col-2 > .resizer").hover();
+  const guideW = await pane.locator(".col-guides .guide.col-2").evaluate((g) => getComputedStyle(g, "::before").width);
+  check("손잡이에 올리면 열 경계선이 진해진다", guideW === "2px", guideW);
+  await page.mouse.move(10, 10);
   check("셸 아이콘이 그려진다", await until(() => row("가나다").locator("img").evaluate((img) => img.complete && img.naturalWidth > 0), 5000));
   await page.screenshot({ path: join(SHOTS, "01_목록.png") });
 
@@ -262,6 +279,49 @@ try {
   check("파일을 즐겨찾기에", await until(() => page.locator(".dock li[data-pin-index]", { hasText: "LDM_D09" }).count().then((c) => c === 1)));
   check("더하면 독이 올라와 밝힌다", await until(() => page.locator(".dock.open .dock-tile.fresh", { hasText: "LDM_D09" }).count().then((c) => c === 1), 1200));
   check("잠시 뒤 독이 내려간다", await until(() => page.locator(".dock.open").count().then((c) => c === 0), 3000));
+  // 2026.11.12 : 바닥 줄 가운데 어디든 마우스가 지나면 올라온다 · 바닥 줄 단추 위에서는 올라오지 않는다
+  {
+    const box = await page.locator(".dock").boundingBox();
+    await page.mouse.move(box.x + box.width * 0.2, box.y + box.height / 2, { steps: 4 });
+    check("바닥 줄에 마우스를 대면 독이 올라온다", await until(() => page.locator(".dock.near .dock-shelf").isVisible(), 1500));
+    await page.screenshot({ path: join(SHOTS, "10_독_올라옴.png") });
+    const shelf = await page.locator(".dock-shelf").boundingBox();
+    await page.mouse.move(shelf.x + shelf.width / 2, shelf.y + shelf.height / 2, { steps: 4 });
+    check("선반으로 올라가도 열려 있다", await page.locator(".dock-shelf").isVisible());
+    const fold = await page.locator("section.pane:not([hidden]) .foot-toggle").first().boundingBox();
+    await page.mouse.move(fold.x + fold.width / 2, fold.y + fold.height / 2, { steps: 4 });
+    check("판 접기 단추 위에서는 내려간다", await until(() => page.locator(".dock-shelf").isHidden(), 1500));
+  }
+
+  // 10-6-1. 끌어서 고르기 (2026.11.12) — 줄의 이름 밖(고친 날 칸)에서 누르고 아래 줄까지 끌면 걸친 줄을 모두 고른다
+  {
+    const a = await row("산출물").locator(".cell.date").boundingBox();
+    const b = await row("하위").locator(".cell.date").boundingBox();
+    await page.mouse.move(a.x + 4, a.y + a.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(a.x - 40, b.y + b.height / 2, { steps: 8 });
+    check("끄는 동안 네모가 보인다", await pane.locator(".marquee").count() === 1);
+    await page.mouse.up();
+    const n = await pane.locator(".row.selected").count();
+    check("끌어서 여러 줄을 고른다", n === 5, `${n}줄`);
+    check("놓으면 네모가 사라진다", await pane.locator(".marquee").count() === 0);
+    await page.keyboard.press("Escape");
+  }
+
+  // 10-6-2. 왼쪽 「색 표시」 건반 일곱 · 「연결」 주소 칸 (2026.11.12)
+  check("색 표시 건반 일곱", await page.locator(".tag-keys .tag-key").count() === 7);
+  check("쓴 색은 찬 건반", await page.locator(".tag-key.used").count() >= 1);
+  // 연결은 설정에서 켜야 보인다 — NAS 를 안 쓰는 사람에게는 없는 구획이다
+  check("연결은 처음에 없다", await page.locator(".link-form").count() === 0);
+  await page.locator(".settings-btn").click();
+  await page.locator(".settings label.set-check", { hasText: "왼쪽 열의 연결" }).click();
+  await page.keyboard.press("Escape");
+  check("설정에서 켜면 연결 주소 칸이 선다", await until(() => page.locator(".link-form input").count().then((c) => c === 1)));
+  await page.locator(".link-form input").fill(join(T, "자료"));
+  await page.locator(".link-form input").press("Enter");
+  check("주소를 적고 Enter 로 연결을 더한다", await until(() => page.locator(".link-share", { hasText: "자료" }).count().then((c) => c === 1)));
+  check("연결은 묶는 이름 밑에", (await page.locator(".link-server").first().textContent()).startsWith("C:"));
+  await page.screenshot({ path: join(SHOTS, "10_왼쪽열.png"), clip: { x: 0, y: 0, width: 240, height: 800 } });
 
   // 10-7. 나눠 보기 — Ctrl+\ 로 두 칸 · 오른쪽 칸만 옮기기 · 칸 너비 끌기 · 탭을 끌어 칸 가운데에 놓기 · 다시 Ctrl+\
   //       · 탭을 칸 가장자리로 끌어 네 칸까지 나누기 · 칸 높이 끌기 · 다섯째는 나누지 않고 그 칸으로 옮긴다
@@ -434,6 +494,67 @@ try {
   await card("시스템").click();
   check("다시 시스템으로", (await page.evaluate(() => document.documentElement.dataset.theme)) === undefined);
   await page.keyboard.press("Escape");
+
+  // 10-10. 바로가기는 대상의 그림 · ini 는 앱 안에서 (2026.11.12)
+  {
+    const L = join(T, "바로가기");
+    mkdirSync(L, { recursive: true });
+    writeFileSync(join(L, "설정.ini"), "[app]\r\nname=filedesk\r\n");
+    execFileSync("powershell", ["-NoProfile", "-Command", `$s=(New-Object -ComObject WScript.Shell).CreateShortcut('${join(L, "자료로.lnk")}'); $s.TargetPath='${join(T, "자료")}'; $s.Save()`]);
+    await page.locator(".settings-btn").click();
+    await page.locator(".set-nav button", { hasText: "아이콘" }).click();
+    await page.locator(".icon-row", { hasText: "filedesk" }).first().click();
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Control+l");
+    await pane.locator("input.path-input").fill(L);
+    await pane.locator("input.path-input").press("Enter");
+    check("폴더 바로가기는 폴더 그림 + 화살표", await until(() => row("자료로").locator(".shortcut-glyph .folder-glyph").count().then((c) => c === 1)));
+    await page.screenshot({ path: join(SHOTS, "12_바로가기.png") });
+    await row("설정").dblclick();
+    check("ini 는 앱 안에서 연다", await until(() => page.locator(".viewer").textContent().then((t) => t.includes("name=filedesk"))));
+    await page.keyboard.press("Escape");
+  }
+
+  // 12. 찾기 조건 · 스마트 폴더 (2026.11.12) — 시험 폴더의 파일은 모두 오늘 만들었다
+  {
+    await page.keyboard.press("Control+l");
+    await pane.locator("input.path-input").fill(T);
+    await pane.locator("input.path-input").press("Enter");
+    await until(async () => (await rowNames()).length > 0, 5000);
+    const filter = pane.locator("input.filter");
+    await filter.fill("고친:오늘");
+    check("조건은 칩으로", await until(() => pane.locator(".cond-chip").first().textContent().then((t) => t?.includes("오늘"))));
+    check("오늘 고친 것만 남는다", await until(async () => (await pane.locator(".row").count()) > 0));
+    await page.screenshot({ path: join(SHOTS, "16_조건칩.png") });
+    await filter.fill("고친:>1년");
+    check("1년 넘은 것은 없다", await until(() => pane.locator(".row").count().then((c) => c === 0)));
+    await filter.fill("고친:언젠가");
+    check("틀린 조건은 경고 칩", await until(() => pane.locator(".cond-chip.warn").count().then((c) => c === 1)));
+    // ＋ 조건 메뉴로 붙이기
+    await filter.fill("");
+    await pane.locator(".preset-wrap > button").click();
+    await page.locator(".preset-menu button", { hasText: "3일 안" }).click();
+    check("＋ 조건이 찾기 칸에 붙는다", (await filter.inputValue()) === "고친:3일");
+    // 하위 폴더까지 — 조건만으로도 찾는다
+    await filter.press("Shift+Enter");
+    check("조건만으로 하위 폴더까지", await until(async () => (await pane.locator(".foot").textContent())?.includes("하위 폴더에서"), 10000));
+    // 스마트 폴더로 저장 → 왼쪽에 생기고 누르면 그 칸에 모아 보인다
+    await pane.locator(".save-smart").click();
+    check("스마트 폴더 고치기 창", await until(() => page.locator(".smart-editor").count().then((c) => c === 1)));
+    await page.locator(".smart-editor input").first().fill("시험 스마트");
+    await page.locator(".smart-editor .act.primary").click();
+    check("왼쪽에 스마트 폴더", await until(() => page.locator(".smart-item", { hasText: "시험 스마트" }).count().then((c) => c === 1)));
+    check("누르면 칸에 모아 보인다", await until(async () => (await pane.locator(".deep-tag").textContent())?.includes("스마트 폴더"), 10000));
+    await page.screenshot({ path: join(SHOTS, "17_스마트폴더.png") });
+    check("최근 파일도 스마트 폴더", (await page.locator(".smart-item", { hasText: "최근 파일" }).count()) === 1);
+    // 설정 › 색인
+    await page.locator(".settings-btn").click();
+    await page.locator(".set-nav button", { hasText: "색인" }).click();
+    check("설정에 색인", await until(async () => /빠른 색인/.test((await page.locator("#set-index").textContent()) ?? "")));
+    await page.screenshot({ path: join(SHOTS, "18_설정_색인.png") });
+    await page.keyboard.press("Escape");
+    await pane.locator(".deep-tag .kind-x").click();
+  }
 
   check("화면 스크립트 오류 · 404 없음", errors.length === 0, errors.slice(0, 3).join(" | "));
 } catch (e) {

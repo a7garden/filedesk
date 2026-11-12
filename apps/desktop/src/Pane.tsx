@@ -8,7 +8,8 @@
 //   [2] 줄 만들기 — 문서 하나 = 한 줄(최신판), 펼치면 그 자리에 판들 · 새 판 줄
 //       이름 · 판에 문제가 있는 문서는 접혀 있어도 바로 밑에 「문제 줄」(무엇이 어긋났나 + 고칠 동작). 머리의 「문제 문서 N개」가 그것만 거른다
 //       2026.11.11 : 따로 있던 「점검」 보기를 지우고 목록에 겹쳤다 — 같은 폴더를 다른 표로 두 번 그렸고, 목록과 견줄 수 없었다
-//   [3] 고르기 (클릭 · Ctrl · Shift · 키보드)
+//   [3] 고르기 (클릭 · Ctrl · Shift · 키보드 · 끌어서 네모로)
+//       2026.11.12 : 끌어서 고르기(marquee.ts) — 빈 곳, 목록이면 줄의 이름 · 아이콘 밖에서 누르고 끈다. 이름 · 아이콘을 잡고 끌면 전처럼 앱 밖으로 끌기
 //       2026.11.11 : 설정 「폴더 열기」가 한 번 누르기면 폴더는 누르고 뗄 때 들어간다 (끌기 · Ctrl · Shift 는 그대로 고르기)
 //   [4] 동작 (열기 · 이름 바꾸기 · 휴지통 · 복사/잘라내기/붙여넣기 · 새 폴더 · 오른쪽 메뉴 · 새 판 · 메모 · 색 표시 · 즐겨찾기)
 //       색 표시는 Finder 꼬리표처럼 일곱 색 하나 — 이름 곁 점, 줄에 올리면 나오는 「색」 단추나 Alt+1~7 (Alt+0 지우기)
@@ -19,15 +20,20 @@
 //   [7] 그리기 — 목록(열 너비 · 보일 열은 열 머리에서) 또는 격자(GridView). 메모는 길면 올려 둘 때 카드로, 고칠 때는 떠 있는 칸에서
 //       2026.11.11 : 격자 보기 · 크기(Ctrl+휠) · filedesk 아이콘 · 오른쪽 메뉴에 filedesk 항목(메모 · 색 · 즐겨찾기 · 옆 칸 · 새 판)
 //   [8] 앱 안 보기 — md · txt · 그림은 셸에 넘기지 않고 이 칸에서 연다 (Viewer). 그동안 목록 단축키는 쉰다
+//   2026.11.12 : 찾기 칸에 조건(`고친:3일 종류:문서 크기:>10MB` …)을 적어 거른다 — 칩으로 보이고 × 로 뗀다 · 「＋ 조건」.
+//                범위에 「모든 드라이브」(색인)를 더했다. 조건은 「스마트 폴더로 저장」하고, 왼쪽 스마트 폴더를 누르면 여기에 모아 보인다.
 import { type CSSProperties, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { api, iconUrl, TAG_COLORS, TAG_LABEL, today, type ColKey, type DocFile, type DocGroup, type EditionPlan, type Entry, type Found, type MenuItem, type TagColor, type ViewPrefs } from "./api";
+import { api, iconUrl, TAG_COLORS, TAG_LABEL, today, type ColKey, type DocGroup, type EditionPlan, type Entry, type Found, type MenuItem, type QueryResult, type QuerySpec, type Root, type SmartFolder, type SmartScope, type TagColor, type ViewPrefs } from "./api";
+import { kindTable, looksLikeQuery, matches, PRESETS, removeToken, sourceLabel, tzOffset } from "./query";
 import AddressBar, { type AddressHandle } from "./AddressBar";
 import type { Tab } from "./App";
 import EditionTicks, { editionCount, editionTime } from "./EditionTicks";
-import { Chevron, FileGlyph, FolderGlyph } from "./glyphs";
+import { Chevron, FolderGlyph } from "./glyphs";
 import GridView, { TILE } from "./GridView";
 import SizeLadder, { atStep, LAST_STEP, STEPS, stepOf } from "./SizeLadder";
+import { useMarquee } from "./marquee";
+import { DocGlyph } from "./shortcut";
 import TagMenu, { TagDot } from "./TagMenu";
 import type { ViewTarget } from "./Viewer";
 import { viewKind } from "./viewable";
@@ -85,8 +91,25 @@ type Props = {
 };
 
 /** 목록 한 줄. 판 줄(depth 1)은 펼친 문서 아래에 붙는다. 「새 판」 줄은 펼친 문서의 맨 아래. 「문제」 줄은 판 규칙이 어긋난 문서 바로 밑. */
-type DeepScope = "below" | "content" | "tag" | "recent";
-type Deep = { scope: DeepScope; q: string; color?: TagColor; items: Found[] | null; truncated: boolean; scanned: number };
+/** 이 폴더 밖까지 모아 보기의 범위. all · allContent 는 모든 고정 드라이브(색인), smart 는 왼쪽 스마트 폴더. */
+type DeepScope = "below" | "content" | "all" | "allContent" | "tag" | "recent" | "smart";
+type Deep = {
+  scope: DeepScope;
+  q: string;
+  color?: TagColor;
+  smart?: SmartFolder;
+  items: Found[] | null;
+  truncated: boolean;
+  scanned: number;
+  /** 어느 길로 찾았나 (색인 · 그 자리 훑기 · 본문 색인) — 머리 · 바닥 줄에 적는다. */
+  info?: Pick<QueryResult, "sources" | "indexedAt" | "partial">;
+};
+/** 찾기 칸으로 여는 범위 (색 표시 · 새 파일 · 스마트 폴더는 왼쪽에서 연다). */
+type FindScope = "below" | "content" | "all" | "allContent";
+const isFind = (s: DeepScope | undefined): s is FindScope => s === "below" || s === "content" || s === "all" || s === "allContent";
+const isContent = (s: DeepScope | undefined) => s === "content" || s === "allContent";
+const isAll = (s: DeepScope | undefined) => s === "all" || s === "allContent";
+const FIND_LABEL: Record<FindScope, string> = { below: "하위 폴더까지", content: "문서 본문까지", all: "모든 드라이브", allContent: "모든 드라이브 · 문서 본문까지" };
 type EntryRow = { kind: "entry"; e: Entry; depth: 0 | 1; group?: DocGroup; hiddenCount?: number; where?: string };
 type EditionRow = { kind: "edition"; group: DocGroup; source: Entry };
 type IssueRow = { kind: "issue"; group: DocGroup; stack: boolean };
@@ -104,14 +127,14 @@ const DRAG_PX = 5;
 
 const joinPath = (dir: string, name: string) => (dir.endsWith("\\") ? dir + name : `${dir}\\${name}`);
 const verLabel = (v: number[]) => (v.length ? `v${v.join(".")}` : "");
-const edKey = (f: DocFile) => `${f.parsed.version.join(".")}|${f.parsed.date}|${f.parsed.time}`;
 
-/** 최신판 자리에 남은 지난 판 수 — fd-core `stale_in_place` 와 같은 셈. 단추 글자용이고, 옮길 목록은 백엔드가 다시 센다. */
+/** 최신판 자리에 남은 지난 판 수 — 최신판 폴더에서 fd-core 가 「옮길 판」으로 표시한 파일 수. 판 눈금의 경고색과 같은 표시다.
+ *  단추 글자용이고, 옮길 목록은 백엔드(`stale_in_place`)가 다시 센다. */
 function staleCount(g: DocGroup): number {
   const latest = g.files[0];
   if (!latest || latest.inHistory) return 0;
   const dir = parentOf(latest.path) ?? "";
-  return g.files.filter((f) => !f.inHistory && samePath(parentOf(f.path) ?? "", dir) && edKey(f) !== edKey(latest)).length;
+  return g.files.filter((f) => f.retire && samePath(parentOf(f.path) ?? "", dir)).length;
 }
 
 export default function Pane(p: Props) {
@@ -182,6 +205,19 @@ export default function Pane(p: Props) {
   const loadSeq = useRef(0);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  /** 너비를 끄는 열 — 그 열의 경계선을 진하게 둔다 (styles.css `.pane[data-resizing]`). */
+  const [resizing, setResizing] = useState<number | null>(null);
+  // 목록 스크롤바 너비를 --sbw 로 둔다 — 열 머리 · 열 경계선은 스크롤 영역 밖이라 이만큼 오른쪽을 비워야 줄 칸과 맞는다.
+  useEffect(() => {
+    const el = scrollRef.current;
+    const sec = sectionRef.current;
+    if (!el || !sec) return;
+    const set = () => sec.style.setProperty("--sbw", `${el.offsetWidth - el.clientWidth}px`);
+    set();
+    const ro = new ResizeObserver(set);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const addrRef = useRef<AddressHandle>(null);
   const pendingFocus = useRef<{ path: string; rename?: boolean } | null>(null);
   const prevPath = useRef<string | null>(null);
@@ -329,29 +365,86 @@ export default function Pane(p: Props) {
 
   // ───────── [1-1] 찾기 ─────────
 
-  /** 아래 폴더까지 찾기. 글자를 고치면 잠깐 기다렸다 다시 찾는다 (앞선 찾기는 Rust 쪽에서 멈춘다). */
+  /** 찾기 칸 글을 풀어 둔 조건 — 조건(`열쇠:값` · `-뺄말`)이 있을 때만 Rust 에 묻는다. 늦게 온 답은 버린다. */
+  const [spec, setSpec] = useState<QuerySpec | null>(null);
+  const specSeq = useRef(0);
+  /** 「＋ 조건」 메뉴가 열렸는가. */
+  const [presetOpen, setPresetOpen] = useState(false);
+  const kinds = useMemo(() => kindTable(p.view.kinds), [p.view.kinds]);
+  useEffect(() => {
+    const seq = ++specSeq.current;
+    const text = filter.trim();
+    if (!text || !looksLikeQuery(text)) return setSpec(null);
+    api
+      .parseQuery(text, kinds, tzOffset())
+      .then((s) => seq === specSeq.current && setSpec(s))
+      .catch(() => seq === specSeq.current && setSpec(null));
+  }, [filter, kinds]);
+
+  /** 이 폴더 밖까지 찾기 (하위 폴더 · 모든 드라이브 · 문서 본문). 글자를 고치면 잠깐 기다렸다 다시 찾는다 (앞선 그 자리 훑기는 Rust 쪽에서 멈춘다).
+   *  2026.11.12 : searchDir → queryFiles. 조건만 적어도 찾고, 모든 드라이브는 색인에서 찾는다. */
   const deepQ = deep?.q;
   const deepScope = deep?.scope;
   useEffect(() => {
-    if (deepQ == null || deepScope === "tag" || deepScope === "recent") return;
+    if (deepQ == null || !isFind(deepScope)) return;
     const q = filter.trim();
     if (!q) return setDeep(null);
-    const scope = deepScope as DeepScope;
+    const scope = deepScope;
     const t = window.setTimeout(() => {
       setDeep((d) => (d ? { ...d, q, items: d.q === q ? d.items : null } : d));
       api
-        .searchDir(path, q, p.showHidden, scope === "content")
-        .then((r) => !r.cancelled && setDeep((d) => (d && d.q === q && d.scope === scope ? { scope, q, items: r.items, truncated: r.truncated, scanned: r.scanned } : d)))
+        .queryFiles({
+          scope: isAll(scope) ? { all: true, roots: [] } : { all: false, roots: [{ path, recursive: true }] },
+          text: q,
+          kinds,
+          showHidden: p.showHidden,
+          content: isContent(scope),
+          tzOffsetMin: tzOffset(),
+          limit: 2000,
+        })
+        .then(
+          (r) =>
+            !r.cancelled &&
+            setDeep((d) => (d && d.q === q && d.scope === scope ? { scope, q, items: r.items, truncated: r.truncated, scanned: r.scanned, info: r } : d)),
+        )
         .catch(report);
     }, deepQ === q ? 0 : 250);
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deepQ != null, deepScope, filter, path, p.showHidden]);
+  }, [deepQ != null, deepScope, filter, path, p.showHidden, kinds]);
 
-  const startDeep = (scope: "below" | "content" = "below") => {
+  const startDeep = (scope: FindScope = "below") => {
     const q = filter.trim();
     if (q) setDeep({ scope, q, items: null, truncated: false, scanned: 0 });
   };
+  /** 「문서 본문까지」를 켜고 끈다 — 지금 범위(하위 폴더 · 모든 드라이브)는 그대로. 이 폴더에서 켜면 하위 폴더까지. */
+  const toggleContent = () => {
+    const s = deep?.scope;
+    startDeep(s === "all" ? "allContent" : s === "allContent" ? "all" : s === "content" ? "below" : "content");
+  };
+
+  /** 지금 찾기 칸 · 범위를 스마트 폴더 꼴로 — 「스마트 폴더로 저장」. */
+  const scopeHere = (): SmartScope =>
+    isAll(deep?.scope) ? { kind: "all" } : { kind: "roots", roots: [{ path, recursive: deep?.scope === "below" || deep?.scope === "content" }] };
+  const saveSmart = () => window.dispatchEvent(new CustomEvent("fd:smart-new", { detail: { q: filter.trim(), scope: scopeHere() } }));
+
+  /** 스마트 폴더 모아 보기 — 왼쪽에서 누르면 지금 칸에 띄운다. 고친 날 조건이 있으면 최근 것부터. */
+  const showSmart = useCallback(
+    (folder: SmartFolder, scope: { all: boolean; roots: Root[] }) => {
+      setDeep({ scope: "smart", q: folder.name, smart: folder, items: null, truncated: false, scanned: 0 });
+      if (/(^|\s)(고친|날짜|modified|date):/i.test(folder.q))
+        setSort((s) => {
+          if (!sortBefore.current) sortBefore.current = s;
+          return { key: "modified", asc: false };
+        });
+      api
+        .queryFiles({ scope, text: folder.q, kinds: kindTable(p.view.kinds), showHidden: p.showHidden, content: false, tzOffsetMin: tzOffset(), limit: 5000 })
+        .then((r) => setDeep((d) => (d?.scope === "smart" && d.smart?.id === folder.id ? { ...d, items: r.items, truncated: r.truncated, scanned: r.scanned, info: r } : d)))
+        .catch(report);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [p.view.kinds, p.showHidden],
+  );
 
   /** 색 표시 모아 보기 — 왼쪽 「색」 · 명령 팔레트가 지금 칸에 띄운다. 폴더와 상관없이 모든 자리에서. */
   const showTagged = useCallback(
@@ -383,7 +476,7 @@ export default function Pane(p: Props) {
     [],
   );
   useEffect(() => {
-    if (deep?.scope === "recent" || !sortBefore.current) return;
+    if (deep?.scope === "recent" || deep?.scope === "smart" || !sortBefore.current) return;
     setSort(sortBefore.current);
     sortBefore.current = null;
   }, [deep?.scope]);
@@ -398,19 +491,28 @@ export default function Pane(p: Props) {
     // 명령 팔레트의 「찾기」 — 찾는 말을 칸에 넣고 그 범위로 찾는다
     const find = (ev: Event) =>
       leaveViewer(() => {
-        const { q, scope } = (ev as CustomEvent<{ q: string; scope: "below" | "content" }>).detail;
+        const { q, scope } = (ev as CustomEvent<{ q: string; scope: FindScope }>).detail;
         setFilter(q);
         setDeep({ scope, q, items: null, truncated: false, scanned: 0 });
+      });
+    // 왼쪽 · 명령 팔레트의 스마트 폴더
+    const smart = (ev: Event) =>
+      leaveViewer(() => {
+        const { folder, scope } = (ev as CustomEvent<{ folder: SmartFolder; scope: { all: boolean; roots: Root[] } }>).detail;
+        setFilter("");
+        showSmart(folder, scope);
       });
     window.addEventListener("fd:tagged", on);
     window.addEventListener("fd:recent", recent);
     window.addEventListener("fd:search", find);
+    window.addEventListener("fd:smart", smart);
     return () => {
       window.removeEventListener("fd:tagged", on);
       window.removeEventListener("fd:recent", recent);
       window.removeEventListener("fd:search", find);
+      window.removeEventListener("fd:smart", smart);
     };
-  }, [p.active, showTagged, showRecent]);
+  }, [p.active, showTagged, showRecent, showSmart]);
 
   /** 찾은 것의 메모 — 이 폴더 밖이라 목록 메모(memos)에 없다. */
   const deepMemos = useMemo(() => new Map((deep?.items ?? []).filter((f) => f.memo).map((f) => [norm(f.path), f.memo as string])), [deep]);
@@ -472,7 +574,7 @@ export default function Pane(p: Props) {
       // 색 표시는 모든 폴더에서 모으므로 온 자리를 통째로, 문서 안 글은 맞은 곳 앞뒤를 적는다.
       const rel = (fp: string) => {
         const dir = parentOf(fp) ?? "";
-        if (deep.scope === "tag" || deep.scope === "recent") return dir;
+        if (deep.scope === "tag" || deep.scope === "recent" || deep.scope === "smart" || isAll(deep.scope)) return dir;
         return samePath(dir, path) ? "" : dir.slice(path.replace(/\\$/, "").length + 1);
       };
       const whereOf = (f: Found) => [rel(f.path), f.snippet ? `…${f.snippet}…` : ""].filter(Boolean).join(" · ");
@@ -497,6 +599,8 @@ export default function Pane(p: Props) {
     const terms = q.split(/\s+/).filter(Boolean);
     const has = (e: Entry) => {
       const hay = `${e.name} ${groupOf.get(norm(e.path))?.title ?? ""} ${memos.get(norm(e.path)) ?? ""}`.toLowerCase();
+      // 조건이 있으면 Rust 가 푼 조건으로 (찾는 말도 조건 밖 낱말만)
+      if (spec) return matches(spec, e, hay, memos.get(norm(e.path)), colors.get(norm(e.path)));
       return terms.every((t) => hay.includes(t));
     };
     const byName = q ? visible.filter(has) : visible;
@@ -523,7 +627,7 @@ export default function Pane(p: Props) {
       }
     }
     return out;
-  }, [entries, groups, groupOf, issueLead, fold, filter, onlyIssues, sort, p.view.dirsFirst, open, path, deep, passes, memos]);
+  }, [entries, groups, groupOf, issueLead, fold, filter, onlyIssues, sort, p.view.dirsFirst, open, path, deep, passes, memos, spec, colors]);
 
   /** 고르기 · 키보드가 다니는 줄 (새 판 줄은 건너뛴다). */
   const nav = useMemo(() => rows.filter((r): r is EntryRow => r.kind === "entry"), [rows]);
@@ -562,14 +666,6 @@ export default function Pane(p: Props) {
   // ───────── [3] 고르기 ─────────
 
   const selectedEntries = useMemo(() => nav.filter((r) => sel.has(r.e.path)).map((r) => r.e), [nav, sel]);
-  // 즐겨찾기 독의 「+」 — Ctrl+D 와 같다: 고른 것, 없으면 지금 폴더. 고른 것은 칸만 알아 독이 직접 더하지 못한다
-  useEffect(() => {
-    if (!p.active) return;
-    const pin = () => p.onPin(selectedEntries.length ? selectedEntries.map((x) => ({ path: x.path, isDir: x.isDir })) : [{ path, isDir: true }]);
-    window.addEventListener("fd:pin-here", pin);
-    return () => window.removeEventListener("fd:pin-here", pin);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p.active, p.onPin, selectedEntries, path]);
   const selectedPaths = useCallback(() => selectedEntries.map((e) => e.path), [selectedEntries]);
 
   const selectOnly = (fp: string) => {
@@ -586,6 +682,16 @@ export default function Pane(p: Props) {
     setSel((s) => new Set(add ? [...s, ...range] : range));
     setFocus(to);
   };
+
+  // 끌어서 고르기 — 네모에 걸린 것 + (Ctrl 로 시작했으면) 그전에 고른 것. 끄는 동안 초점은 옮기지 않는다 (초점을 따라 스크롤하면 네모와 다툰다)
+  const marq = useMarquee(
+    scrollRef,
+    (fp) => navIndex.has(fp),
+    (hits, base) => {
+      setSel(new Set([...base, ...hits]));
+      if (hits.length) setAnchor(hits[0]);
+    },
+  );
 
   const moveFocus = (delta: number, e: KeyboardEvent) => {
     if (nav.length === 0) return;
@@ -867,7 +973,8 @@ export default function Pane(p: Props) {
 
   // ───────── [5] 끌기 ─────────
 
-  const press = useRef<{ x: number; y: number; entry: Entry; wasSelected: boolean; mods: boolean; second: boolean } | null>(null);
+  /** space: 목록 줄의 이름 · 아이콘 밖을 눌렀다 — 끌면 앱 밖으로 끌기가 아니라 끌어서 고르기다 (탐색기 자세히 보기와 같다). */
+  const press = useRef<{ x: number; y: number; entry: Entry; wasSelected: boolean; mods: boolean; second: boolean; space: boolean } | null>(null);
   /** 한 번 누르기로 폴더에 들어간 때. 두 번 누르기가 손에 익은 사람의 둘째 누르기는 새 폴더의 줄에 떨어진다 —
    *  막지 않으면 그 줄(폴더면 한 단계 더 · 파일이면 열기)까지 간다. */
   const singleAt = useRef(0);
@@ -879,6 +986,7 @@ export default function Pane(p: Props) {
       if (!pr || !(e.buttons & 1)) return;
       if (Math.hypot(e.clientX - pr.x, e.clientY - pr.y) < DRAG_PX) return;
       press.current = null;
+      if (pr.space) return marq.start(pr.x, pr.y, pr.mods ? new Set(sel) : new Set());
       const paths = sel.has(pr.entry.path) ? selectedPaths() : [pr.entry.path];
       api.dragOut(paths).catch(report);
     };
@@ -924,7 +1032,8 @@ export default function Pane(p: Props) {
       setFocus(e.path);
       setAnchor(e.path);
     } else if (!wasSelected) selectOnly(e.path);
-    press.current = { x: ev.clientX, y: ev.clientY, entry: e, wasSelected, mods: ev.ctrlKey || ev.shiftKey, second: ev.detail >= 2 };
+    const space = !isGrid && !(ev.target as HTMLElement).closest(".label, .glyph, img");
+    press.current = { x: ev.clientX, y: ev.clientY, entry: e, wasSelected, mods: ev.ctrlKey || ev.shiftKey, second: ev.detail >= 2, space };
   };
 
   /** 두 번 누르기 — 연다. 한 번 누르기로 폴더에 든 바로 뒤의 둘째 누르기는 버린다 (`singleAt`). */
@@ -1039,6 +1148,7 @@ export default function Pane(p: Props) {
     const x0 = ev.clientX;
     const base = [...p.cols];
     document.body.classList.add("col-resizing");
+    setResizing(i);
     const move = (m: MouseEvent) => {
       const next = [...base];
       next[i] = Math.max(56, Math.round(base[i] - (m.clientX - x0)));
@@ -1046,6 +1156,7 @@ export default function Pane(p: Props) {
     };
     const upH = () => {
       document.body.classList.remove("col-resizing");
+      setResizing(null);
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", upH);
     };
@@ -1115,9 +1226,12 @@ export default function Pane(p: Props) {
         ref={filterRef}
         className={"filter" + (deep ? " deep" : "")}
         value={filter}
-        placeholder={deep?.scope === "content" ? "문서 본문까지 찾기" : deep?.scope === "below" ? "하위 폴더까지 찾기" : "찾기"}
-        aria-label={deep?.scope === "content" ? "문서 본문까지 찾기" : deep?.scope === "below" ? "하위 폴더까지 찾기" : "이 폴더에서 찾기"}
-        title={"Ctrl+F — 이 폴더의 이름 · 메모에서 찾는다\nShift+Enter — 하위 폴더까지 · Ctrl+Enter — 문서 본문까지"}
+        placeholder={isFind(deep?.scope) ? `${FIND_LABEL[deep!.scope as FindScope]} 찾기` : "찾기 · 고친:3일 종류:문서 …"}
+        aria-label={isFind(deep?.scope) ? `${FIND_LABEL[deep!.scope as FindScope]} 찾기` : "이 폴더에서 찾기"}
+        title={
+          "Ctrl+F — 이 폴더의 이름 · 메모에서 찾는다\nShift+Enter — 하위 폴더까지 · Ctrl+Enter — 문서 본문까지 · Alt+Enter — 모든 드라이브\n" +
+          "조건: 고친:오늘 · 고친:3일 · 고친:>30일 · 크기:>10MB · 확장자:pdf · 종류:문서 · 색:빨강 · 메모:있음 · -뺄말"
+        }
         spellCheck={false}
         onChange={(e) => setFilter(e.target.value)}
         onKeyDown={(e) => {
@@ -1132,7 +1246,10 @@ export default function Pane(p: Props) {
             startDeep("below");
           } else if (e.key === "Enter" && e.ctrlKey) {
             e.preventDefault();
-            startDeep("content");
+            startDeep(isAll(deep?.scope) ? "allContent" : "content");
+          } else if (e.key === "Enter" && e.altKey) {
+            e.preventDefault();
+            startDeep("all");
           } else if (e.key === "Enter" || e.key === "ArrowDown") {
             (e.target as HTMLInputElement).blur();
             if (nav[0]) selectOnly(nav[0].e.path);
@@ -1199,7 +1316,7 @@ export default function Pane(p: Props) {
           ) : e.isDir ? (
             <FolderGlyph faint={isHistDir} />
           ) : p.view.icons !== "shell" ? (
-            <FileGlyph ext={e.ext} />
+            <DocGlyph ext={e.ext} path={e.path} />
           ) : (
             <img src={iconUrl(e)} width={16} height={16} alt="" draggable={false} loading="lazy" />
           )}
@@ -1318,7 +1435,7 @@ export default function Pane(p: Props) {
           ) : e.isDir && (p.view.icons !== "shell" || hist) ? (
             <FolderGlyph size={iconPx} faint={hist} />
           ) : !e.isDir && p.view.icons !== "shell" && !thumb ? (
-            <FileGlyph ext={e.ext} size={iconPx} />
+            <DocGlyph ext={e.ext} path={e.path} size={iconPx} />
           ) : thumb ? (
             <TileThumb
               key={bigIconUrl(e, px, true)}
@@ -1326,7 +1443,7 @@ export default function Pane(p: Props) {
               px={iconPx}
               fallback={
                 p.view.icons !== "shell" ? (
-                  <FileGlyph ext={e.ext} size={iconPx} />
+                  <DocGlyph ext={e.ext} path={e.path} size={iconPx} />
                 ) : (
                   <img src={bigIconUrl(e, px, false)} alt="" draggable={false} style={{ maxWidth: iconPx, maxHeight: iconPx }} />
                 )
@@ -1459,6 +1576,7 @@ export default function Pane(p: Props) {
       className={"pane" + (p.box ? ` in-split${p.active ? " focused-pane" : ""}` : "") + (isGrid ? " grid-mode" : "")}
       hidden={!p.visible}
       aria-label={path}
+      data-resizing={resizing ?? undefined}
       style={{ ["--cols" as string]: colsTemplate, ["--cols-narrow" as string]: narrowCols, ...p.box }}
       onMouseDownCapture={p.onFocusPane}
     >
@@ -1487,23 +1605,59 @@ export default function Pane(p: Props) {
       {(deep || kind || colorOnly || kindCounts.size > 1 || colorCounts.size > 0 || filter.trim()) && (
         <div className="kinds" role="toolbar" aria-label="종류 · 색으로 거르기">
           {deep && (
-            <span className="deep-tag" title={deep.scope === "tag" ? "모든 폴더" : deep.scope === "recent" ? "다운로드 · 바탕화면에 새로 생기거나 바뀐 파일" : path}>
+            <span
+              className="deep-tag"
+              title={[
+                deep.scope === "tag" ? "모든 폴더" : deep.scope === "recent" ? "다운로드 · 바탕화면에 새로 생기거나 바뀐 파일" : deep.scope === "smart" ? (deep.smart?.q ?? "") : isAll(deep.scope) ? "모든 고정 드라이브" : path,
+                sourceLabel(deep.info),
+              ]
+                .filter(Boolean)
+                .join("\n")}
+            >
               {deep.scope === "recent" ? (
                 <>새 파일 — 다운로드 · 바탕화면 · {deep.q}</>
               ) : deep.scope === "tag" ? (
                 <>
                   <TagDot color={deep.color} /> {deep.q} 표시 — 모든 폴더
                 </>
+              ) : deep.scope === "smart" ? (
+                <>
+                  스마트 폴더 — {deep.q}
+                  {deep.smart && (
+                    <button
+                      className="kind-edit"
+                      title="이름 · 조건 · 볼 곳 고치기"
+                      onClick={() => window.dispatchEvent(new CustomEvent("fd:smart-edit", { detail: deep.smart }))}
+                    >
+                      고치기
+                    </button>
+                  )}
+                </>
               ) : (
                 <>
-                  {deep.scope === "content" ? "문서 본문까지" : "하위 폴더까지"} 「{deep.q}」
+                  {FIND_LABEL[deep.scope as FindScope]} 「{deep.q}」
                 </>
               )}
+              {deep.info && <span className="deep-src">{sourceLabel(deep.info)}</span>}
               <button className="kind-x" aria-label="모아 보기 끝내기" title="이 폴더로 돌아가기 (Esc)" onClick={() => setDeep(null)}>
                 ×
               </button>
             </span>
           )}
+          {/* 조건 칩 — 찾기 칸의 `열쇠:값` 을 읽는 말로. × 로 그 조건만 뗀다 */}
+          {spec?.chips.map((c) => (
+            <span key={c.raw} className="cond-chip" title={c.raw}>
+              {c.label}
+              <button className="kind-x" aria-label={`「${c.label}」 조건 떼기`} onClick={() => setFilter((f) => removeToken(f, c.raw))}>
+                ×
+              </button>
+            </span>
+          ))}
+          {spec?.errors.map((e) => (
+            <span key={e} className="cond-chip warn" role="alert">
+              {e}
+            </span>
+          ))}
           {kindOrder().filter((k) => kindCounts.has(k) || kind === k).map((k) => (
             <button key={k} className="kind" aria-pressed={kind === k} onClick={() => setKind((v) => (v === k ? null : k))}>
               {k !== "folder" && k !== "other" && <span className="kind-dot" style={{ background: kindColor(k) }} aria-hidden="true" />}
@@ -1521,25 +1675,83 @@ export default function Pane(p: Props) {
               <TagDot color={c} /> <span className="kind-n">{colorCounts.get(c) ?? 0}</span>
             </button>
           ))}
-          {filter.trim() && deep?.scope !== "tag" && deep?.scope !== "recent" && (
+          {(!deep || isFind(deep.scope)) && (
+            <span className="preset-wrap">
+              <button className="kind" aria-expanded={presetOpen} title="조건 더하기 — 찾기 칸 끝에 붙는다" onClick={() => setPresetOpen((v) => !v)}>
+                ＋ 조건
+              </button>
+              {presetOpen && (
+                <span className="preset-menu" role="menu" onMouseLeave={() => setPresetOpen(false)}>
+                  {[...new Set(PRESETS.map((x) => x.group))].map((g) => (
+                    <span key={g} className="preset-group">
+                      <span className="preset-head">{g}</span>
+                      {PRESETS.filter((x) => x.group === g).map((x) => (
+                        <button
+                          key={x.token}
+                          role="menuitem"
+                          title={x.token}
+                          onClick={() => {
+                            setFilter((f) => `${f.trim()} ${x.token}`.trim());
+                            setPresetOpen(false);
+                            filterRef.current?.focus();
+                          }}
+                        >
+                          {x.label}
+                        </button>
+                      ))}
+                    </span>
+                  ))}
+                </span>
+              )}
+            </span>
+          )}
+          {filter.trim() && (!deep || isFind(deep.scope)) && (
             <span className="scope" role="group" aria-label="찾을 범위">
               {/* 2026.11.11 : 찾은 수는 지금 범위 단추에 붙인다 — 빈 목록이 「없다」를 문장으로 되풀이하지 않게. */}
               <button className="kind" aria-pressed={!deep} onClick={() => setDeep(null)} title="이 폴더의 이름 · 메모">
                 이 폴더{!deep && entries && <span className="kind-n">{rows.length}</span>}
               </button>
-              <button className="kind" aria-pressed={deep?.scope === "below"} onClick={() => startDeep("below")} title="하위 폴더 전부의 이름 · 메모 (Shift+Enter)">
-                하위 폴더까지{deep?.scope === "below" && deep.items && <span className="kind-n">{rows.length}</span>}
+              <button
+                className="kind"
+                aria-pressed={deep?.scope === "below" || deep?.scope === "content"}
+                onClick={() => startDeep(isContent(deep?.scope) ? "content" : "below")}
+                title="하위 폴더 전부의 이름 · 메모 (Shift+Enter)"
+              >
+                하위 폴더까지{(deep?.scope === "below" || deep?.scope === "content") && deep.items && <span className="kind-n">{rows.length}</span>}
               </button>
               <button
                 className="kind"
-                aria-pressed={deep?.scope === "content"}
-                onClick={() => startDeep("content")}
-                title="하위 폴더까지 문서 본문 — hwpx · docx · pptx · xlsx · pdf · txt · md (Ctrl+Enter)"
+                aria-pressed={isAll(deep?.scope)}
+                onClick={() => startDeep(isContent(deep?.scope) ? "allContent" : "all")}
+                title="모든 고정 드라이브 — 색인에서 찾는다 (Alt+Enter). NAS 는 빠진다"
               >
-                문서 본문까지{deep?.scope === "content" && deep.items && <span className="kind-n">{rows.length}</span>}
+                모든 드라이브{isAll(deep?.scope) && deep?.items && <span className="kind-n">{rows.length}</span>}
+              </button>
+              <button
+                className="kind"
+                aria-pressed={isContent(deep?.scope)}
+                onClick={toggleContent}
+                title="문서 본문까지 — hwpx · docx · pptx · xlsx · pdf · txt · md (Ctrl+Enter). 하위 폴더 · 모든 드라이브에 더해 켜고 끈다"
+              >
+                문서 본문까지
               </button>
             </span>
           )}
+          {filter.trim() && (!deep || isFind(deep.scope)) && (
+            <button className="kind save-smart" onClick={saveSmart} title="지금 조건과 범위에 이름을 붙여 왼쪽 「스마트 폴더」에 둔다">
+              스마트 폴더로 저장
+            </button>
+          )}
+        </div>
+      )}
+      {/* 열 머리와 목록을 함께 덮는 열 경계선 — 줄마다 그리지 않고 한 번만 (styles.css 「열 경계선」) */}
+      <div className="list-area">
+      {!isGrid && (
+        <div className="col-guides" aria-hidden="true">
+          <span className="guide col-0" />
+          {colOn("ver") && <span className="guide col-1" />}
+          {colOn("date") && <span className="guide col-2" />}
+          {colOn("size") && <span className="guide col-3" />}
         </div>
       )}
       {!isGrid && (
@@ -1552,7 +1764,7 @@ export default function Pane(p: Props) {
           }}
         >
           {header("name", "이름", 0, "", "오른쪽 단추: 보일 열 고르기")}
-          {colOn("ver") && header(null, "판", 1, "", "점 하나 = 판 하나 · 찬 점 = 이 폴더에 있는 판 · 빈 점 = 「이전판」 폴더에 있는 판 · 오른쪽 끝이 오늘\n잘 정리된 문서는 찬 점이 맨 오른쪽 하나뿐")}
+          {colOn("ver") && header(null, "판", 1, "", "점 하나 = 판 하나 · 찬 점 = 이 폴더에 있는 판 · 빈 점 = 「이전판」 폴더에 있는 판 · 세로 금 = 이름에 날짜가 없는 판(고친 시각으로 찍음)\n경고색 찬 점 = 「이전판」 폴더로 옮길 판 · 경고색 테두리 = 판 번호가 겹치거나 순서가 어긋난 판\n오른쪽 끝이 오늘 · 오늘에 가까울수록 넓게 · 잘 정리된 문서는 찬 점이 맨 오른쪽 하나뿐")}
           {colOn("date") && header("modified", "고친 날", 2)}
           {colOn("size") && header("size", "크기", 3, "right")}
         </div>
@@ -1576,8 +1788,11 @@ export default function Pane(p: Props) {
         onMouseDown={(e) => {
           if (!(e.target as HTMLElement).closest("input")) leaveInputs();
           if (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains("list-inner")) {
-            setSel(new Set());
+            if (!e.ctrlKey) setSel(new Set());
             setFocus(null);
+            if (e.button !== 0) return;
+            e.preventDefault();
+            marq.start(e.clientX, e.clientY, e.ctrlKey ? new Set(sel) : new Set());
           }
         }}
         onContextMenu={(e) => {
@@ -1587,7 +1802,19 @@ export default function Pane(p: Props) {
         {error ? (
           <div className="empty error">{error}</div>
         ) : deep && deep.items == null ? (
-          <div className="empty">{deep.scope === "recent" ? "새 파일을 모으는 중…" : deep.scope === "tag" ? "색 표시를 모으는 중…" : deep.scope === "content" ? "문서 본문을 읽으며 찾는 중…" : "하위 폴더에서 찾는 중…"}</div>
+          <div className="empty">
+            {deep.scope === "recent"
+              ? "새 파일을 모으는 중…"
+              : deep.scope === "tag"
+                ? "색 표시를 모으는 중…"
+                : deep.scope === "smart"
+                  ? "스마트 폴더를 모으는 중…"
+                  : isContent(deep.scope)
+                    ? "문서 본문에서 찾는 중…"
+                    : isAll(deep.scope)
+                      ? "모든 드라이브에서 찾는 중…"
+                      : "하위 폴더에서 찾는 중…"}
+          </div>
         ) : entries && rows.length === 0 ? (
           <div className="empty">
             {kind || colorOnly ? (
@@ -1611,7 +1838,18 @@ export default function Pane(p: Props) {
                   ? `${deep.q} 동안 새 파일이 없다`
                   : deep.scope === "tag"
                   ? `${deep.q} 표시를 단 항목이 없다`
-                  : deep.scope === "content"
+                  : deep.scope === "smart"
+                  ? (
+                    <>
+                      조건에 맞는 것이 없다
+                      {deep.smart && (
+                        <button className="act" onClick={() => window.dispatchEvent(new CustomEvent("fd:smart-edit", { detail: deep.smart }))}>
+                          조건 고치기
+                        </button>
+                      )}
+                    </>
+                  )
+                  : isContent(deep.scope)
                     ? (
                       <button className="act" onClick={() => setFilter("")}>
                         찾는 말 지우기
@@ -1619,7 +1857,7 @@ export default function Pane(p: Props) {
                     )
                     : (
                       <>
-                        <button className="act primary" onClick={() => startDeep("content")}>
+                        <button className="act primary" onClick={() => startDeep(deep.scope === "all" ? "allContent" : "content")}>
                           문서 본문까지 찾기
                         </button>
                         <span className="key">Ctrl+Enter</span>
@@ -1672,13 +1910,27 @@ export default function Pane(p: Props) {
             })}
           </div>
         )}
+        {marq.box && <div className="marquee" style={{ left: marq.box.x, top: marq.box.y, width: marq.box.w, height: marq.box.h }} aria-hidden="true" />}
+      </div>
       </div>
       <footer className="foot">
         <span>
           {deep
             ? deep.items == null
               ? "찾는 중"
-              : `${deep.scope === "recent" ? "다운로드 · 바탕화면에서" : deep.scope === "tag" ? "모든 폴더에서" : deep.scope === "content" ? "문서 본문에서" : "하위 폴더에서"} ${deep.items.length.toLocaleString("ko-KR")}개${deep.truncated ? " (더 있다 — 찾을 말을 더 좁힌다)" : ""}`
+              : `${
+                  deep.scope === "recent"
+                    ? "다운로드 · 바탕화면에서"
+                    : deep.scope === "tag"
+                      ? "모든 폴더에서"
+                      : deep.scope === "smart"
+                        ? `「${deep.q}」에서`
+                        : isContent(deep.scope)
+                          ? "문서 본문에서"
+                          : isAll(deep.scope)
+                            ? "모든 드라이브에서"
+                            : "하위 폴더에서"
+                } ${deep.items.length.toLocaleString("ko-KR")}개${deep.truncated ? " (더 있다 — 조건을 더 좁힌다)" : ""}${deep.info ? ` · ${sourceLabel(deep.info)}` : ""}`
             : entries
               ? `${entries.length.toLocaleString("ko-KR")}개`
               : "읽는 중"}

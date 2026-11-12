@@ -31,11 +31,29 @@ FD="{{FD}}"
 | 판 문제만 | `$FD docs <폴더> -r --summary` | `{files, documents, withIssues[{title, latest, issues}]}` |
 | 새 판 계획 / 실행 | `$FD edition <파일> [--today YYYYMMDD] [--apply]` | `{applied, plan{source, newName, newPath, retire[], history}, collisions[]}` |
 | 지난 판 정리 계획 / 실행 | `$FD retire <폴더> [--doc <key>] [--apply]` | `{applied, history, documents[{key, title, move[]}], collisions[]}` |
+| 조건으로 찾기 | `$FD query "<말 · 조건>" [--in <폴더>]… [--no-recurse] [--content] [--live] [--limit N]` | `{spec, sources[], truncated, items[{name, path, size, modified, created, memo?, snippet?}]}` — `--in` 이 없으면 모든 고정 드라이브 (색인) |
+| 색인 상태 | `$FD index status` · `$FD index rebuild` | `{index{service, volumes[{root, method, files, updated, state}]}, contentDocuments}` |
 | 휴지통 | `$FD trash <경로>…` | `{trashed[]}` |
 | 메모 | `$FD memo ls [폴더]` · `$FD memo get <경로>` · `$FD memo set <경로> "<글>"` (`""` 이면 뗀다) | `{path, text, updated}` |
 | 폴더 이름 관례 | `$FD conv <폴더>` | `{convention{files, folders}, newFolder, deviations[{path, name, suggestion}]}` — 바꾸지 않는다 |
 | 이름 제안 | `$FD name <경로> [--to <폴더>] [--date YYYYMMDD]` | `{name, changes[], follows, byConvention}` — 바꾸지 않는다 |
 | 스킬 갱신 | `$FD skill install` | 앱을 새 판으로 올린 뒤 한 번 |
+
+## 찾기 조건 (앱 찾기 칸 · 스마트 폴더와 같다)
+
+찾는 말 사이에 `열쇠:값` 을 섞는다. 값이 없는 낱말은 이름(과 메모)에 다 들어 있어야 맞고, `-낱말` 은 그 낱말이 든 것을 뺀다.
+
+| 열쇠 (영어 별칭) | 값 | 뜻 |
+| - | - | - |
+| `고친` (`modified`) | `오늘` · `어제` · `3일` · `<7일` · `>30일` · `2주` · `6달` · `1년` · `2026-11-01` · `2026-11-01..2026-11-10` | 생긴 때 · 고친 때 중 늦은 것 (받은 파일도 잡는다) |
+| `크기` (`size`) | `>10MB` · `<1KB` · `1MB..1GB` | 파일 크기 |
+| `확장자` (`ext`) | `pdf` · `pdf,hwpx` | |
+| `종류` (`kind`) | `문서` · `표` · `발표` · `PDF` · `그림` · `폴더` · `파일` | 앱 기본 종류 |
+| `색` (`color`) | `빨강` (`red`) … `회색` · `있음` | 색 표시 |
+| `메모` (`memo`) | `있음` · `없음` | |
+
+예: `$FD query "보고 고친:7일 종류:문서 -초안" --in "D:\work"` · `$FD query "산림재난" --content` (본문 색인).
+「모든 드라이브」는 앱(빠른 색인 서비스)이 만든 색인을 쓴다 — 서비스가 없으면 그 자리에서 훑어 느리다. `sources` 에 `live` 가 있으면 사용자에게 「색인 없이 훑었다」고 전한다.
 
 ## 판 · 이름 규칙 (앱과 같다)
 

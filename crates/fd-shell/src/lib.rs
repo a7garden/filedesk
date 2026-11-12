@@ -23,6 +23,8 @@ pub mod menu;
 pub mod ops;
 #[cfg(windows)]
 pub mod places;
+#[cfg(windows)]
+pub mod system;
 
 #[cfg(windows)]
 pub use com::run_sta;

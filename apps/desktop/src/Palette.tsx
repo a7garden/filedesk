@@ -3,14 +3,18 @@
 // 2026.11.11 : 왼쪽 목록이 길어지고(즐겨찾기 · 색 · 드라이브) 명령이 메뉴 · 단축키 · 아래 줄에 흩어져 있어,
 //   이름을 아는 곳으로 가거나 이름을 아는 명령을 부르는 데 손이 많이 갔다. 이름 몇 자(초성도 된다: 「ㅅㄹ」→ 산림)로 바로 간다.
 //
-// 결과 순서: 맞는 정도(앞부분이 맞으면 위) → 묶음 차례(자리 · 명령 · 색). 찾는 말이 있으면 맨 아래에 「찾기」 두 줄이 늘 붙는다.
+// 결과 순서: 맞는 정도(앞부분이 맞으면 위) → 묶음 차례(자리 · 스마트 폴더 · 명령 · 색). 찾는 말이 있으면 맨 아래에 「찾기」 세 줄
+// (하위 폴더까지 · 모든 드라이브 · 문서 본문까지)이 늘 붙는다. 찾는 말에 조건(`고친:3일` …)을 섞어도 된다.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { TAG_COLORS, TAG_LABEL, type TagColor } from "./api";
 import { TagDot } from "./TagMenu";
 
+/** 팔레트 「찾기」가 여는 범위 (Pane 의 찾기 범위와 같다). */
+export type FindScope = "below" | "content" | "all" | "allContent";
+
 export type PaletteItem = {
   id: string;
-  group: "위치" | "명령" | "색 표시" | "찾기";
+  group: "위치" | "스마트 폴더" | "명령" | "색 표시" | "찾기";
   label: string;
   /** 오른쪽에 흐리게 — 경로 · 단축키. */
   hint?: string;
@@ -49,9 +53,9 @@ function score(label: string, hint: string, q: string): number {
   return total;
 }
 
-const GROUP_ORDER: PaletteItem["group"][] = ["위치", "명령", "색 표시", "찾기"];
+const GROUP_ORDER: PaletteItem["group"][] = ["위치", "스마트 폴더", "명령", "색 표시", "찾기"];
 
-export default function Palette({ items, onSearch, onClose }: { items: PaletteItem[]; onSearch: (q: string, scope: "below" | "content") => void; onClose: () => void }) {
+export default function Palette({ items, onSearch, onClose }: { items: PaletteItem[]; onSearch: (q: string, scope: FindScope) => void; onClose: () => void }) {
   const [q, setQ] = useState("");
   const [at, setAt] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -77,6 +81,7 @@ export default function Palette({ items, onSearch, onClose }: { items: PaletteIt
     if (query) {
       scored.push(
         { id: "find:below", group: "찾기", label: `하위 폴더까지 「${query}」`, hint: "이름 · 메모", run: () => onSearch(query, "below") },
+        { id: "find:all", group: "찾기", label: `모든 드라이브 「${query}」`, hint: "색인 · 이름 · 메모", run: () => onSearch(query, "all") },
         { id: "find:content", group: "찾기", label: `문서 본문까지 「${query}」`, hint: "hwpx · docx · pptx · xlsx · pdf", run: () => onSearch(query, "content") },
       );
     }

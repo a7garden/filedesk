@@ -1,10 +1,17 @@
 {
   "build": {
-    "beforeBuildCommand": "cargo build --release -p fd-cli && node scripts/stage-cli.mjs && bun run build"
+    "beforeBuildCommand": "cargo build --release -p fd-cli -p fd-indexd && node scripts/stage-cli.mjs && bun run build"
   },
   "bundle": {
     "resources": {
-      "../../../target/cli-stage/fd.exe": "fd.exe"
+      "../../../target/cli-stage/fd.exe": "fd.exe",
+      "../../../target/cli-stage/fd-indexd.exe": "fd-indexd.exe"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "installerHooks": "./installer-hooks.nsh"
+      }
     }
   }
 }

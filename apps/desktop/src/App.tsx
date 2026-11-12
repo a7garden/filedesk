@@ -18,8 +18,10 @@
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { api, DEFAULT_VIEW, type Place, type Places, type SavedNode, type Settings, type Theme, type ViewPrefs } from "./api";
-import Palette, { type PaletteItem } from "./Palette";
+import { api, DEFAULT_VIEW, TAG_LABEL, type Place, type Places, type SavedNode, type Settings, type SmartFolder, type SmartScope, type TagColor, type Theme, type ViewPrefs } from "./api";
+import Palette, { type FindScope, type PaletteItem } from "./Palette";
+import { newSmartId, scopeLabel, scopeOf, validSmart } from "./query";
+import SmartEditor from "./SmartEditor";
 import FavDock from "./FavDock";
 import Pane from "./Pane";
 import { atStep, STEPS } from "./SizeLadder";
@@ -46,6 +48,9 @@ export const PIN_DROP = "fd:pin";
 
 /** 왼쪽 열 「연결」 머리에 놓는 자리의 표시 — 옮기지 않고 연결에 더한다. */
 export const LINK_DROP = "fd:link";
+
+/** 왼쪽 「색 표시」 건반에 놓는 자리의 표시 — 옮기지 않고 그 색을 단다. 「fd:tag@blue」. 2026.11.12 */
+export const TAG_DROP = "fd:tag@";
 
 /** 파일을 끌고 창 아래 가장자리에서 이만큼(px) 안쪽에 오면 즐겨찾기 독을 연다. */
 const DOCK_REACH = 64;
@@ -99,10 +104,12 @@ function withDefaults(s: Partial<Settings> | null): Settings {
       foldStart: s?.view?.foldStart !== false,
       dateStyle: s?.view?.dateStyle === "absolute" ? "absolute" : "relative",
       recent: s?.view?.recent !== false,
+      links: typeof s?.view?.links === "boolean" ? s.view.links : Array.isArray(s?.links) && s.links.length > 0,
       sizeUnit: s?.view?.sizeUnit === "auto" ? "auto" : "kb",
       kinds: validKinds(s?.view?.kinds),
     },
     start: typeof s?.start === "string" ? s.start : "",
+    smart: validSmart(s?.smart),
   };
 }
 
@@ -326,6 +333,10 @@ export default function App() {
   const [pulling, setPulling] = useState<string | null>(null);
   const [view, setView] = useState<ViewPrefs>(DEFAULT_VIEW);
   const [start, setStart] = useState("");
+  /** 스마트 폴더 — 왼쪽 열 · 명령 팔레트. 2026.11.12 더했다. */
+  const [smart, setSmart] = useState<SmartFolder[]>([]);
+  /** 고치는 중인 스마트 폴더 (새로 만드는 중이면 isNew). */
+  const [smartEdit, setSmartEdit] = useState<{ folder: SmartFolder; isNew: boolean } | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const panesRef = useRef<HTMLDivElement>(null);
@@ -396,6 +407,7 @@ export default function App() {
       setTheme(s.theme);
       setView(s.view);
       setStart(s.start);
+      setSmart(s.smart ?? []);
       const dl = p.known.find((k) => k.name === "다운로드")?.path ?? START;
       // 시작 폴더를 정했으면 그 폴더 하나로 연다 — 지난 탭 · 나눠 보기는 버린다 (설정 「시작 폴더」)
       const restored = s.start ? [newTab(s.start)] : s.session.tabs.length ? s.session.tabs.map(newTab) : [newTab(dl)];
@@ -444,11 +456,42 @@ export default function App() {
           layout: ls.length > 1 ? saveLayout(root) : null,
           view,
           start,
+          smart,
         })
         .catch(() => {});
     }, 500);
     return () => window.clearTimeout(t);
-  }, [loaded, tabs, root, focus, pinned, links, cols, showHidden, theme, view, start]);
+  }, [loaded, tabs, root, focus, pinned, links, cols, showHidden, theme, view, start, smart]);
+
+  // ───────── [1-1] 스마트 폴더 ─────────
+
+  /** 다운로드 · 바탕화면 — 스마트 폴더 「최근 파일」이 보는 곳 (문서 폴더는 사람이 정리해 두는 곳이라 넣지 않는다). */
+  const inbox = useMemo(() => (places ? places.known.filter((k) => k.name !== "문서").map((k) => k.path) : []), [places]);
+  /** 스마트 폴더를 지금 칸에 띄운다. */
+  const openSmart = useCallback((folder: SmartFolder) => window.dispatchEvent(new CustomEvent("fd:smart", { detail: { folder, scope: scopeOf(folder.scope, inbox) } })), [inbox]);
+  const saveSmart = useCallback((f: SmartFolder) => {
+    setSmart((xs) => (xs.some((x) => x.id === f.id) ? xs.map((x) => (x.id === f.id ? f : x)) : [...xs, f]));
+    setSmartEdit(null);
+    window.setTimeout(() => openSmart(f), 0);
+  }, [openSmart]);
+  const deleteSmart = useCallback((id: string) => {
+    setSmart((xs) => xs.filter((x) => x.id !== id));
+    setSmartEdit(null);
+  }, []);
+  // 칸의 「스마트 폴더로 저장」 · 스마트 폴더 머리의 「고치기」
+  useEffect(() => {
+    const made = (ev: Event) => {
+      const { q, scope } = (ev as CustomEvent<{ q: string; scope: SmartScope }>).detail;
+      setSmartEdit({ folder: { id: newSmartId(), name: "", q, scope }, isNew: true });
+    };
+    const edit = (ev: Event) => setSmartEdit({ folder: (ev as CustomEvent<SmartFolder>).detail, isNew: false });
+    window.addEventListener("fd:smart-new", made);
+    window.addEventListener("fd:smart-edit", edit);
+    return () => {
+      window.removeEventListener("fd:smart-new", made);
+      window.removeEventListener("fd:smart-edit", edit);
+    };
+  }, []);
 
   useEffect(() => {
     if (loaded) applyTheme(theme);
@@ -769,6 +812,16 @@ export default function App() {
             .catch((e) => setNotice({ text: errText(e), tone: "warn" }));
           return;
         }
+        if (dest.startsWith(TAG_DROP)) {
+          const c = dest.slice(TAG_DROP.length) as TagColor;
+          Promise.all(p.paths.map((x) => api.setColor(x, c)))
+            .then(() => {
+              window.dispatchEvent(new CustomEvent("fd:colors"));
+              setNotice({ text: `${p.paths.length}개에 ${TAG_LABEL[c]} 표시를 달았다`, tone: "ok" });
+            })
+            .catch((e) => setNotice({ text: errText(e), tone: "warn" }));
+          return;
+        }
         if (dest === PIN_DROP || dest.startsWith(PIN_DROP + "@")) {
           const pos = dest === PIN_DROP ? undefined : Number(dest.slice(PIN_DROP.length + 1));
           api
@@ -865,8 +918,11 @@ export default function App() {
       ...(places?.drives ?? []).map((d) => ({ id: `d:${d.path}`, group: "위치" as const, label: `${d.label} (${d.path.slice(0, 2)})`, hint: "드라이브", run: go(d.path) })),
     ];
     const cmd = (id: string, label: string, run: () => void, hint?: string): PaletteItem => ({ id: `c:${id}`, group: "명령", label, hint, run });
+    const smartItems: PaletteItem[] = smart.map((f) => ({ id: `smart:${f.id}`, group: "스마트 폴더", label: f.name, hint: `${f.q} · ${scopeLabel(f.scope)}`, run: () => openSmart(f) }));
     return [
       ...placesItems,
+      ...smartItems,
+      cmd("smart:new", "새 스마트 폴더", () => setSmartEdit({ folder: { id: newSmartId(), name: "", q: "", scope: { kind: "all" } }, isNew: true })),
       cmd("tab", "새 탭", () => openTab(active.path), "Ctrl+T"),
       cmd("split", split ? "나눠 보기 끄기 — 한 칸으로 모으기" : "나눠 보기 — 오른쪽으로 나누기", toggleSplit, "Ctrl+\\"),
       cmd("hidden", showHidden ? "숨김 파일 감추기" : "숨김 파일 보이기", () => setShowHidden((v) => !v), "Ctrl+H"),
@@ -877,7 +933,7 @@ export default function App() {
       cmd("theme:dark", "화면 색 — 어둡게", () => setTheme("dark")),
     ];
   };
-  const searchInPane = useCallback((q: string, scope: "below" | "content") => window.dispatchEvent(new CustomEvent("fd:search", { detail: { q, scope } })), []);
+  const searchInPane = useCallback((q: string, scope: FindScope) => window.dispatchEvent(new CustomEvent("fd:search", { detail: { q, scope } })), []);
 
   // ───────── [7] 그리기 ─────────
 
@@ -1000,6 +1056,11 @@ export default function App() {
           onOpenFile={(p) => api.openItem(p).then((to) => to && navigate(active.id, to)).catch((e) => setNotice({ text: errText(e), tone: "warn" }))}
           settingsOpen={settingsOpen}
           onSettings={() => setSettingsOpen((v) => !v)}
+          smart={smart}
+          inbox={inbox}
+          onOpenSmart={openSmart}
+          onEditSmart={(f) => setSmartEdit({ folder: f, isNew: false })}
+          onNewSmart={() => setSmartEdit({ folder: { id: newSmartId(), name: "", q: "", scope: { kind: "all" } }, isNew: true })}
         />
         <div ref={panesRef} className={"panes" + (split ? " split" : "")}>
           {loaded &&
@@ -1065,6 +1126,20 @@ export default function App() {
         />
       </div>
       {paletteOpen && <Palette items={paletteItems()} onSearch={searchInPane} onClose={() => setPaletteOpen(false)} />}
+      {smartEdit && (
+        <SmartEditor
+          key={smartEdit.folder.id}
+          folder={smartEdit.folder}
+          isNew={smartEdit.isNew}
+          inbox={inbox}
+          current={active.path}
+          kinds={view.kinds}
+          showHidden={showHidden}
+          onSave={saveSmart}
+          onDelete={deleteSmart}
+          onClose={() => setSmartEdit(null)}
+        />
+      )}
       {settingsOpen && (
         <SettingsPanel
           current={active.path}

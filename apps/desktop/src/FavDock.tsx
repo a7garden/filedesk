@@ -12,13 +12,17 @@
 //                · 무엇으로 더하든(Ctrl+D · 「+」 · 끌어 놓기 · 목록 메뉴) 독이 잠깐 올라와 그 타일을 밝히고, 내려간 뒤에는 입술의 그 눈금이 잠깐 빛난다.
 //                  알림 글만으로는 어디에 들어갔는지 독을 열어 봐야 알았다.
 //                · 파일을 끌어 오면 타일 사이가 벌어져 끼울 자리가 생긴다 — 끝에만 붙어 다시 끌어 맞추던 일을 없앤다. 폴더 타일 위는 여전히 「그 폴더로 옮기기」다.
-//                · 「+」는 Ctrl+D 와 같다 (고른 것, 없으면 지금 폴더).
 //                · 창 안에서 파일을 끌기 시작하면 닫힌 입술이 「여기로 가져오면 즐겨찾기」라고 말한다 — 독이 있는 줄 모르는 사람의 단서.
+//   2026.11.12 : 「+ 더하기」 타일을 걷어 냈다 — 늘 자리를 차지하면서 보기에 거슬렸고, 더하는 길은 끌어 놓기와 Ctrl+D 로 충분하다.
+//                끝에 붙일 자리는 파일을 끄는 동안만 마지막 타일 뒤에 벌어진다. 즐겨찾기가 하나도 없으면 끌어 놓을 자리 하나를 보인다.
+//   2026.11.12 : 여는 자리를 넓혔다 — 7px 띠를 겨누어야 열려 불편했다. 이제 칸 바닥 줄 가운데 절반 어디든 마우스가 지나면 열린다.
+//                바닥 줄 단추(크기 사다리 · 판 접기) 위에서는 열지 않고, 선반은 바닥 줄 위에 서서 그 단추를 가리지 않는다.
 //   파일을 끌고 오면(앱 밖 · 칸에서) CSS :hover 가 오지 않는다 — App 이 끌기 위치를 보고 drag 로 알려 준다.
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { api, iconUrl, type Place, type TagColor, type ViewPrefs } from "./api";
 import { PIN_DROP } from "./App";
-import { FileGlyph, FolderGlyph } from "./glyphs";
+import { FolderGlyph } from "./glyphs";
+import { DocGlyph } from "./shortcut";
 import TagMenu, { TagDot } from "./TagMenu";
 import { norm, packIconUrl } from "./util";
 
@@ -43,6 +47,8 @@ const MAX_TICKS = 24;
 /** 더한 뒤 독을 올려 두는 시간 · 내려간 뒤 입술 눈금을 밝혀 두는 시간(ms). 앞은 이름을 읽을 만큼, 뒤는 자리를 눈에 담을 만큼. */
 const FLASH_OPEN = 1400;
 const FLASH_GLOW = 1600;
+/** 바닥 줄에서 이 위에 마우스가 있으면 독을 열지 않는다 — 그 단추를 누르러 가는 길이다. */
+const FOOT_CONTROLS = "button, a, input, select, textarea, [role=radiogroup], [role=separator]";
 
 export default function FavDock(props: Props) {
   const { pinned, current, drag: fileDrag, view, flash, onUnpin, onMovePin, onGo, onGoNewTab, onOpenFile } = props;
@@ -90,6 +96,29 @@ export default function FavDock(props: Props) {
       window.clearTimeout(t2);
     };
   }, [flash]);
+
+  // 마우스가 여는 자리(.dock 의 넓이 — 바닥 줄 가운데 절반)에 들어왔는가.
+  // .dock 은 마우스를 받지 않아(바닥 줄 단추를 덮지 않게) :hover 가 오지 않는다 — 창 전체의 움직임을 보고 셈한다.
+  // 단추를 누른 채(목록에서 고르며 끌기) 지나갈 때는 열지 않는다.
+  const root = useRef<HTMLDivElement>(null);
+  const [near, setNear] = useState(false);
+  useEffect(() => {
+    const move = (e: MouseEvent) => {
+      const el = root.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const inside = e.buttons === 0 && e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+      const v = inside && !(e.target as HTMLElement | null)?.closest?.(FOOT_CONTROLS);
+      setNear((n) => (n === v ? n : v));
+    };
+    const leave = () => setNear(false);
+    window.addEventListener("mousemove", move, { passive: true });
+    document.documentElement.addEventListener("mouseleave", leave);
+    return () => {
+      window.removeEventListener("mousemove", move);
+      document.documentElement.removeEventListener("mouseleave", leave);
+    };
+  }, []);
 
   // ───────── [2] 끌기 ─────────
 
@@ -175,7 +204,7 @@ export default function FavDock(props: Props) {
   const isFresh = (p: Place) => !!fresh && fresh.keys.has(norm(p.path));
 
   return (
-    <div className={"dock" + (held ? " open" : "") + (drag?.on ? " pin-dragging" : "") + (fileDrag ? " file-drag" : "")}>
+    <div ref={root} className={"dock" + (held ? " open" : "") + (near ? " near" : "") + (drag?.on ? " pin-dragging" : "") + (fileDrag ? " file-drag" : "")}>
       <div className="dock-shelf">
         <ul ref={shelf} className={(more.left ? "more-left " : "") + (more.right ? "more-right" : "") || undefined} role="toolbar" aria-label="즐겨찾기" aria-orientation="horizontal">
           {pinned.map((p, i) => {
@@ -229,19 +258,13 @@ export default function FavDock(props: Props) {
               </Fragment>
             );
           })}
-          <li className="dock-slot">
-            <button
-              className="dock-tile dock-add"
-              data-drop={PIN_DROP}
-              title="고른 것을, 없으면 지금 폴더를 즐겨찾기에 더한다 (Ctrl+D) · 폴더 · 파일을 끌어 놓아도 된다"
-              onClick={() => window.dispatchEvent(new CustomEvent("fd:pin-here"))}
-            >
-              <span className="dock-icon" aria-hidden="true">
-                +
-              </span>
-              <span className="dock-name">{pinned.length ? "더하기" : "끌어 놓거나 Ctrl+D"}</span>
-            </button>
-          </li>
+          {pinned.length === 0 ? (
+            <li className="dock-empty" data-drop={PIN_DROP}>
+              폴더 · 파일을 여기로 끌어 놓거나 Ctrl+D
+            </li>
+          ) : (
+            fileDrag && <li className="dock-gap end" data-drop={PIN_DROP} aria-hidden="true" title="끝에 붙여 즐겨찾기에 더하기" />
+          )}
         </ul>
       </div>
       {/* 입술 — 숨었을 때 보이는 자리. 눈금 하나가 즐겨찾기 하나다. 읽는 값은 위 선반이 글자로 다 가지고 있어 낭독기에는 숨긴다 */}
@@ -286,6 +309,6 @@ function placeIcon(p: Place, ext: string, view: ViewPrefs) {
   const pack = view.icons === "pack" ? packIconUrl(e) : null;
   if (pack) return <img src={pack} width={20} height={20} alt="" draggable={false} />;
   if (!p.file) return <FolderGlyph size={20} />;
-  if (view.icons !== "shell") return <FileGlyph ext={ext} size={22} />;
+  if (view.icons !== "shell") return <DocGlyph ext={ext} path={p.path} size={22} />;
   return <img src={iconUrl(e)} width={16} height={16} alt="" draggable={false} />;
 }

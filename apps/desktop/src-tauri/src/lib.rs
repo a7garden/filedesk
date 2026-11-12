@@ -3,7 +3,7 @@
 //! 목차
 //!   [1] 공통 — 주 스레드에서 돌리기 · 창 손잡이
 //!   [2] 목록 · 위치 · 주소
-//!   [3] 열기 · 오른쪽 메뉴 · 셸 동사
+//!   [3] 열기 · 바로가기 대상 · 오른쪽 메뉴 · 셸 동사
 //!   [3-1] 앱 안 보기 — 글 파일(md · txt) 읽기 · 쓰기 (`fd-core::textfile`) · 그림은 [9] 아이콘 프로토콜의 `raw:`
 //!   [4] 파일 작업 — 이름 바꾸기 · 휴지통 · 복사/이동 · 새 폴더
 //!   [5] 끌기 (앱 밖으로)
@@ -15,6 +15,9 @@
 //!   [8-1] 새 파일 (다운로드 · 바탕화면)
 //!   [8-2] 업데이트 — GitHub 릴리즈의 latest.json (tauri-plugin-updater · 화면 쪽 `updater.ts`)
 //!   [9] 아이콘 프로토콜 · 앱 시작
+//!   [10] 색인 — 찾기 조건 · 스마트 폴더 · 이름 색인(서비스 · 앱 안 엔진) · 본문 색인 (`index.rs`)
+
+mod index;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -156,6 +159,22 @@ async fn open_item(window: WebviewWindow, path: String) -> CmdResult<Option<Stri
         fd_shell::ops::open(hwnd, &path, &dir).map(|_| None).map_err(|e| e.to_string())
     })
     .await?
+}
+
+/// 바로가기(.lnk)들이 가리키는 것 — (대상 경로, 폴더인가). 못 풀면 None.
+/// 2026.11.12 : 바로가기 아이콘을 대상의 그림으로 그리려고 더했다. filedesk 그림 설정에서 바로가기가 모두 같은 「링크」 그림이라 무엇을 가리키는지 몰랐다.
+#[tauri::command]
+async fn link_targets(paths: Vec<String>) -> CmdResult<Vec<Option<(String, bool)>>> {
+    on_sta(move || {
+        paths
+            .iter()
+            .map(|p| fd_shell::ops::resolve_link(p).map(|t| {
+                let dir = Path::new(&t).is_dir();
+                (t, dir)
+            }))
+            .collect()
+    })
+    .await
 }
 
 // ───────────────────────────── [3-1] 앱 안 보기 ─────────────────────────────
@@ -744,8 +763,10 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(WatchState::default())
-        .setup(|_| {
+        .manage(index::IndexHub::default())
+        .setup(|app| {
             std::thread::spawn(refresh_skill);
+            index::IndexHub::start(app.handle());
             Ok(())
         })
         // 화면은 `http://fdicon.localhost/<키>` 로 아이콘을 받는다. 키 꼴은 fd_shell::icon::icon_png.
@@ -782,6 +803,7 @@ pub fn run() {
             places,
             resolve_input,
             open_item,
+            link_targets,
             read_text,
             write_text,
             modified_of,
@@ -814,6 +836,13 @@ pub fn run() {
             load_settings,
             save_settings,
             recent_files,
+            index::parse_query,
+            index::query_files,
+            index::index_status,
+            index::index_rebuild,
+            index::index_exclude,
+            index::content_pause,
+            index::service_setup,
         ])
         .run(tauri::generate_context!())
         .expect("filedesk 를 시작하지 못했다");

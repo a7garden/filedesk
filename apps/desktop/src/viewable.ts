@@ -4,7 +4,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { parentOf } from "./util";
 
 /** 글 파일 (fd-core textfile::EXTS 와 같아야 한다). */
-export const TEXT_EXTS = new Set(["md", "markdown", "txt", "log"]);
+/** 2026.11.12 : 설정 · 자료 글(ini · json · xml · yaml …)을 더했다. 실행되는 글(bat · ps1 · reg)과 csv(대개 엑셀로 연다)는 넣지 않는다. */
+export const TEXT_EXTS = new Set(
+  "md markdown txt log ini cfg conf config properties json jsonc xml yaml yml toml env gitignore editorconfig nfo srt".split(" "),
+);
 /** 마크다운 — 보기(렌더) · 편집 · 나란히. 나머지 글 파일은 편집기만. */
 export const MD_EXTS = new Set(["md", "markdown"]);
 /** 그림 (lib.rs image_mime 과 같아야 한다). WebView2 가 그대로 그리는 것만 — heic · tiff · psd 는 기본 앱으로. */

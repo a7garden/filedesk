@@ -69,6 +69,7 @@ jobs:
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: true
-          # 명령줄 fd.exe 를 설치 폴더에 함께 넣는다 (에이전트 스킬이 쓴다). 배포 빌드에만 붙인다 —
+          # 명령줄 fd.exe · 색인 서비스 fd-indexd.exe 를 설치 폴더에 함께 넣는다 (에이전트 스킬 · 설정 › 색인이 쓴다).
+          # 앱을 지울 때 서비스도 지울지 묻는 NSIS 훅(installer-hooks.nsh)도 여기서 건다. 배포 빌드에만 붙인다 —
           # 자원 파일이 없으면 tauri-build 가 멈춰서, 기본 설정에 두면 개발 판 · cargo test 가 fd.exe 를 먼저 빌드해야 돈다.
           args: --config src-tauri/tauri.release.json

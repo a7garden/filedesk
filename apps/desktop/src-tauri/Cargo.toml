@@ -26,5 +26,7 @@ serde_json = { workspace = true }
 notify = { workspace = true }
 fd-core = { workspace = true }
 fd-shell = { workspace = true }
+fd-index = { workspace = true }
+fd-content = { workspace = true }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"

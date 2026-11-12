@@ -8,9 +8,65 @@ export type Entry = {
   isDir: boolean;
   size: number;
   modified: number;
+  /** 만든 때 (유닉스 밀리초). 2026.11.12 더했다 — 찾기 조건 「고친:3일」이 받은 파일도 잡게. 없으면 0. */
+  created?: number;
   attrs: number;
   ext: string;
   kind: string;
+};
+
+/** 찾는 뿌리 — `recursive` 가 거짓이면 그 폴더 바로 아래만 (fd-core search::Root). */
+export type Root = { path: string; recursive: boolean };
+/** 조건 칩 — `raw` 는 찾기 칸에 적힌 그대로, `label` 은 읽는 말. */
+export type Chip = { raw: string; label: string };
+/** 풀어 낸 찾기 조건 (fd-core query::QuerySpec). */
+export type QuerySpec = {
+  terms: string[];
+  notTerms: string[];
+  after?: number | null;
+  before?: number | null;
+  minSize?: number | null;
+  maxSize?: number | null;
+  exts: string[];
+  kinds: string[];
+  kindExts: string[];
+  dirs?: boolean | null;
+  colors: string[];
+  anyColor: boolean;
+  memo?: boolean | null;
+  chips: Chip[];
+  errors: string[];
+};
+/** 스마트 폴더가 볼 곳 — 모든 고정 드라이브 · 고른 폴더들 · 다운로드와 바탕화면(바로 아래만). */
+export type SmartScope = { kind: "all" } | { kind: "roots"; roots: Root[] } | { kind: "inbox" };
+/** 조건에 이름을 붙여 저장한 것 — 누르면 지금 칸에 그 조건으로 모아 보인다. 2026.11.12 더했다. */
+export type SmartFolder = { id: string; name: string; q: string; scope: SmartScope };
+export type ContentStatus = { indexed: number; queued: number; pdfLeft: number; failed: number; paused: boolean };
+export type VolStatus = { root: string; method: string; files: number; updated: number; state: string; usn: boolean; note: string };
+export type IndexStatus = { service: boolean; serviceVersion: number; volumes: VolStatus[]; exclude: string[] };
+export type HubStatus = { index: IndexStatus; content: ContentStatus | null; bundled: boolean; appVersion: number; exclude: string[] };
+export type QueryResult = {
+  items: Found[];
+  spec: QuerySpec;
+  truncated: boolean;
+  cancelled: boolean;
+  scanned: number;
+  /** 어느 길로 찾았나 — service · local(앱 안 색인) · live(그 자리 훑기) · content(본문 색인) · notes(메모 · 색 표시) */
+  sources: string[];
+  indexedAt: number;
+  partial: boolean;
+  contentStatus: ContentStatus | null;
+};
+export type QueryArgs = {
+  scope: { all: boolean; roots: Root[] };
+  text: string;
+  kinds?: [string, string, string[]][];
+  showHidden?: boolean;
+  content?: boolean;
+  tzOffsetMin?: number;
+  limit?: number;
+  /** 왼쪽 개수처럼 뒤에서 세는 찾기 — 칸의 찾기를 멈추지 않는다. */
+  background?: boolean;
 };
 
 /** 즐겨찾기 · 위치. `file` 이면 누를 때 그 파일을 연다 (폴더면 들어간다). */
@@ -28,7 +84,19 @@ export type DocName = {
   ext: string;
   issues: string[];
 };
-export type DocFile = { path: string; name: string; size: number; modified: number; inHistory: boolean; parsed: DocName };
+/** 판 판단은 fd-core `docs::mark` 한 곳에서 한다 — `retire` 옮길 판(이전판 밖인데 그 폴더 최신판이 아님) ·
+ *  `dupVer` 같은 판 번호가 여러 날짜 · `backOrder` 앞선 날짜보다 판 번호가 작음. 판 눈금과 문제 문장이 이 표시를 같이 쓴다. */
+export type DocFile = {
+  path: string;
+  name: string;
+  size: number;
+  modified: number;
+  inHistory: boolean;
+  parsed: DocName;
+  retire: boolean;
+  dupVer: boolean;
+  backOrder: boolean;
+};
 /** 파일 · 폴더에 붙인 메모 (fd-core memo). */
 export type Memo = { path: string; text: string; id?: string; updated: number; color?: TagColor };
 
@@ -71,6 +139,8 @@ export type Settings = {
   view: ViewPrefs;
   /** 켤 때 열 폴더. 비면 지난번에 열어 둔 탭(나눠 보기까지) 그대로. 2026.11.11 더했다. */
   start: string;
+  /** 스마트 폴더 — 왼쪽 열 「스마트 폴더」. 없으면(지난 판 설정) 「최근 파일」 하나로 시작한다. 2026.11.12 더했다. */
+  smart?: SmartFolder[];
 };
 
 /** 보기 설정. 모든 탭이 같은 것을 쓴다 — 탭마다 다르면 「왜 여기만 격자지」가 된다. */
@@ -98,8 +168,12 @@ export type ViewPrefs = {
   dirsFirst: boolean;
   /** 판을 접은 채 시작한다. Ctrl+Shift+D 로 바꾼 것은 그 탭에서만 간다. */
   foldStart: boolean;
-  /** 왼쪽 열에 「최근 파일」(다운로드 · 바탕화면에 최근 생긴 파일)을 보인다. 2026.11.11 더했다 — 안 보고 싶은 사람이 있다. */
+  /** 왼쪽 열에 「스마트 폴더」를 보인다. 2026.11.11 「최근 파일」로 더했고, 2026.11.12 「최근 파일」이 스마트 폴더 하나가 되며 구획 전체를 켜고 끈다
+   *  (이름은 지난 판 설정과 맞추려고 그대로 둔다). */
   recent: boolean;
+  /** 왼쪽 열에 「연결」(NAS · 공유 폴더)을 보인다. 2026.11.12 더했다 — NAS 를 쓰지 않는 사람에게는 늘 빈 구획이었다.
+   *  처음에는 끄고, 이미 연결을 둔 사람은 켠 채로 읽는다 (App readSettings). */
+  links: boolean;
   /** 고친 날 — `relative` 오늘 · 어제 · 날짜만 / `absolute` 늘 날짜와 시각. */
   dateStyle: "relative" | "absolute";
   /** 크기 — `kb` 탐색기처럼 늘 KB / `auto` 알맞은 단위 (MB · GB). */
@@ -107,7 +181,7 @@ export type ViewPrefs = {
 };
 export type ColKey = "ver" | "date" | "size";
 export const DEFAULT_VIEW: ViewPrefs = { mode: "list", dense: false, size: 1, icons: "shell", iconPack: "", thumbs: true, hiddenCols: [], kinds: DEFAULT_KINDS, folderClick: "double",
-  sort: { key: "name", asc: true }, dirsFirst: true, foldStart: true, dateStyle: "relative", sizeUnit: "kb", recent: true };
+  sort: { key: "name", asc: true }, dirsFirst: true, foldStart: true, dateStyle: "relative", sizeUnit: "kb", recent: true, links: false };
 
 /** 오른쪽 메뉴에 얹는 filedesk 항목 (fd-shell menu::AppItem). key 와 label 이 비면 구분선. */
 export type MenuItem = { key?: string; label?: string; checked?: boolean; disabled?: boolean; children?: MenuItem[] };
@@ -164,6 +238,16 @@ export const api = {
   dirsOf: (paths: string[]) => invoke<boolean[]>("dirs_of", { paths }),
   skillStatus: () => invoke<SkillStatus>("skill_status"),
   installSkill: () => invoke<SkillStatus>("install_skill"),
+  /** 찾기 칸 글을 조건으로 푼다 (칩 · 틀린 곳). */
+  parseQuery: (text: string, kinds: [string, string, string[]][], tzOffsetMin: number) => invoke<QuerySpec>("parse_query", { text, kinds, tzOffsetMin }),
+  /** 조건으로 찾는다 — 색인(서비스 · 앱 안) · 그 자리 훑기 · 본문 색인 중 맞는 길로. */
+  queryFiles: (args: QueryArgs) => invoke<QueryResult>("query_files", { args }),
+  indexStatus: () => invoke<HubStatus>("index_status"),
+  indexRebuild: () => invoke<HubStatus>("index_rebuild"),
+  indexExclude: (paths: string[]) => invoke<HubStatus>("index_exclude", { paths }),
+  contentPause: (paused: boolean) => invoke<void>("content_pause", { paused }),
+  /** 색인 서비스 설치 · 업데이트 · 지우기 — UAC 창이 뜬다. */
+  serviceSetup: (action: "install" | "update" | "uninstall") => invoke<HubStatus>("service_setup", { action }),
 };
 
 /** 오늘 `YYYYMMDD` (이 PC 시각). */
@@ -172,7 +256,8 @@ export function today(): string {
   return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
 }
 
-const PER_FILE_EXTS = new Set(["exe", "lnk", "ico", "url", "msc", "cpl", "scr"]);
+/** 파일마다 그림이 다른 형식 — 셸 아이콘을 확장자가 아니라 경로로 묻는다 (fd-shell icon::PER_FILE_EXTS 와 같아야 한다). */
+export const PER_FILE_EXTS = new Set(["exe", "lnk", "ico", "url", "msc", "cpl", "scr"]);
 
 /** 경로 그대로의 셸 아이콘 — 드라이브 · 바탕화면처럼 자리마다 그림이 다른 것. */
 export const pathIconUrl = (path: string) => `http://fdicon.localhost/${encodeURIComponent(`f:${path}`)}`;
