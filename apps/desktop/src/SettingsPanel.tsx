@@ -14,6 +14,7 @@
 //   「어디 있었지」를 찾아 목차를 눌러 봐야 했고, 입력 칸만으로는 바꾼 결과를 알 수 없었다. 이제 설정마다 그 결과를 그 자리에 그린다.
 //   화면 색 단추를 왼쪽 아래에서 여기로 옮겼다.
 //   설정은 바꾸는 즉시 목록에 쓰고 저장한다 — 「저장」 단추가 없다.
+//   2026.11.12 : 가운데 모달 → 오른쪽 옆판 (styles.css 「.set-backdrop.sheet」). 바탕을 어둡게 하지 않아 바꾼 결과가 왼쪽 목록에 바로 보인다.
 //   2026.11.11 : 「문서 저장소」(연도별 프로젝트) · 「이름 규칙」(판을 묶을 때 뗄 과업 이름 · 사람 이름 · 상태어)을 뺐다.
 //                일반 파일 탐색기에 한 과업에만 맞는 설정이었다 — 상태어는 고정 목록, 작성자 꼬리는 이름 꼴로 추정한다 (fd-core docname).
 import { useEffect, useRef, useState } from "react";
@@ -184,7 +185,7 @@ export default function SettingsPanel(props: Props) {
     });
 
   return (
-    <div className="set-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="set-backdrop sheet" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="settings" role="dialog" aria-modal="true" aria-label="설정">
         <nav className="set-nav" aria-label="설정 목차">
           <h2>설정</h2>

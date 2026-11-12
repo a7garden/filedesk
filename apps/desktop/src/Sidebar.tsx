@@ -25,14 +25,15 @@
 //   2026.11.12 : 「연결」은 설정(보기 › 보일 것)에서 켜야 보인다 — NAS 를 쓰지 않는 사람에게는 늘 빈 구획이었다. 이미 연결을 둔 사람은 켠 채로 읽는다.
 //   2026.11.12 : 「최근 파일」 → 「스마트 폴더」. 최근 파일은 처음부터 있는 스마트 폴더 하나(다운로드 · 바탕화면 · 고친:3일)가 되어
 //                날 수 · 볼 곳을 고칠 수 있다. 다른 스마트 폴더는 이름과 맞는 개수 한 줄씩, 누르면 지금 칸에 모아 보인다. 맨 아래에 색인 상태 한 줄.
+//   2026.11.12 : 「최근 파일」 밑에 파일 다섯 개를 이름 그대로 늘어놓던 것을 걷었다 — 스마트 폴더로 바꾼 뒤에도 파일이 왼쪽 열에 바로 올라와
+//                구획이 「폴더 목록」이 아니라 「파일 목록」으로 읽혔다. 이제 모든 스마트 폴더가 이름과 개수 한 줄이고, 파일은 누르면 칸에서 본다.
 // 항목마다 [data-drop] — 파일을 끌어다 놓으면 그 자리로 옮긴다.
 import { useCallback, useEffect, useState } from "react";
-import { api, iconUrl, TAG_COLORS, TAG_LABEL, type Drive, type Entry, type HubStatus, type Place, type Places, type SmartFolder, type TagColor, type ViewPrefs } from "./api";
+import { api, TAG_COLORS, TAG_LABEL, type Drive, type HubStatus, type Place, type Places, type SmartFolder, type TagColor, type ViewPrefs } from "./api";
 import { LINK_DROP, TAG_DROP } from "./App";
 import { PlaceGlyph } from "./glyphs";
-import { ago, kindTable, RECENT_ID, remoteOnly, scopeLabel, scopeOf, tzOffset } from "./query";
-import { DocGlyph } from "./shortcut";
-import { baseName, errText, formatBytes, formatDate, norm, packIconUrl, parentOf } from "./util";
+import { ago, kindTable, remoteOnly, scopeLabel, scopeOf, tzOffset } from "./query";
+import { errText, formatBytes, norm } from "./util";
 
 type Props = {
   places: Places | null;
@@ -43,7 +44,6 @@ type Props = {
   current: string;
   onGo: (path: string) => void;
   onGoNewTab: (path: string) => void;
-  onOpenFile: (path: string) => void;
   settingsOpen: boolean;
   onSettings: () => void;
   smart: SmartFolder[];
@@ -54,8 +54,6 @@ type Props = {
   onNewSmart: () => void;
 };
 
-/** 「최근 파일」에 늘 보이는 수. 넘으면 「N개 모두 보기」로 칸에 띄운다. */
-const FRESH_SHOWN = 5;
 /** 스마트 폴더 개수를 다시 세는 간격(ms). */
 const SMART_COUNT = 60000;
 /** 개수를 셀 때의 상한 — 넘으면 「2000+」. */
@@ -68,12 +66,10 @@ const LOW_SPACE = 0.1;
 const LINK_CHECK = 60000;
 
 export default function Sidebar(props: Props) {
-  const { places, links, onAddLinks, onUnlink, view, current, onGo, onGoNewTab, onOpenFile, settingsOpen, onSettings, smart, inbox, onOpenSmart, onEditSmart, onNewSmart } = props;
+  const { places, links, onAddLinks, onUnlink, view, current, onGo, onGoNewTab, settingsOpen, onSettings, smart, inbox, onOpenSmart, onEditSmart, onNewSmart } = props;
 
   // ───────── [1] 상태 · 불러오기 ─────────
 
-  /** 「최근 파일」 스마트 폴더의 파일 — 다섯 개를 이름 그대로 미리 보인다. */
-  const [fresh, setFresh] = useState<Entry[] | null>(null);
   /** 스마트 폴더마다 맞는 개수 (넘쳤으면 truncated). */
   const [counts, setCounts] = useState<Map<string, { n: number; more: boolean }>>(new Map());
   const [hub, setHub] = useState<HubStatus | null>(null);
@@ -124,7 +120,6 @@ export default function Sidebar(props: Props) {
           const r = await api.queryFiles({ scope: scopeOf(f.scope, inbox), text: f.q, kinds: kindTable(view.kinds), tzOffsetMin: tzOffset(), limit: COUNT_LIMIT, background: true });
           if (!alive) return;
           setCounts((m) => new Map(m).set(f.id, { n: r.items.length, more: r.truncated }));
-          if (f.id === RECENT_ID) setFresh([...r.items].sort((a, b) => Math.max(b.modified, b.created ?? 0) - Math.max(a.modified, a.created ?? 0)));
         } catch {
           /* 다음 차례에 */
         }
@@ -138,7 +133,6 @@ export default function Sidebar(props: Props) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [smartKey, view.recent, indexReady]);
-  const recentFolder = smart.find((f) => f.id === RECENT_ID);
 
   // 연결 더하기 — 주소를 받아 열리는지 본 뒤 더한다. 꺼진 NAS 는 몇 초 걸릴 수 있어 「확인 중」을 보인다.
   const [addr, setAddr] = useState("");
@@ -348,27 +342,6 @@ export default function Sidebar(props: Props) {
                     <span>{f.name}</span>
                     {c && <span className="count">{c.more ? `${c.n.toLocaleString("ko-KR")}+` : c.n.toLocaleString("ko-KR")}</span>}
                   </button>
-                  {/* 「최근 파일」은 지난 판처럼 파일 다섯 개를 이름 그대로 */}
-                  {f.id === RECENT_ID && recentFolder && fresh && fresh.length > 0 && (
-                    <ul className="smart-fresh">
-                      {fresh.slice(0, FRESH_SHOWN).map((x) => (
-                        <li key={x.path}>
-                          <button className="nav-item" title={`${x.path}\n고친 날 ${formatDate(x.modified)} · 누르면 연다`} onClick={() => onOpenFile(x.path)}>
-                            {fileIcon(x, view)}
-                            <span>{x.name}</span>
-                            <span className="count">{baseName(parentOf(x.path) ?? "")}</span>
-                          </button>
-                        </li>
-                      ))}
-                      {fresh.length > FRESH_SHOWN && (
-                        <li>
-                          <button className="side-empty" title="지금 칸에 목록으로 띄운다 — 옮기기 · 지우기 · 이름 바꾸기를 거기서 한다" onClick={() => onOpenSmart(recentFolder)}>
-                            {`${fresh.length.toLocaleString("ko-KR")}개 모두 보기`}
-                          </button>
-                        </li>
-                      )}
-                    </ul>
-                  )}
                 </li>
               );
             })}
@@ -465,12 +438,4 @@ function SmartGlyph() {
       <path d="M9.6 10.6l1.8 1.8" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
     </svg>
   );
-}
-
-/** 최근 파일 줄 그림 — 목록과 같은 아이콘 설정을 따른다. */
-function fileIcon(f: Entry, view: ViewPrefs) {
-  const pack = view.icons === "pack" ? packIconUrl(f) : null;
-  if (pack) return <img src={pack} width={16} height={16} alt="" draggable={false} />;
-  if (view.icons !== "shell") return <DocGlyph ext={f.ext} path={f.path} />;
-  return <img src={iconUrl(f)} width={16} height={16} alt="" draggable={false} />;
 }

@@ -394,13 +394,14 @@ pub fn read_all(v: &NtfsVol) -> io::Result<Volume> {
                     nameless.insert(base.number, base);
                 }
             }
-        } else if let Some(n) = vol.get(x.base).cloned() {
+        } else if let Some(mut n) = vol.get(x.base).cloned() {
             // 크기가 확장 레코드에 있었다
             if let Some(s) = x.size
                 && !n.is_dir
                 && n.size == 0
             {
-                vol.upsert(Node { size: s, ..n });
+                n.size = s;
+                vol.upsert(n);
             }
         }
     }

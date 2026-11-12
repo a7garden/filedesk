@@ -74,6 +74,8 @@ pub fn load(file: &Path) -> io::Result<Volume> {
     v.updated = u64_of(&mut r)? as i64;
     v.next_key = u64_of(&mut r)?;
     let count = u64_of(&mut r)?;
+    // 고장 난 파일의 엉뚱한 수로 메모리를 잡지 않게 상한을 둔다 — 넘는 만큼은 넣으며 자란다.
+    v.reserve(count.min(16_000_000) as usize);
     for _ in 0..count {
         let key = u64_of(&mut r)?;
         let parent = u64_of(&mut r)?;

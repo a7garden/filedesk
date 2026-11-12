@@ -137,9 +137,6 @@ export default function Viewer(p: Props) {
         <button className="viewer-act" onClick={external} title="Windows 에 정해진 앱으로 연다">
           기본 앱으로 열기
         </button>
-        <button className="viewer-x" onClick={close} title="닫기 · Esc" aria-label="닫기">
-          ×
-        </button>
       </div>
       {note && (
         <div className="viewer-bar warn" role="alert">

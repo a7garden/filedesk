@@ -143,10 +143,21 @@ button:disabled {
 .upd.warn {
   color: var(--warn);
 }
+/* 2026.11.12 : 테두리 알약 → 흐린 글자 + 점 하나. 알림일 뿐 판단할 일이 아닌데, 주소 줄의 「문제 문서」와 같은 알약이라 강조를 나눠 가졌다 */
 .upd.new {
-  color: var(--accent);
-  font-weight: 600;
-  box-shadow: inset 0 0 0 1px var(--accent);
+  gap: 6px;
+  color: var(--muted);
+}
+.upd.new::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.upd.new:hover,
+.upd.new[aria-expanded="true"] {
+  color: var(--ink);
 }
 .upd.new:hover,
 .upd.new[aria-expanded="true"] {
@@ -911,6 +922,144 @@ body.col-resizing * {
   stroke: var(--warn);
 }
 
+/* 판 눈금 단추 — 누르면 판 목록 (EditionList). 눈금 모양은 그대로, 올리면 바탕만 */
+.ticks-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 3px;
+  margin: -2px -3px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.ticks-btn:hover,
+.ticks-btn:focus-visible {
+  background: var(--hover);
+}
+
+/* 판 목록 창: 새 판이 위로 · 이 폴더 판은 진한 글자, 이전판은 옅게 · 꼴(pptx · pdf)마다 여는 단추 */
+.ed-list {
+  position: fixed;
+  z-index: 40;
+  max-height: 420px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 10px;
+  background: var(--raise);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.16), inset 0 0 0 1px var(--line);
+  animation: pop-in 0.14s ease-out;
+  transform-origin: top left;
+  font-size: 12.5px;
+}
+.ed-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 12px 6px;
+  border-bottom: 1px solid var(--line);
+}
+.ed-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--ink);
+}
+.ed-head .muted {
+  flex: none;
+  margin-left: auto;
+  font-size: 11.5px;
+}
+.ed-rows {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+}
+.ed-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 6px;
+}
+.ed-row:hover {
+  background: var(--hover);
+}
+.ed-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  text-align: left;
+  color: var(--muted);
+}
+.ed-row.here .ed-main {
+  color: var(--ink);
+}
+.ed-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.2px var(--muted);
+}
+.ed-dot.here {
+  background: var(--ink-2);
+  box-shadow: none;
+}
+.ed-dot.here.retire {
+  background: var(--warn);
+}
+.ed-dot.flag {
+  box-shadow: inset 0 0 0 1.4px var(--warn);
+}
+.ed-ver {
+  flex: none;
+  min-width: 40px;
+  font-weight: 600;
+}
+.ed-date {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.ed-where {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.ed-note {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  color: var(--warn);
+}
+.ed-exts {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  padding-right: 4px;
+}
+.ed-ext {
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+.ed-ext:hover,
+.ed-ext:focus-visible {
+  background: var(--raise);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--ink);
+}
+
 /* 문제 줄: 문서 바로 밑, 꺾쇠로 그 문서에 매단다. 고칠 동작은 문장 바로 곁에 (줄 끝으로 떼지 않는다) */
 .row.issue-line {
   display: flex;
@@ -935,11 +1084,13 @@ body.col-resizing * {
 }
 
 /* 「문제 N문서」: 누르면 그 문서만 거른다. 켜지면 바탕이 찬다 */
+/* 2026.11.12 : 머리 → 거르기 줄 맨 앞. 거르기 단추라 종류 · 색과 같은 줄에, 문제라 경고색 테두리로 그 줄에서 하나만 도드라진다 */
 .issue-chip {
   flex: none;
-  height: 26px;
+  height: 24px;
+  margin-right: 6px;
   padding: 0 10px;
-  border-radius: 13px;
+  border-radius: 12px;
   font-size: 12.5px;
   color: var(--warn);
   box-shadow: inset 0 0 0 1px var(--warn);
@@ -1049,6 +1200,8 @@ body.col-resizing * {
 /* 2026.11.12 : 크기 사다리(margin-left: auto)에 붙여 오른쪽 끝에 모은다. 둘 다 auto 이면 남는 자리를 반씩 나눠 사다리가 바닥 줄 가운데로 떠서
    즐겨찾기 독을 여는 자리를 가렸다. */
 .foot-toggle {
+  flex: none;
+  white-space: nowrap;
   padding: 2px 8px;
   border-radius: 5px;
   color: var(--muted);
@@ -1318,9 +1471,11 @@ body.resizing-y * {
 .kind-color {
   padding: 0 8px;
 }
-/* 찾을 범위 — 찾는 말이 있을 때만 줄 오른쪽 끝에. 이 폴더 → 아래 폴더 → 문서 안 글은 넓어지는 한 축이라 붙여 둔다 */
+/* 찾을 범위 — 찾는 말이 있을 때만 찾기 칸 바로 왼쪽에. 이 폴더 → 아래 폴더 → 문서 안 글은 넓어지는 한 축이라 붙여 둔다.
+   2026.11.12 : 거르기 줄 오른쪽 끝 → 머리의 찾기 칸 곁. 범위는 「무엇을 보이나」가 아니라 「어디서 찾나」라 찾기 칸의 일이다.
+   좁은 칸에서는 짧은 이름(하위 · 전체 · 본문)으로 */
 .scope {
-  margin-left: auto;
+  flex: none;
   display: inline-flex;
   gap: 2px;
   padding: 2px;
@@ -1329,6 +1484,17 @@ body.resizing-y * {
 }
 .scope .kind {
   height: 22px;
+}
+.scope .short {
+  display: none;
+}
+@container pane (max-width: 680px) {
+  .scope .long {
+    display: none;
+  }
+  .scope .short {
+    display: inline;
+  }
 }
 .deep-tag {
   display: inline-flex;
@@ -1993,6 +2159,34 @@ body.resizing-y * {
   animation: pop-in 0.16s ease-out;
   user-select: text;
 }
+/* 2026.11.12 : 설정은 가운데 모달 → 오른쪽 옆판. 보기 크기 · 보일 열 · 화면 색 · 날짜 꼴처럼 목록 모양을 바꾸는 설정이 많은데,
+   어둡게 깐 바탕 아래로 목록이 가려 바꾼 결과를 볼 수 없었다. 바탕을 어둡게 하지 않고 제목 줄 아래 오른쪽에 붙여, 왼쪽에 목록이 그대로 보인다 */
+.set-backdrop.sheet {
+  top: 38px;
+  display: flex;
+  justify-content: flex-end;
+  background: transparent;
+  animation: none;
+}
+.set-backdrop.sheet > .settings {
+  width: min(720px, calc(100vw - 300px));
+  min-width: min(560px, 100vw);
+  height: 100%;
+  border-radius: 10px 0 0 0;
+  box-shadow: -10px 0 32px rgba(0, 0, 0, 0.14), inset 1px 0 0 var(--line);
+  animation: sheet-in 0.18s ease-out;
+}
+@keyframes sheet-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .set-backdrop.sheet > .settings {
+    animation: none;
+  }
+}
 .set-nav {
   display: flex;
   flex-direction: column;
@@ -2279,32 +2473,6 @@ body.resizing-y * {
   border-radius: 4px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.14);
 }
-.tile-stack {
-  position: absolute;
-  right: 4px;
-  bottom: -2px;
-  padding: 0 6px;
-  height: 18px;
-  line-height: 18px;
-  border-radius: 9px;
-  background: var(--raise);
-  box-shadow: inset 0 0 0 1px var(--line);
-  font-size: 11px;
-  color: var(--ink-2);
-}
-.tile-issue {
-  position: absolute;
-  left: 4px;
-  top: 0;
-  width: 16px;
-  height: 16px;
-  line-height: 16px;
-  border-radius: 50%;
-  background: var(--warn);
-  color: var(--raise);
-  font-size: 11px;
-  font-weight: 700;
-}
 .tile-name {
   width: 100%;
   min-width: 0;
@@ -2342,6 +2510,13 @@ body.resizing-y * {
 .tile-ver {
   flex: none;
 }
+.tile-ver.warn {
+  color: var(--warn);
+  font-weight: 600;
+}
+.tile-meta .ticks {
+  flex: none;
+}
 .tile-memo {
   min-width: 0;
   max-width: 100%;
@@ -2352,6 +2527,29 @@ body.resizing-y * {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* 격자 위 문제 문서 — 문서 이름 + 목록의 문제 줄과 같은 문장 · 동작. 많으면 이 자리만 스크롤해 격자를 밀어내지 않는다 */
+.grid-issues {
+  flex: none;
+  max-height: 30%;
+  overflow-y: auto;
+  padding: 2px 24px 6px 22px;
+}
+.grid-issue {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 30px;
+  font-size: 12.5px;
+}
+.grid-issue-doc {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--ink);
 }
 .grid-sort {
   display: flex;
@@ -2366,7 +2564,9 @@ body.resizing-y * {
 /* 아래 띠의 보기 단추 — 목록 · 격자, 격자면 크기 막대 */
 /* 크기 사다리 — 지금 칸 이름 + 눈금 여섯. 목록 두 칸과 격자 네 칸 사이에 가는 틈(.seam)을 두어 바뀌는 경계가 보이게.
    지금 칸만 바탕이 차고, 나머지는 흐린 모양 — 눈금 모양이 곧 그 칸에서 보일 모양이다 */
+/* 2026.11.12 : flex: none — 좁은 칸에서 사다리가 줄어들어 눈금이 「목록 촘촘」 글자 위로 겹쳤다. 좁으면 글자를 접는다 (「좁은 칸」). */
 .ladder {
+  flex: none;
   display: inline-flex;
   align-items: center;
   gap: 1px;
@@ -2572,7 +2772,10 @@ body.resizing-y * {
 
 /* ── 좁은 칸 ──
    2026.11.11 : 나눠 보기로 칸이 좁아지면 열 머리가 옆 칸까지 삐져나와 그 칸 줄 위에 겹쳤다. 칸 밖으로 그리지 않고,
-   칸 너비가 680px 아래면 「판」 열을 접는다 — 판 눈금은 넓은 칸에서 본다. 이름 · 고친 날 · 크기는 남긴다. */
+   2026.11.12 : 접는 순서를 크기 → 고친 날 → 판 으로 뒤집었다. 전에는 680px 아래에서 「판」 열부터 지워
+   나눠 보기(정본 · 자료 견주기)의 두 칸 모두 판이 보이지 않았다. 이제 680px 아래는 판 열이 눈금 없이 「v3 11-01」 글자만 남고,
+   480px 아래는 크기 열, 400px 아래는 고친 날 열도 접는다. 이름이 「메모 · 색」 단추에 밀려 사라지지 않게 좁은 칸에서 그 단추는 올렸을 때만 나온다.
+   열 너비 손잡이는 넓은 칸에서만 — 좁은 칸의 너비는 정해 둔 값이다. 바닥 줄은 보기 이름 글자를 접는다. */
 .pane {
   overflow: hidden;
   container: pane / inline-size;
@@ -2583,9 +2786,46 @@ body.resizing-y * {
   .row:not(.edition):not(.issue-line) {
     grid-template-columns: var(--cols-narrow);
   }
-  .cols > .col-1,
-  .col-guides > .col-1,
+  .row .cell.ver .ticks,
+  .cols .resizer,
+  .ladder-label {
+    display: none;
+  }
   .row .cell.ver {
+    font-size: 12px;
+  }
+  .row.selected:not(:hover) .memo-add,
+  .row.selected:not(:hover) .tag-add {
+    display: none;
+  }
+  .row .label {
+    min-width: 3em;
+  }
+  .foot > span:first-child {
+    flex: none;
+  }
+}
+@container pane (max-width: 480px) {
+  .cols,
+  .col-guides,
+  .row:not(.edition):not(.issue-line) {
+    grid-template-columns: var(--cols-tight);
+  }
+  .cols > .col-3,
+  .col-guides > .col-3,
+  .row .cell.size {
+    display: none;
+  }
+}
+@container pane (max-width: 400px) {
+  .cols,
+  .col-guides,
+  .row:not(.edition):not(.issue-line) {
+    grid-template-columns: var(--cols-least);
+  }
+  .cols > .col-2,
+  .col-guides > .col-2,
+  .row .cell.date {
     display: none;
   }
 }
@@ -2965,18 +3205,7 @@ body.resizing-y * {
   box-shadow: inset 0 0 0 1px var(--ink-2);
   color: var(--ink);
 }
-.viewer-x {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  font-size: 18px;
-  line-height: 1;
-  color: var(--muted);
-}
-.viewer-x:hover {
-  background: var(--hover);
-  color: var(--ink);
-}
+/* 2026.11.12 : 오른쪽 끝 「×」를 걷었다 — 왼쪽 「← 폴더」와 같은 일(목록으로)을 두 자리에서 했다. Esc 도 같다. */
 .viewer-bar {
   display: flex;
   align-items: center;
@@ -3190,17 +3419,17 @@ body.resizing-y * {
   font-weight: 400;
   font-size: 11.5px;
 }
-.kind-edit {
-  margin-left: 6px;
-  padding: 0 6px;
-  height: 20px;
-  border-radius: 10px;
-  color: var(--accent);
-  font-weight: 400;
-  font-size: 12px;
+/* 스마트 폴더 이름 — 칩 글자 그대로 두고, 올리면 밑줄로만 「누를 수 있다」를 알린다 */
+.deep-name {
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
 }
-.kind-edit:hover {
-  background: var(--hover);
+.deep-name:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--muted);
+  text-underline-offset: 3px;
 }
 /* 「＋ 조건」 메뉴 */
 .preset-wrap {
@@ -3242,9 +3471,123 @@ body.resizing-y * {
 .preset-group button:hover {
   background: var(--hover);
 }
+/* 「저장」 — 찾기 칸 안 오른쪽 끝. 찾는 말이 있을 때만 (스마트 폴더로 저장) */
+.filter-box {
+  position: relative;
+  flex: none;
+  display: flex;
+}
+.filter-box:has(.save-smart) .filter {
+  padding-right: 44px;
+}
 .save-smart {
-  margin-left: 6px;
+  position: absolute;
+  right: 3px;
+  top: 3px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 4px;
+  font-size: 12px;
   color: var(--accent);
+}
+.save-smart:hover {
+  background: var(--sel);
+}
+/* 「×」 — 찾는 말이 있을 때 칸에 올리거나 칸에 들어가 있으면 보인다. 늘 띄우면 짧은 칸에서 글자를 가린다 */
+.filter-box:has(.filter-clear) .filter {
+  padding-right: 26px;
+}
+.filter-box:has(.filter-clear):has(.save-smart) .filter {
+  padding-right: 66px;
+}
+.filter-clear {
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--muted);
+  visibility: hidden;
+}
+.filter-box:has(.save-smart) .filter-clear {
+  right: 44px;
+}
+.filter-box:hover .filter-clear,
+.filter-box:focus-within .filter-clear {
+  visibility: visible;
+}
+.filter-clear:hover {
+  background: var(--sel);
+  color: var(--ink);
+}
+/* 「조건」 단추 — 찾기 칸 바로 오른쪽. 누르면 찾기 조건 옆판(QueryBuilder) */
+.qb-btn {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--ink-2);
+}
+.qb-btn:hover,
+.qb-btn[aria-expanded="true"] {
+  background: var(--hover);
+  color: var(--ink);
+}
+.qb .smart-line {
+  grid-template-columns: 56px minmax(0, 1fr);
+}
+.qb-opts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  font-size: 13px;
+}
+.qb-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+}
+.qb-opt input {
+  accent-color: var(--accent);
+  margin: 0;
+}
+.qb-sub {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+.qb .qb-sub input,
+.qb-unit {
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--line);
+  border: 0;
+  font: inherit;
+  font-size: 12.5px;
+}
+.qb .qb-sub input.qb-num {
+  width: 56px;
+}
+.qb-text {
+  margin: 14px 0 0;
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+.qb-text code {
+  color: var(--ink);
 }
 
 /* 왼쪽 「스마트 폴더」 */
@@ -3264,9 +3607,6 @@ body.resizing-y * {
   flex: none;
   color: var(--muted);
 }
-.smart-fresh {
-  margin-left: 14px;
-}
 .index-line {
   margin-top: 4px;
   font-size: 11.5px;
@@ -3284,13 +3624,30 @@ body.resizing-y * {
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22), inset 0 0 0 1px var(--line);
   animation: pop-in 0.16s ease-out;
 }
+/* 2026.11.12 : 설정과 같은 오른쪽 옆판 — 고치는 동안 왼쪽 칸에 결과가 다시 모인다 (SmartEditor 머리말) */
+.set-backdrop.sheet > .smart-editor {
+  overflow-x: hidden;
+  width: min(520px, calc(100vw - 300px));
+  min-width: min(420px, 100vw);
+  height: 100%;
+  max-height: none;
+  border-radius: 10px 0 0 0;
+  box-shadow: -10px 0 32px rgba(0, 0, 0, 0.14), inset 1px 0 0 var(--line);
+  animation: sheet-in 0.18s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .set-backdrop.sheet > .smart-editor {
+    animation: none;
+  }
+}
 .smart-editor h3 {
   margin: 0 0 12px;
   font-size: 15px;
 }
+/* minmax(0, 1fr) — 1fr 은 내용보다 좁아지지 않아, 고른 폴더의 긴 경로(줄바꿈 없음)가 창을 옆으로 밀고 가로 스크롤을 만들었다 (2026.11.12) */
 .smart-line {
   display: grid;
-  grid-template-columns: 64px 1fr;
+  grid-template-columns: 64px minmax(0, 1fr);
   align-items: center;
   gap: 10px;
   margin: 8px 0;
@@ -3298,7 +3655,8 @@ body.resizing-y * {
 .smart-line.top {
   align-items: start;
 }
-.smart-line input,
+/* 2026.11.12 : 글 칸만 — 「볼 곳」 라디오 · 「하위 폴더까지」 체크까지 이 꼴을 받아 너비 100% 막대로 그려지고, 이름 글자가 세로로 밀려 패널이 비어 보였다 */
+.smart-line input:not([type="radio"]):not([type="checkbox"]),
 .smart-root.add input,
 .index-exclude {
   width: 100%;
@@ -3310,7 +3668,7 @@ body.resizing-y * {
   box-shadow: inset 0 0 0 1px var(--line);
   font: inherit;
 }
-.smart-line input:focus,
+.smart-line input:not([type="radio"]):not([type="checkbox"]):focus,
 .smart-root.add input:focus,
 .index-exclude:focus {
   outline: none;

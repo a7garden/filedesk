@@ -25,6 +25,9 @@ const CHANGE_CAP: usize = 20_000;
 const FULL_RESCAN: Duration = Duration::from_secs(24 * 3600);
 /// 바뀐 것이 있을 때 스냅숏을 쓰는 간격.
 const SAVE_EVERY: Duration = Duration::from_secs(600);
+/// 스냅숏으로 켰을 때 첫 다시 훑기까지 — 2026.11.12 : 켠 직후 C: 를 훑으면 CPU 9초 · 메모리 300MB 를
+/// 화면이 뜨는 동안 함께 쓴다. 꺼져 있던 동안의 변경을 맞추는 일이라 1분 늦어도 잃는 것이 없다.
+const START_DELAY: Duration = Duration::from_secs(60);
 
 /// 바뀐 파일 기록 — 본문 색인이 따라간다.
 #[derive(Default)]
@@ -88,8 +91,11 @@ impl Engine {
 
     fn run(&self, roots: Vec<String>) {
         // 1. 스냅숏 — 있으면 바로 찾게
+        let mut all_loaded = true;
         for r in &roots {
-            if let Ok(v) = crate::snapshot::load(&crate::snapshot::file_for(&self.inner.dir, r)) {
+            let loaded = crate::snapshot::load(&crate::snapshot::file_for(&self.inner.dir, r));
+            all_loaded &= loaded.is_ok();
+            if let Ok(v) = loaded {
                 self.set_status(r, |s| {
                     s.files = v.len() as u64;
                     s.updated = v.updated;
@@ -105,29 +111,39 @@ impl Engine {
         if let Ok(w) = crate::watch::watch(&paths, move |c| me.on_change(c)) {
             *self.inner.watcher.lock().unwrap() = Some(w);
         }
-        // 3. 다시 훑어 갈아 끼우고, 하루마다 되풀이
+        // 3. 다시 훑어 갈아 끼우고, 하루마다 되풀이. 스냅숏이 다 있으면 켠 직후는 피한다 — 그 사이 감시가 따라간다.
+        let mut wait = if all_loaded { START_DELAY } else { Duration::ZERO };
         loop {
+            if !self.idle(wait) {
+                return;
+            }
             for r in &roots {
                 if self.inner.progress.cancel.load(Ordering::Relaxed) {
                     return;
                 }
                 self.rebuild_one(r);
             }
-            let mut waited = Duration::ZERO;
-            while waited < FULL_RESCAN {
-                std::thread::sleep(Duration::from_secs(5));
-                waited += Duration::from_secs(5);
-                if self.inner.progress.cancel.load(Ordering::Relaxed) {
-                    return;
-                }
-                if waited.as_secs() % SAVE_EVERY.as_secs() == 0 {
-                    self.save_if_dirty();
-                }
-                if self.take_rebuild_request() {
-                    break;
-                }
+            wait = FULL_RESCAN;
+        }
+    }
+
+    /// `wait` 만큼 쉬며 바뀐 표를 때때로 쓴다. 다시 만들기를 누르면 일찍 깬다. 멈추라면 거짓.
+    fn idle(&self, wait: Duration) -> bool {
+        let mut waited = Duration::ZERO;
+        while waited < wait {
+            std::thread::sleep(Duration::from_secs(5));
+            waited += Duration::from_secs(5);
+            if self.inner.progress.cancel.load(Ordering::Relaxed) {
+                return false;
+            }
+            if waited.as_secs() % SAVE_EVERY.as_secs() == 0 {
+                self.save_if_dirty();
+            }
+            if self.take_rebuild_request() {
+                break;
             }
         }
+        !self.inner.progress.cancel.load(Ordering::Relaxed)
     }
 
     fn rebuild_one(&self, root: &str) {
@@ -169,13 +185,24 @@ impl Engine {
             Change::Paths(ps) => {
                 let mut vols = self.inner.vols.write().unwrap();
                 let mut log = self.inner.changes.lock().unwrap();
-                for p in ps {
-                    let s = crate::norm(&p.to_string_lossy());
-                    if let Some(v) = vols.iter_mut().find(|v| crate::is_under(&s, &crate::norm(&v.root))) {
-                        if crate::walk::refresh(v, &p) {
-                            v.updated = crate::now_ms();
-                        }
+                // 볼륨마다 모아서 맞춘다 — 없어진 폴더를 한 번에 빼려고 (`walk::refresh`)
+                let mut rest = ps;
+                for v in vols.iter_mut() {
+                    let root = crate::norm(&v.root);
+                    let (mine, others): (Vec<PathBuf>, Vec<PathBuf>) = rest.into_iter().partition(|p| crate::is_under(&crate::norm(&p.to_string_lossy()), &root));
+                    rest = others;
+                    if mine.is_empty() {
+                        continue;
                     }
+                    if !crate::walk::refresh(v, &mine).is_empty() {
+                        v.updated = crate::now_ms();
+                    }
+                    // 훑지 않는 폴더 안(빌드 산출물 · .git)은 본문 색인에도 넘기지 않는다
+                    for p in mine.iter().filter(|p| !crate::walk::skipped(v, p)) {
+                        log.push(p.to_string_lossy().into_owned());
+                    }
+                }
+                for p in rest {
                     log.push(p.to_string_lossy().into_owned());
                 }
                 *self.inner.dirty.lock().unwrap() = true;

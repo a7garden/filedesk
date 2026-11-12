@@ -2,10 +2,12 @@
 //!
 //! 항목마다 열쇠가 있다 — NTFS 는 MFT 레코드 번호(FRN 의 아래 48비트), 훑어 채운 볼륨은 1 부터 매긴 번호.
 //! 경로는 들고 있지 않고 상위 열쇠 사슬로 그때 만든다 — 폴더 이름이 바뀌어도 그 한 줄만 고치면 된다.
-//! 2026.11.12 : 처음 씀. 100만 항목에 메모리 100MB 남짓을 쓴다 (이름 둘 · 숫자 여섯).
+//! 2026.11.12 : 처음 씀. 실측 107만 항목에 약 290MB (항목 하나에 칸 · 이름 · 소문자 사본 · 열쇠 표 둘).
+//! 2026.11.12 : 소문자 사본은 이름과 다를 때만 둔다 — 한글 이름은 대소문자가 없어 거의 늘 같다.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// 표를 채운 방법.
@@ -23,8 +25,8 @@ pub struct Node {
     pub key: u64,
     pub parent: u64,
     pub name: Box<str>,
-    /// 소문자 이름 — 찾을 때 견준다.
-    pub lower: Box<str>,
+    /// 소문자 이름 — 이름과 같으면 None (`lower()` 로 읽는다).
+    lower: Option<Box<str>>,
     pub size: u64,
     pub modified: i64,
     pub created: i64,
@@ -34,7 +36,14 @@ pub struct Node {
 
 impl Node {
     pub fn new(key: u64, parent: u64, name: &str, size: u64, modified: i64, created: i64, attrs: u32, is_dir: bool) -> Self {
-        Node { key, parent, name: name.into(), lower: name.to_lowercase().into(), size, modified, created, attrs, is_dir }
+        let low = name.to_lowercase();
+        let lower = (low != name).then(|| low.into_boxed_str());
+        Node { key, parent, name: name.into(), lower, size, modified, created, attrs, is_dir }
+    }
+
+    /// 소문자 이름 — 찾을 때 견준다.
+    pub fn lower(&self) -> &str {
+        self.lower.as_deref().unwrap_or(&self.name)
     }
 
     /// 소문자 확장자 — `fd_core::list` 와 같게 (폴더 · 점으로 시작하는 이름은 없음).
@@ -42,8 +51,9 @@ impl Node {
         if self.is_dir {
             return "";
         }
-        match self.lower.rfind('.') {
-            Some(i) if i > 0 => &self.lower[i + 1..],
+        let lower = self.lower();
+        match lower.rfind('.') {
+            Some(i) if i > 0 => &lower[i + 1..],
             _ => "",
         }
     }
@@ -116,9 +126,9 @@ impl Volume {
     pub fn upsert(&mut self, node: Node) {
         if let Some(names) = &mut self.by_name {
             if let Some(old) = self.by_key.get(&node.key).and_then(|&i| self.slots[i as usize].as_ref()) {
-                names.remove(&(old.parent, old.lower.clone()));
+                names.remove(&(old.parent, Box::from(old.lower())));
             }
-            names.insert((node.parent, node.lower.clone()), node.key);
+            names.insert((node.parent, Box::from(node.lower())), node.key);
         }
         if let Some(&i) = self.by_key.get(&node.key) {
             self.slots[i as usize] = Some(node);
@@ -144,19 +154,49 @@ impl Volume {
         let node = self.slots[i as usize].take()?;
         self.free.push(i);
         if let Some(names) = &mut self.by_name {
-            names.remove(&(node.parent, node.lower.clone()));
+            names.remove(&(node.parent, Box::from(node.lower())));
         }
         Some(node)
     }
 
-    /// 항목과 그 아래를 모두 뺀다 (훑기 볼륨 — 폴더 감시는 지운 폴더 하나만 알려 온다).
-    pub fn remove_tree(&mut self, key: u64) -> usize {
-        let doomed: Vec<u64> = self.slots.iter().flatten().filter(|n| n.key == key || self.descends_from(n, key)).map(|n| n.key).collect();
+    /// 폴더들의 아래를 모두 뺀다 — `with_roots` 면 그 폴더들도 (훑기 볼륨 — 폴더 감시는 지운 폴더 하나만 알려 온다).
+    /// 2026.11.12 : 폴더 하나에 한 번씩 훑던 것을 모아서 한 번, 나눠서 본다. 100만 칸을 한 번 훑는 데 300ms 넘게 들고
+    /// 그동안 쓰기 자물쇠를 잡고 있어, 폴더마다 훑으면 많이 지울 때 찾기가 몇 분씩 멈췄다.
+    pub fn remove_trees(&mut self, dirs: &[u64], with_roots: bool) -> usize {
+        if dirs.is_empty() {
+            return 0;
+        }
+        let set: HashSet<u64> = dirs.iter().copied().collect();
+        let doomed: Vec<u64> = self
+            .slots
+            .par_iter()
+            .filter_map(|s| s.as_ref())
+            .filter(|n| (with_roots && set.contains(&n.key)) || self.under_any(n, &set))
+            .map(|n| n.key)
+            .collect();
         let n = doomed.len();
         for k in doomed {
             self.remove(k);
         }
         n
+    }
+
+    /// `n` 이 `set` 의 어느 폴더 아래에 있는가 (자기 자신은 아니다).
+    fn under_any(&self, n: &Node, set: &HashSet<u64>) -> bool {
+        let mut cur = n.parent;
+        for _ in 0..MAX_DEPTH {
+            if set.contains(&cur) {
+                return true;
+            }
+            if cur == self.root_key {
+                return false;
+            }
+            match self.get(cur) {
+                Some(p) if p.key != p.parent => cur = p.parent,
+                _ => return false,
+            }
+        }
+        false
     }
 
     /// `n` 이 `ancestor` 아래에 있는가 (자기 자신은 아니다).
@@ -212,10 +252,19 @@ impl Volume {
         for comp in rest.split('\\').filter(|c| !c.is_empty()) {
             cur = match &self.by_name {
                 Some(names) => *names.get(&(cur, Box::<str>::from(comp)))?,
-                None => self.slots.iter().flatten().find(|n| n.parent == cur && &*n.lower == comp && n.key != cur)?.key,
+                None => self.slots.iter().flatten().find(|n| n.parent == cur && n.lower() == comp && n.key != cur)?.key,
             };
         }
         Some(cur)
+    }
+
+    /// 들어올 항목 수만큼 미리 자리를 잡는다 — 100만 개를 하나씩 넣으며 표를 거듭 키우지 않게 (스냅숏 읽기 · 훑기).
+    pub fn reserve(&mut self, n: usize) {
+        self.slots.reserve(n);
+        self.by_key.reserve(n);
+        if let Some(names) = &mut self.by_name {
+            names.reserve(n);
+        }
     }
 
     /// 훑기 볼륨의 새 열쇠.
@@ -267,7 +316,7 @@ mod tests {
         v.upsert(Node::new(3, 1, "나", 0, 1, 1, 0x10, true));
         assert_eq!(v.find_path(r"C:\문서\가"), None);
         assert_eq!(v.find_path(r"C:\문서\나"), Some(3));
-        assert_eq!(v.remove_tree(3), 2);
+        assert_eq!(v.remove_trees(&[3], true), 2);
         assert_eq!(v.len(), 2);
         // 빈 칸을 다시 쓴다
         v.upsert(Node::new(9, 1, "새.txt", 1, 1, 1, 0, false));

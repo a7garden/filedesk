@@ -40,9 +40,6 @@ const mmdd = (t: number) => {
   return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
 
-/** 판 수 — 같은 판의 다른 꼴(pdf)은 하나로 센다. 격자 칸의 「N판」도 이것을 쓴다. */
-export const editionCount = (files: DocFile[]) => editions(files).length;
-
 function editions(files: DocFile[]): Ed[] {
   const by = new Map<string, Ed>();
   for (const f of files) {

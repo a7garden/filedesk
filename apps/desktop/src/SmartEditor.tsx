@@ -3,6 +3,9 @@
 // 볼 곳: 모든 드라이브(색인) · 다운로드와 바탕화면(바로 아래만 — 「최근 파일」) · 고른 폴더(폴더마다 하위 폴더까지 켜고 끈다).
 // NAS · 공유 폴더를 고르면 색인 밖이라 누를 때 그 자리에서 훑는다 (상한 8초 · 2000개).
 // 2026.11.12 : 처음 씀.
+// 2026.11.12 : 가운데 모달 → 오른쪽 옆판, 바탕을 어둡게 하지 않는다. 있던 스마트 폴더를 고치면 왼쪽 칸이 고친 조건 · 볼 곳으로 바로 다시 모은다 —
+//              모달 아래로 결과가 가려 맞는 「개수」만 보였고 무엇이 걸렸는지는 저장한 뒤에야 알았다. 저장하지 않고 닫으면 원래 조건으로 되돌린다.
+//              새 스마트 폴더는 칸이 이미 그 찾기를 보이고 있어 미리 바꾸지 않는다 (닫으면 찾던 화면이 그대로 남는다).
 import { useEffect, useRef, useState } from "react";
 import { api, type QueryResult, type QuerySpec, type Root, type SmartFolder, type SmartScope } from "./api";
 import { kindTable, RECENT_ID, scopeOf, sourceLabel, tzOffset } from "./query";
@@ -34,8 +37,17 @@ export default function SmartEditor(p: Props) {
   const [err, setErr] = useState("");
   const seq = useRef(0);
   const nameRef = useRef<HTMLInputElement>(null);
+  /** 칸에 고친 조건을 미리 띄웠는가 — 저장하지 않고 닫으면 원래 것으로 되돌린다. */
+  const previewed = useRef(false);
 
   const scope: SmartScope = kind === "roots" ? { kind, roots } : kind === "all" ? { kind: "all" } : { kind: "inbox" };
+
+  /** 칸에 스마트 폴더를 띄운다 (App 의 openSmart 와 같은 사건). */
+  const showInPane = (f: SmartFolder) => window.dispatchEvent(new CustomEvent("fd:smart", { detail: { folder: f, scope: scopeOf(f.scope, p.inbox) } }));
+  const cancel = () => {
+    if (previewed.current) showInPane(p.folder);
+    p.onClose();
+  };
 
   useEffect(() => {
     (p.isNew ? nameRef.current : null)?.focus();
@@ -45,11 +57,12 @@ export default function SmartEditor(p: Props) {
     const esc = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
-        p.onClose();
+        cancel();
       }
     };
     window.addEventListener("keydown", esc, true);
     return () => window.removeEventListener("keydown", esc, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- cancel 은 p 만 본다
   }, [p]);
 
   // 조건 칩 · 맞는 개수 — 고치기를 멈추면 잠깐 뒤에 센다
@@ -69,6 +82,11 @@ export default function SmartEditor(p: Props) {
         .then((s) => n === seq.current && setSpec(s))
         .catch(() => {});
       if (kind === "roots" && !roots.length) return setPreview(null);
+      // 있던 것을 고치는 중이면 칸도 같은 조건으로 다시 모은다 (원래와 같아지면 원래 것으로)
+      if (!p.isNew && (text !== p.folder.q || scopeKey !== JSON.stringify(p.folder.scope) || previewed.current)) {
+        previewed.current = true;
+        showInPane({ ...p.folder, name: name.trim() || p.folder.name, q: text, scope });
+      }
       setBusy(true);
       api
         .queryFiles({ scope: scopeOf(scope, p.inbox), text, kinds: ks, showHidden: p.showHidden, content: false, tzOffsetMin: tzOffset(), limit: 2000, background: true })
@@ -91,7 +109,7 @@ export default function SmartEditor(p: Props) {
   const save = () => canSave && p.onSave({ id: p.folder.id, name: name.trim(), q: q.trim(), scope });
 
   return (
-    <div className="set-backdrop" onMouseDown={(e) => e.target === e.currentTarget && p.onClose()}>
+    <div className="set-backdrop sheet" onMouseDown={(e) => e.target === e.currentTarget && cancel()}>
       <div className="smart-editor" role="dialog" aria-modal="true" aria-label="스마트 폴더 고치기">
         <h3>{p.isNew ? "새 스마트 폴더" : "스마트 폴더 고치기"}</h3>
         <label className="smart-line">
@@ -195,7 +213,7 @@ export default function SmartEditor(p: Props) {
             </button>
           )}
           <span className="grow" />
-          <button className="act" onClick={p.onClose}>
+          <button className="act" onClick={cancel}>
             취소
           </button>
           <button className="act primary" disabled={!canSave} onClick={save}>

@@ -1,8 +1,11 @@
 //! 표에서 조건으로 찾기.
 //!
-//! 1. 칸을 rayon 으로 나눠 보며 이름 · 크기 · 때 · 확장자 조건만 본다 (경로를 만들지 않으니 100만 칸도 몇십 ms).
-//! 2. 맞은 칸만 뿌리 안인지 · 뺄 자리인지 경로를 만들어 본다.
-//! 3. 최근 것부터 늘어놓고 `limit` 에서 자른다 — 조건이 느슨해 넘쳐도 가장 쓸모 있는 쪽이 남게.
+//! 1. 칸을 rayon 으로 나눠 보며 이름 · 크기 · 때 · 확장자 · 뿌리 조건만 본다 (경로를 만들지 않으니 100만 칸도 몇십 ms).
+//! 2. 맞은 칸을 최근 것부터 늘어놓는다 — 조건이 느슨해 넘쳐도 가장 쓸모 있는 쪽이 남게.
+//! 3. 앞에서부터 묶음으로 경로를 만들어 뺄 자리를 거르고, `limit` 을 넘기면 멈춘다.
+//!
+//! 2026.11.12 : 2 와 3 의 차례를 바꿨다. 맞은 칸 모두의 경로를 만든 뒤 자르던 때는 `e` 처럼 수십만 칸이 맞는 말이
+//! 750ms 걸렸다 (경로 만들기가 거의 전부). 지금은 남길 만큼만 만들어 50ms.
 //!
 //! 메모 · 색 표시 조건은 여기서 보지 않는다 (색인은 메모를 모른다). 부르는 쪽이 메모 파일로 거른다.
 
@@ -20,10 +23,11 @@ use crate::{is_under, norm};
 /// 어느 볼륨에도 없는 뿌리는 `unresolved` 로 돌려준다 (부르는 쪽이 그 자리에서 훑는다).
 pub fn search(vols: &[&Volume], spec: &QuerySpec, roots: Option<&[Root]>, all: bool, limit: usize, scope: &Scope) -> QueryOut {
     let mut out = QueryOut::default();
-    let mut hits: Vec<(i64, Entry)> = Vec::new();
+    // (때, 볼륨 차례, 칸)
+    let mut cands: Vec<(i64, usize, &Node)> = Vec::new();
     let mut oldest = i64::MAX;
     let mut used = vec![false; roots.map_or(0, |r| r.len())];
-    for v in vols {
+    for (vi, v) in vols.iter().enumerate() {
         // 이 볼륨에 든 뿌리 → (열쇠, 하위까지)
         let keys: Option<Vec<(u64, bool)>> = roots.map(|rs| {
             rs.iter()
@@ -39,7 +43,7 @@ pub fn search(vols: &[&Volume], spec: &QuerySpec, roots: Option<&[Root]>, all: b
             continue;
         }
         oldest = oldest.min(v.updated);
-        let found: Vec<&Node> = v
+        let mut part: Vec<(i64, usize, &Node)> = v
             .slots()
             .par_iter()
             .filter_map(|s| s.as_ref())
@@ -48,28 +52,38 @@ pub fn search(vols: &[&Volume], spec: &QuerySpec, roots: Option<&[Root]>, all: b
                 None => true,
                 Some(ks) => ks.iter().any(|&(k, deep)| if deep { v.descends_from(n, k) } else { n.parent == k }),
             })
+            .map(|n| (n.modified.max(n.created), vi, n))
             .collect();
-        let mut part: Vec<(i64, Entry)> = found
-            .par_iter()
-            .filter_map(|n| {
-                let path = v.path_of(n)?;
-                if scope.hidden(&norm(&path)) {
-                    return None;
-                }
-                Some((n.modified.max(n.created), entry_of(n, path)))
-            })
-            .collect();
-        hits.append(&mut part);
+        cands.append(&mut part);
     }
     if let Some(rs) = roots {
         out.unresolved = rs.iter().zip(&used).filter(|(_, u)| !**u).map(|(r, _)| r.clone()).collect();
     }
-    hits.par_sort_unstable_by(|a, b| b.0.cmp(&a.0));
-    if hits.len() > limit {
-        hits.truncate(limit);
+    cands.par_sort_unstable_by(|a, b| b.0.cmp(&a.0));
+    // 뺄 자리(node_modules · 다른 계정)가 얼마나 섞였는지 모르니 묶음으로 나눠 만든다 — 한 묶음은 넉넉히 limit 만큼
+    let chunk = limit.clamp(256, 8192);
+    let mut items: Vec<Entry> = Vec::with_capacity(limit.min(cands.len()) + 1);
+    for part in cands.chunks(chunk) {
+        let mut built: Vec<Entry> = part
+            .par_iter()
+            .filter_map(|&(_, vi, n)| {
+                let path = vols[vi].path_of(n)?;
+                if scope.hidden(&norm(&path)) {
+                    return None;
+                }
+                Some(entry_of(n, path))
+            })
+            .collect();
+        items.append(&mut built);
+        if items.len() > limit {
+            break;
+        }
+    }
+    if items.len() > limit {
+        items.truncate(limit);
         out.truncated = true;
     }
-    out.items = hits.into_iter().map(|(_, e)| e).collect();
+    out.items = items;
     out.indexed_at = if oldest == i64::MAX { 0 } else { oldest };
     out
 }
@@ -79,7 +93,8 @@ fn meta_hit(n: &Node, spec: &QuerySpec, all: bool) -> bool {
     if !all && n.attrs & (ATTR_HIDDEN | ATTR_SYSTEM) != 0 {
         return false;
     }
-    spec.terms_in(&n.lower) && !spec.excluded_by(&n.lower) && spec.meta_ok(n.is_dir, n.ext(), n.size, n.modified, n.created)
+    let lower = n.lower();
+    spec.terms_in(lower) && !spec.excluded_by(lower) && spec.meta_ok(n.is_dir, n.ext(), n.size, n.modified, n.created)
 }
 
 pub fn entry_of(n: &Node, path: String) -> Entry {

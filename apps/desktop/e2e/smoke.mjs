@@ -107,6 +107,21 @@ try {
   check("날짜 없는 판은 세로 금", (await row("안내문").locator("line.tick-undated").count()) === 1);
   check("날짜 없는 판은 글로도 알린다", ((await row("안내문").locator("svg.ticks title").textContent()) ?? "").includes("날짜 없음 · 고친 시각"));
   check("문제 없는 문서는 경고가 없다", (await row("예전계획").locator(".tick.retire, .tick.flag").count()) === 0);
+  // 판 목록 — 판 눈금을 누르면 이전판까지 한 줄씩 (새 판이 위로 · pptx · pdf 는 한 줄)
+  await row("보고서").locator(".ticks-btn").click();
+  const edRows = await until(async () => {
+    const t = await page.locator(".ed-list .ed-row").allInnerTexts();
+    return t.length ? t.map((s) => s.replace(/\s+/g, " ")) : null;
+  }, 3000);
+  check(
+    "판 눈금을 누르면 판 목록 — 이전판까지",
+    edRows?.length === 2 && edRows[0].includes("v3") && edRows[0].includes("이 폴더") && edRows[0].includes("pdf") && edRows[1].includes("v2") && edRows[1].includes("이전판"),
+    edRows?.join(" / "),
+  );
+  await sleep(300); // 나타나는 움직임이 끝난 뒤 찍는다
+  await page.screenshot({ path: join(SHOTS, "edition-list.png") });
+  await page.keyboard.press("Escape");
+  check("Esc 로 판 목록이 닫힌다", await until(async () => (await page.locator(".ed-list").count()) === 0, 2000));
   // 열 경계선 — 머리 손잡이에 올리면 그 열의 선이 진해진다
   await pane.locator(".cols .col-2 > .resizer").hover();
   const guideW = await pane.locator(".col-guides .guide.col-2").evaluate((g) => getComputedStyle(g, "::before").width);
@@ -434,8 +449,9 @@ try {
     "그림은 미리보기로",
     await until(() => pane.locator(".tile", { hasText: "그림" }).locator("img.thumb").evaluate((img) => img.complete && img.naturalWidth > 0), 8000),
   );
-  const stackText = await pane.locator(".tile", { hasText: "보고서" }).locator(".tile-stack").textContent();
-  check("판이 쌓인 문서는 판 수 (목록 판 눈금과 같은 셈)", stackText === ticksBefore.match(/(\d+)판/)?.[0], `${stackText} · ${ticksBefore}`);
+  const tileTicks = await pane.locator(".tile", { hasText: "보고서" }).locator("svg.ticks").getAttribute("aria-label");
+  check("판이 쌓인 문서는 목록과 같은 판 눈금", tileTicks === ticksBefore, `${tileTicks} · ${ticksBefore}`);
+  check("격자 위에 문제 줄 — 문장과 고칠 동작", (await pane.locator(".grid-issue", { hasText: "LDM_D09" }).locator(".act").count()) === 1);
   await pane.locator(".tile", { hasText: "LDM_D09" }).click();
   await page.keyboard.press("ArrowLeft");
   check("격자에서 화살표로 옮긴다", await until(() => pane.locator(".tile.selected").count().then((c) => c === 1)));
@@ -520,7 +536,9 @@ try {
     await page.keyboard.press("Control+l");
     await pane.locator("input.path-input").fill(T);
     await pane.locator("input.path-input").press("Enter");
-    await until(async () => (await rowNames()).length > 0, 5000);
+    // 바로 앞이 「바로가기」 폴더라 줄이 이미 있다 — 시험 폴더의 줄이 그려질 때까지 기다린다.
+    // 옮겨 가기 전에 찾기 칸을 채우면 폴더를 옮기며 찾기 칸이 비워진다 (2026.11.12)
+    await until(async () => (await rowNames()).includes("보고서.pptx"), 5000);
     const filter = pane.locator("input.filter");
     await filter.fill("고친:오늘");
     check("조건은 칩으로", await until(() => pane.locator(".cond-chip").first().textContent().then((t) => t?.includes("오늘"))));

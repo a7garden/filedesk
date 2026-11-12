@@ -1053,7 +1053,6 @@ export default function App() {
           current={active.path}
           onGo={(p) => navigate(active.id, p)}
           onGoNewTab={(p) => openTab(p)}
-          onOpenFile={(p) => api.openItem(p).then((to) => to && navigate(active.id, to)).catch((e) => setNotice({ text: errText(e), tone: "warn" }))}
           settingsOpen={settingsOpen}
           onSettings={() => setSettingsOpen((v) => !v)}
           smart={smart}
