@@ -295,8 +295,8 @@ export default function SettingsPanel(props: Props) {
                 {choice(
                   "고친 날 표시",
                   [
-                    ["relative", "가깝게", relDate(sample, "relative")],
-                    ["absolute", "정확히", relDate(sample, "absolute")],
+                    ["relative", "오늘 · 어제", relDate(sample, "relative")],
+                    ["absolute", "날짜", relDate(sample, "absolute")],
                   ],
                   view.dateStyle,
                   (dateStyle) => setView((v) => ({ ...v, dateStyle })),
@@ -381,8 +381,8 @@ export default function SettingsPanel(props: Props) {
             <div className="icon-pick" role="radiogroup" aria-label="아이콘">
               {(
                 [
-                  ["shell", "Windows", "탐색기와 같은 그림: 깔린 프로그램을 따른다"],
-                  ["filedesk", "filedesk", "형식마다 그린 그림: 깔린 프로그램과 상관없이 같다"],
+                  ["shell", "Windows", "탐색기와 같은 그림: 설치된 프로그램을 따른다"],
+                  ["filedesk", "filedesk", "형식마다 그린 그림: 설치된 프로그램과 상관없이 같다"],
                   ["pack", "아이콘 팩", "고른 폴더의 그림: 없는 것은 filedesk 그림"],
                 ] as [ViewPrefs["icons"], string, string][]
               ).map(([m, l, hint]) => (
@@ -446,12 +446,12 @@ export default function SettingsPanel(props: Props) {
               <button
                 className={"act" + (!skill?.installed || skillOld ? " primary" : "")}
                 disabled={!skill?.hasCli}
-                title={skill?.hasCli ? (skill.file ?? "") : "설치 파일(릴리스의 setup.exe)로 깔아야 fd.exe 가 함께 깔린다"}
+                title={skill?.hasCli ? (skill.file ?? "") : "설치 파일(릴리스의 setup.exe)로 설치해야 fd.exe 가 함께 설치된다"}
                 onClick={installSkill}
               >
                 {skill?.installed ? "다시 설치" : "설치"}
               </button>
-              {!skill?.hasCli && skill && <span className="muted">설치 파일로 깐 앱에서만 된다</span>}
+              {!skill?.hasCli && skill && <span className="muted">설치 파일로 설치한 앱에서만 된다</span>}
             </div>
             {skillMsg && <p className="set-note">{skillMsg}</p>}
             {skill?.file && <p className="muted set-note">자리: {skill.file}</p>}

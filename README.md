@@ -54,7 +54,7 @@ GitHub Actions(`.github/workflows/release.yml`)가 서명한 설치 파일(NSIS)
 이미 깐 PC 에는 새 설치 파일을 사람이 한 번 직접 깔게 알린다 — 그 뒤로는 다시 저절로 받는다.
 로컬에서 설치 파일까지: `TAURI_SIGNING_PRIVATE_KEY="$(cat ~/.tauri/filedesk.key)" bun tauri build --config src-tauri/tauri.release.json` (fd.exe 를 함께 넣는다).
 
-앱 아이콘: 원본은 `apps/desktop/src-tauri/icons/source.svg` (폴더 앞판에 판 눈금 — 흐린 점 둘 다음 큰 찬 점: 지난 판들 다음 최신판). 고친 뒤 `node apps/desktop/e2e/render-icon.mjs` → `bun tauri icon src-tauri/icons/source.png -o src-tauri/icons` (android · ios · Square* · 64x64 · icns 는 지운다).
+앱 아이콘: 원본은 `apps/desktop/src-tauri/icons/source.png` (1024px · 쪽빛 폴더에서 문서 여러 장이 부채꼴로 나온다: 맨 앞 흰 장이 최신판). 2026.11.13 Codex 이미지 생성으로 그렸다. 바꾸면 `bun tauri icon src-tauri/icons/source.png -o src-tauri/icons` (android · ios · Square* · StoreLogo · 64x64 · icns 는 지운다).
 
 ## 구조
 

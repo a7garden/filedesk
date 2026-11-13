@@ -294,7 +294,7 @@ export default function Sidebar(props: Props) {
       )}
 
       <section>
-        <h2 title="목록에서 Alt+1~7 · 오른쪽 단추로 단다 · 파일을 건반에 끌어 놓아도 단다">색 표시</h2>
+        <h2 title="목록에서 Alt+1~7 · 오른쪽 단추로 단다 · 파일을 색 점에 끌어 놓아도 단다">색 표시</h2>
         {/* 일곱 건반 — 자리가 Alt+1~7 과 같다. 단 것은 찬 원 밑에 개수, 안 단 것은 빈 고리 */}
         <div className="tag-keys" role="toolbar" aria-label="색 표시 모아 보기">
           {TAG_COLORS.map((c, i) => {
@@ -318,7 +318,7 @@ export default function Sidebar(props: Props) {
 
       {view.recent && (
         <section className="smart-section">
-          <h2 className="side-head" title="조건에 이름을 붙여 둔 것: 누르면 지금 칸에 모아 보인다 · 찾기 칸의 「스마트 폴더로 저장」으로 만든다 · 설정 › 보기에서 끈다">
+          <h2 className="side-head" title="조건에 이름을 붙여 둔 것: 누르면 지금 칸에 모아 보인다 · 찾기 칸의 「저장」으로 만든다 · 설정 › 보기에서 끈다">
             스마트 폴더
             <button className="side-add" aria-label="새 스마트 폴더" title="새 스마트 폴더" onClick={onNewSmart}>
               ＋
@@ -358,7 +358,7 @@ export default function Sidebar(props: Props) {
       )}
 
       <div className="side-foot">
-        <button className="settings-btn" aria-expanded={settingsOpen} title="설정: 보기 · 종류 · 화면 색 · Claude 스킬 (Ctrl+,)" onClick={onSettings}>
+        <button className="settings-btn" aria-expanded={settingsOpen} title="설정 (Ctrl+,)" onClick={onSettings}>
           설정
         </button>
       </div>
@@ -424,7 +424,7 @@ function indexLine(h: HubStatus): string {
 
 function indexTitle(h: HubStatus): string {
   const lines = h.index.volumes.map((v) => `${v.root} ${v.method === "ntfs" ? "MFT" : "훑기"} · ${v.files.toLocaleString("ko-KR")}개 · ${v.state === "ready" ? ago(v.updated) : "만드는 중"}${v.note ? ` · ${v.note}` : ""}`);
-  lines.push(h.index.service ? "빠른 색인 서비스가 맡는다" : "앱이 색인한다. 설정 › 색인에서 빠른 색인 서비스를 깔 수 있다");
+  lines.push(h.index.service ? "빠른 색인 서비스가 맡는다" : "앱이 색인한다. 설정 › 색인에서 빠른 색인 서비스를 설치할 수 있다");
   if (h.content) lines.push(`문서 본문 ${h.content.indexed.toLocaleString("ko-KR")}개${h.content.queued ? ` · 남은 것 ${h.content.queued.toLocaleString("ko-KR")}` : ""}`);
   return lines.join("\n");
 }

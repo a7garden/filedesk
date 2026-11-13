@@ -11,7 +11,7 @@
 // 키보드: ↑ ↓ 문서 고르기 · Esc 닫기. 파일을 옮기는 동작은 키 하나로 하지 않는다 (단추를 누른다).
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type DocFile, type DocGroup } from "./api";
-import { baseName, staleCount as stale } from "./util";
+import { baseName, issueText, staleCount as stale } from "./util";
 
 type Props = {
   /** 이 폴더의 문제 문서 (Pane 이 센 그대로 — 처리하면 다시 읽혀 빠진다). */
@@ -28,12 +28,6 @@ type Props = {
 
 const ymd = (d: string) => (d.length === 8 ? `${d.slice(4, 6)}-${d.slice(6)}` : "날짜 없음");
 const ver = (f: DocFile) => (f.parsed.version.length ? `v${f.parsed.version.join(".")}` : "");
-
-/** 이 창에서 보일 문제 문장 — 이 폴더 이름이 든 「「폴더」 폴더에 판이 N개」는 「최신판 곁에 지난 판 N개」로. */
-function issueText(g: DocGroup, folder: string): string[] {
-  const n = stale(g);
-  return g.issues.map((t) => (n > 0 && t.startsWith(`「${folder}」 폴더에 판이`) ? `최신판 곁에 지난 판 ${n}개` : t));
-}
 
 export default function IssueInbox({ docs, dir, onRetire, onRetireAll, onShow, onClose }: Props) {
   const folder = baseName(dir);

@@ -59,6 +59,7 @@ import {
   norm,
   parentOf,
   relDate,
+  issueText,
   samePath,
   sortEntries,
   staleCount,
@@ -1736,11 +1737,11 @@ export default function Pane(p: Props) {
           ) : (
             <>
               <span className="issue-text" title={g.issues.join("\n")}>
-                {g.issues.join(" · ")}
+                {issueText(g, baseName(path)).join(" · ")}
               </span>
               {stale > 0 ? (
                 <button className="act" onClick={() => askRetire(g)} title="옮길 파일을 먼저 보이고, 확인하면 이 폴더 안 「이전판」 폴더로 옮긴다">
-                  지난 판 {stale}개 「이전판」 폴더로 옮기기
+                  「이전판」 폴더로 옮기기
                 </button>
               ) : (
                 r.stack &&
@@ -1893,6 +1894,20 @@ export default function Pane(p: Props) {
                       ))}
                     </span>
                   ))}
+                  {/* 2026.11.13 : 자주 쓰는 조건만 여기 둔다. 날짜 범위 · 확장자 · 뺄 말은 오른쪽 위 「찾기 조건」 판에 있는데,
+                      두 곳이 이어지지 않아 여기서 찾다 막혔다. 판으로 가는 문을 같은 메뉴 안에 둔다 */}
+                  <span className="preset-group">
+                    <span className="preset-head">더</span>
+                    <button
+                      role="menuitem"
+                      onClick={() => {
+                        setPresetOpen(false);
+                        setQbFrom(filter);
+                      }}
+                    >
+                      찾기 조건 판…
+                    </button>
+                  </span>
                 </span>
               )}
             </span>
@@ -1919,7 +1934,7 @@ export default function Pane(p: Props) {
           }}
         >
           {header("name", "이름", 0, "", "오른쪽 단추: 보일 열 고르기")}
-          {colOn("ver") && header(null, "판", 1, "", "점 하나 = 판 하나 · 찬 점 = 이 폴더에 있는 판 · 빈 점 = 「이전판」 폴더에 있는 판 · 세로 금 = 이름에 날짜가 없는 판(고친 시각으로 찍음)\n경고색 찬 점 = 「이전판」 폴더로 옮길 판 · 경고색 테두리 = 판 번호가 겹치거나 순서가 어긋난 판\n오른쪽 끝이 오늘 · 오늘에 가까울수록 넓게 · 잘 정리된 문서는 찬 점이 맨 오른쪽 하나뿐\n눈금을 누르면 「이전판」 폴더에 든 것까지 판 목록이 뜬다")}
+          {colOn("ver") && header(null, "판", 1, "", "최신판의 판 번호 · 날짜(월-일) · 판 수 (「이전판」 폴더에 든 것까지)\n누르면 판 목록이 뜬다")}
           {colOn("date") && header("modified", "고친 날", 2)}
           {colOn("size") && header("size", "크기", 3, "right")}
         </div>

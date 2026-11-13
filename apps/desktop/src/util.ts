@@ -214,3 +214,11 @@ export function staleCount(g: DocGroup): number {
   const dir = parentOf(latest.path) ?? "";
   return g.files.filter((f) => f.retire && samePath(parentOf(f.path) ?? "", dir)).length;
 }
+
+/** 문제 문장 — 이 폴더 이름이 든 「「폴더」 폴더에 판이 N개」는 「최신판 곁에 지난 판 N개」로 바꿔 보인다.
+ *  목록의 문제 줄과 처리함이 같이 쓴다. 지금 폴더를 보는 자리에서는 폴더 이름이 늘 이 폴더라 정보가 없고, 무엇을 옮길지(지난 판 수)가 안 보였다.
+ *  다른 폴더의 문서(하위 폴더까지 찾기)는 폴더 이름이 정보라 그대로 둔다. */
+export function issueText(g: DocGroup, folder: string): string[] {
+  const n = staleCount(g);
+  return g.issues.map((t) => (n > 0 && t.startsWith(`「${folder}」 폴더에 판이`) ? `최신판 곁에 지난 판 ${n}개` : t));
+}

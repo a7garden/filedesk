@@ -185,7 +185,8 @@ try {
   );
 
   // 8-1. 문제 줄 — 같은 자리에 남은 지난 판을 이전판으로 (계획을 보이고 확인 뒤)
-  const meet = pane.locator(".row.issue-line", { hasText: "판이 2개" });
+  // 2026.11.13 : 이 폴더 문서의 「「폴더」 폴더에 판이 2개」는 「최신판 곁에 지난 판 1개」로 보인다 (util.issueText)
+  const meet = pane.locator(".row.issue-line", { hasText: "최신판 곁에 지난 판 1개" });
   check("같은 자리 판 둘은 문제 줄", await until(() => meet.count().then((c) => c === 1)));
   await meet.locator("button", { hasText: "이전판」 폴더로" }).click();
   // 계획을 띄우면 문제 문장 자리에 옮길 목록이 선다 — 그 줄을 새로 찾는다
@@ -194,7 +195,7 @@ try {
   await page.screenshot({ path: join(SHOTS, "04_문제줄_옮김계획.png") });
   await planRow.locator("button.primary").click();
   check("지난 판만 이전판으로", await until(() => existsSync(join(T, "이전판", "회의자료_v1_20261001.pptx")), 6000) && existsSync(join(T, "회의자료_v2_20261005.pptx")));
-  check("고치고 나면 문제 줄이 사라진다", await until(() => pane.locator(".row.issue-line", { hasText: "판이 2개" }).count().then((c) => c === 0)));
+  check("고치고 나면 문제 줄이 사라진다", await until(() => pane.locator(".row.issue-line", { hasText: "최신판 곁에 지난 판" }).count().then((c) => c === 0)));
 
 
   // 9-2. 메모 — Ctrl+M 으로 붙이고, 앱에서 이름을 바꾸면 따라가고, 앱 밖에서 옮겨도 파일 ID 로 다시 붙는다
@@ -665,6 +666,12 @@ try {
     await pane.locator(".preset-wrap > button").click();
     await page.locator(".preset-menu button", { hasText: "3일 안" }).click();
     check("＋ 조건이 찾기 칸에 붙는다", (await filter.inputValue()) === "고친:3일");
+    // ＋ 조건 메뉴 끝의 「찾기 조건 판…」 — 같은 글로 판이 열린다 (2026.11.13)
+    await pane.locator(".preset-wrap > button").click();
+    await page.locator(".preset-menu button", { hasText: "찾기 조건 판" }).click();
+    check("＋ 조건 → 찾기 조건 판", await until(() => page.locator(".cs .cs-row").count().then((c) => c === 1)));
+    await page.keyboard.press("Escape");
+    await until(() => page.locator(".cs").count().then((c) => c === 0));
     // 찾기 조건 판 — 켠 조건만 줄로 · 「＋」 로 더하고 × 로 뺀다 · Esc 는 연 때 글로 되돌린다 (2026.11.13 다시 지음)
     await filter.fill("");
     await pane.locator(".qb-btn").click();

@@ -4181,6 +4181,11 @@ body.resizing-y * {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+/* 2026.11.13 : 좁은 설정 판에서 「드라이 브」 · 「훑기 · 감」처럼 칸 머리 · 방법이 낱자로 끊겼다. 상태 칸만 접는다 */
+.index-table th,
+.index-table td:not(:last-child) {
+  white-space: nowrap;
+}
 .index-bar {
   height: 5px;
   margin: 6px 0;

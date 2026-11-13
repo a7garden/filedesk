@@ -53,7 +53,7 @@ export default function IndexSettings({ current }: { current: string }) {
   return (
     <>
       <p className="muted set-note">
-        「모든 드라이브」 찾기 · 스마트 폴더가 쓴다. 파일 이름 · 크기 · 때를 담고, 문서(hwpx · docx · pptx · xlsx · pdf · txt · md)는 본문도 담는다.
+        「모든 드라이브」 찾기 · 스마트 폴더가 쓴다. 파일 이름 · 크기 · 고친 날을 담고, 문서(hwpx · docx · pptx · xlsx · pdf · txt · md)는 본문도 담는다.
         색인은 이 PC 안에만 있고 지워도 다시 만든다. NAS · 네트워크 드라이브는 담지 않는다. 누를 때 그 자리에서 훑는다.
       </p>
       <div className="set-line">
@@ -61,20 +61,20 @@ export default function IndexSettings({ current }: { current: string }) {
         <div>
           <div className="set-acts">
             <span className="set-path">
-              {hub == null ? "확인 중…" : svc ? `서비스가 맡는다${old ? " (앱과 판이 다르다)" : ""}` : "앱이 드라이브를 훑어 색인한다"}
+              {hub == null ? "확인 중…" : svc ? `서비스가 맡는다${old ? " (앱과 버전이 다르다)" : ""}` : "앱이 드라이브를 훑어 색인한다"}
             </span>
             {hub && !svc && (
               <button
                 className="act primary"
                 disabled={!hub.bundled || !!busy}
-                title={hub.bundled ? "관리자 권한을 묻는 창이 뜬다" : "설치 파일로 깐 앱에서만 된다"}
-                onClick={() => run("install", () => api.serviceSetup("install"), "빠른 색인 서비스를 깔았다")}
+                title={hub.bundled ? "관리자 권한을 묻는 창이 뜬다" : "설치 파일로 설치한 앱에서만 된다"}
+                onClick={() => run("install", () => api.serviceSetup("install"), "빠른 색인 서비스를 설치했다")}
               >
-                {busy === "install" ? "까는 중…" : "빠른 색인 서비스 설치"}
+                {busy === "install" ? "설치하는 중…" : "빠른 색인 서비스 설치"}
               </button>
             )}
             {svc && old && (
-              <button className="act primary" disabled={!hub?.bundled || !!busy} onClick={() => run("update", () => api.serviceSetup("update"), "서비스를 이 판으로 바꿨다")}>
+              <button className="act primary" disabled={!hub?.bundled || !!busy} onClick={() => run("update", () => api.serviceSetup("update"), "서비스를 앱과 같은 버전으로 바꿨다")}>
                 서비스 업데이트
               </button>
             )}

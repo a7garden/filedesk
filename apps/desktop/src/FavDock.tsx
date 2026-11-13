@@ -277,7 +277,7 @@ export default function FavDock(props: Props) {
           return <span key={p.path} className={"dock-tick" + (c ? ` tag-${c}` : "") + (isHere ? " here" : "") + (isFresh(p) && fresh?.phase === "glow" ? " fresh" : "")} />;
         })}
         {pinned.length === 0 && <span className="dock-tick empty" />}
-        <span className="dock-beckon">여기로 가져오면 즐겨찾기</span>
+        <span className="dock-beckon">여기에 놓으면 즐겨찾기</span>
       </div>
       {menu && (
         <TagMenu

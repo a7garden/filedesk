@@ -93,7 +93,7 @@ export default function UpdateCard({ version, compact = false, onDone }: { versi
                   설치하고 다시 켜기
                 </button>
               ) : (
-                <button className="act primary" onClick={openReleases} title="설치 파일(setup.exe)로 깐 앱이 아니라 스스로 바꿔 끼우지 못한다">
+                <button className="act primary" onClick={openReleases} title="설치 파일(setup.exe)로 설치한 앱이 아니라 스스로 새 버전으로 바꾸지 못한다">
                   릴리스 페이지에서 받기
                 </button>
               )}
