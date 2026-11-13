@@ -1,14 +1,14 @@
-// 판 목록 — 문서 하나의 판을 「이전판」 폴더에 든 것까지 새 판부터 한 줄씩 보인다. 판 눈금을 누르거나 메뉴 「판 목록 보기」로 연다.
+// 판 목록 — 문서 하나의 판을 「이전판」 폴더에 든 것까지 새 판부터 한 줄씩 보인다. 판 글자(「v4 · 4판」)를 누르거나 메뉴 「판 목록 보기」로 연다.
 //
 // 2026.11.12 : 지난 판은 목록 보기에서 문서를 펼쳐야만 보였다 — 격자 보기에는 펼칠 자리가 없고, 펼침 꺾쇠는 작아 지나치기 쉽다.
 //              판 눈금 점은 언제 · 어디에를 보이지만 무엇인지는 마우스를 올려야 알았다. 같은 내용을 누르면 뜨는 목록으로 준다.
+// 2026.11.13 : 판 눈금(EditionTicks)을 걷었다 — 판이 언제 · 어디에 있는지는 이 목록만 말한다.
 //
 //   줄 하나 = 판 하나 (pptx · pdf 처럼 꼴만 다른 것은 한 줄, 꼴마다 여는 단추) · 줄을 누르면 첫 꼴을 연다
 //   「폴더」 = 그 판이 든 폴더로 간다 (이전판 폴더 안을 탐색기처럼 보고 싶을 때)
 //   ↑ ↓ 로 옮기고 Enter 로 연다 · 밖을 누르거나 Esc 면 닫힌다
 import { useEffect, useRef } from "react";
 import type { DocFile, DocGroup } from "./api";
-import { editionTime } from "./EditionTicks";
 
 type Props = {
   x: number;
@@ -29,11 +29,20 @@ const cmpVer = (a: number[], b: number[]) => {
   return 0;
 };
 
-/** 판으로 묶는다 — 판 번호 · 날짜 · 시각이 같으면 꼴만 다른 한 판. 새 판이 위로. */
+/** 판 날짜(YYYYMMDD)를 밀리초로. 이름에 날짜가 없으면 파일 고친 시각. */
+function editionTime(f: DocFile): number {
+  const d = f.parsed.date;
+  return d.length === 8 ? Date.UTC(+d.slice(0, 4), +d.slice(4, 6) - 1, +d.slice(6, 8)) : f.modified;
+}
+
+/** 판 하나의 열쇠 — 판 번호 · 날짜 · 시각이 같으면 꼴만 다른 한 판. 목록의 「N판」도 이것으로 센다. */
+export const editionKey = (f: DocFile) => `${f.parsed.version.join(".")}|${f.parsed.date}|${f.parsed.time}`;
+
+/** 판으로 묶는다. 새 판이 위로. */
 function editions(files: DocFile[]): Ed[] {
   const by = new Map<string, Ed>();
   for (const f of files) {
-    const k = `${f.parsed.version.join(".")}|${f.parsed.date}|${f.parsed.time}`;
+    const k = editionKey(f);
     const e = by.get(k);
     if (e) {
       e.files.push(f);

@@ -18,7 +18,7 @@
 //   2026.11.12 : 여는 자리를 넓혔다 — 7px 띠를 겨누어야 열려 불편했다. 이제 칸 바닥 줄 가운데 절반 어디든 마우스가 지나면 열린다.
 //                바닥 줄 단추(크기 사다리 · 판 접기) 위에서는 열지 않고, 선반은 바닥 줄 위에 서서 그 단추를 가리지 않는다.
 //   파일을 끌고 오면(앱 밖 · 칸에서) CSS :hover 가 오지 않는다 — App 이 끌기 위치를 보고 drag 로 알려 준다.
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { type CSSProperties, Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { api, iconUrl, type Place, type TagColor, type ViewPrefs } from "./api";
 import { PIN_DROP } from "./App";
 import { FolderGlyph } from "./glyphs";
@@ -27,6 +27,8 @@ import TagMenu, { TagDot } from "./TagMenu";
 import { norm, packIconUrl } from "./util";
 
 type Props = {
+  /** 나눠 보기에서 독을 얹을 자리 (App 이 지금 칸의 바닥 가운데로 셈한다). 없으면 칸 영역 가운데. */
+  zone?: CSSProperties;
   pinned: Place[];
   current: string;
   /** 파일을 끄는 중 — far: 창 안 어딘가 · near: 독 가까이(열어 둔다). */
@@ -51,7 +53,7 @@ const FLASH_GLOW = 1600;
 const FOOT_CONTROLS = "button, a, input, select, textarea, [role=radiogroup], [role=separator]";
 
 export default function FavDock(props: Props) {
-  const { pinned, current, drag: fileDrag, view, flash, onUnpin, onMovePin, onGo, onGoNewTab, onOpenFile } = props;
+  const { zone, pinned, current, drag: fileDrag, view, flash, onUnpin, onMovePin, onGo, onGoNewTab, onOpenFile } = props;
 
   // ───────── [1] 상태 · 색 ─────────
 
@@ -204,7 +206,7 @@ export default function FavDock(props: Props) {
   const isFresh = (p: Place) => !!fresh && fresh.keys.has(norm(p.path));
 
   return (
-    <div ref={root} className={"dock" + (held ? " open" : "") + (near ? " near" : "") + (drag?.on ? " pin-dragging" : "") + (fileDrag ? " file-drag" : "")}>
+    <div ref={root} style={zone} className={"dock" + (zone ? " zoned" : "") + (held ? " open" : "") + (near ? " near" : "") + (drag?.on ? " pin-dragging" : "") + (fileDrag ? " file-drag" : "")}>
       <div className="dock-shelf">
         <ul ref={shelf} className={(more.left ? "more-left " : "") + (more.right ? "more-right" : "") || undefined} role="toolbar" aria-label="즐겨찾기" aria-orientation="horizontal">
           {pinned.map((p, i) => {

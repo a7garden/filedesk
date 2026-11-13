@@ -275,6 +275,7 @@ const toPx = (a: Len, size: number) => a.f * size + a.p;
 const FULL: Rect = { x0: len(0), x1: len(1), y0: len(0), y1: len(1) };
 const ZERO = len(0);
 const atTop = (r: Rect) => same(r.y0, ZERO);
+const atBottom = (r: Rect) => same(r.y1, len(1));
 const boxOf = (r: Rect): CSSProperties => ({ left: calc(r.x0), top: calc(r.y0), width: calc(minus(r.x1, r.x0)), height: calc(minus(r.y1, r.y0)) });
 
 type Bar = { path: string; dir: "row" | "col"; r: Rect; node: Rect };
@@ -365,6 +366,19 @@ export default function App() {
   const split = leaves.length > 1;
   const fgLeaf = leaves.find((l) => l.key === focus) ?? leaves[0];
   const fg = fgLeaf.key;
+  /** 독을 얹을 자리 — 나눠 보기면 바닥에 닿은 칸 중 지금 칸(지금 칸이 위쪽이면 그 아래 칸)의 바닥 가운데 절반.
+   *  2026.11.13 : 독이 창 가운데 아래에 고정돼, 좌우로 나누면 왼쪽 칸 바닥 줄 오른쪽(보기 크기 단추)과 겹쳤다 (사용자 지적).
+   *  칸 바닥 줄은 왼쪽에 개수, 오른쪽에 단추를 두므로 그 칸의 가운데가 비어 있다. 한 칸이면 독의 CSS 자리 그대로. */
+  const dockZone = useMemo((): CSSProperties | undefined => {
+    if (!split) return undefined;
+    const bottoms = laid.leaves.filter((x) => atBottom(x.r));
+    const f = laid.leaves.find((x) => x.leaf.key === fg);
+    const mid = f ? (f.r.x0.f + f.r.x1.f) / 2 : 0.5;
+    const pick = bottoms.find((x) => x.leaf.key === fg) ?? bottoms.find((x) => x.r.x0.f <= mid && mid <= x.r.x1.f) ?? bottoms[0];
+    if (!pick) return undefined;
+    const w = minus(pick.r.x1, pick.r.x0);
+    return { marginLeft: calc(plus(pick.r.x0, times(w, 0.25))), width: calc(times(w, 0.5)) };
+  }, [split, laid, fg]);
   const active = tabs.find((t) => t.id === fgLeaf.cur) ?? tabs[0];
   const pathOf = (id: number) => tabs.find((t) => t.id === id)?.path ?? active.path;
 
@@ -789,9 +803,11 @@ export default function App() {
       if (p.type === "over" || p.type === "enter") {
         setHover(at(p.position.x, p.position.y));
         // 열린 독 위에 있는 동안은 가장자리에서 멀어져도 닫지 않는다 — 선반 위쪽 줄에 놓으러 가는 길이다
+        // 2026.11.13 : 칸 바닥 줄(.foot) 위도 연다 — 아래 가장자리 64px 만으로는 독 쪽으로 끌고 와도 열리지 않는다는 지적이 있었다
+        //   (나눠 보기에서 위쪽 칸의 바닥 줄은 창 아래 가장자리에서 멀다)
         const r = window.devicePixelRatio || 1;
         const raw = document.elementFromPoint(p.position.x / r, p.position.y / r);
-        peek(window.innerHeight - p.position.y / r < DOCK_REACH || !!raw?.closest(".dock") ? "near" : "far");
+        peek(window.innerHeight - p.position.y / r < DOCK_REACH || !!raw?.closest(".dock, .foot") ? "near" : "far");
       } else if (p.type === "leave") {
         setHover(null);
         peek(null);
@@ -948,7 +964,7 @@ export default function App() {
     return (
       <div
         key={`strip-${g}`}
-        className={"tabs" + (style && !inPane ? " fixed" : "") + (inPane ? " in-pane" : "") + (split && g === fg ? " focused" : "") + (endHere ? " drop-end" : "")}
+        className={"tabs" + (style && !inPane ? " fixed" : "") + (inPane ? " in-pane" : "") + (split ? (g === fg ? " focused" : " dim") : "") + (endHere ? " drop-end" : "")}
         role="tablist"
         aria-label={split ? "칸 탭" : "탭"}
         data-tab-strip={g}
@@ -1112,6 +1128,7 @@ export default function App() {
           )}
         </div>
         <FavDock
+          zone={dockZone}
           pinned={pinned}
           current={active.path}
           drag={dockDrag}

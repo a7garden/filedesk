@@ -441,7 +441,7 @@ button:disabled {
   align-items: center;
   flex: none;
 }
-/* 마지막 조각(지금 폴더)만 줄어들 수 있다 — 긴 이름은 말줄임 */
+/* 마지막 조각(지금 폴더)만 줄어들 수 있다 — 긴 이름은 말줄임. 앞 조각은 자리가 모자라면 AddressBar 가 「…」 로 접는다 (2026.11.13) */
 .crumb-wrap:last-of-type {
   flex: 0 1 auto;
   min-width: 0;
@@ -510,6 +510,29 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+}
+/* 찾는 동안 — 찾기 칸이 주소 아래 제 줄을 통째로 쓴다 (찾기 칸 · 범위 · 조건 단추 차례).
+   2026.11.13 : 범위 단추 · 찾기 칸 · 저장 · 조건 단추가 주소와 한 줄을 나눠 써서, 좁은 칸에서 폴더 이름이 먼저 사라지고
+   찾기 칸은 조건 글 끝만 보였다 (사용자 지적). 범위(.scope)는 찾는 말이 있을 때만 그려지므로 그것으로 가른다 */
+.head:has(.head-right .scope) {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+.head:has(.head-right .scope) .head-right {
+  order: 5;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  row-gap: 6px;
+  padding-left: 4px;
+}
+.head:has(.head-right .scope) .filter-box {
+  order: -1;
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.head:has(.head-right .scope) .filter {
+  width: 100%;
 }
 .filter {
   width: 180px;
@@ -882,59 +905,23 @@ body.col-resizing * {
   font-variant-numeric: tabular-nums;
 }
 
-/* 판 눈금 (EditionTicks): 찬 점 = 이 폴더 · 빈 점 = 이전판 · 세로 금 = 이름에 날짜 없는 판.
-   경고색 채움은 옮길 판에만, 판 번호 · 순서가 어긋난 판은 테두리만 경고색 — 무엇이 문제인지는 문제 문장이 말한다 */
-.ticks {
-  flex: none;
-  overflow: visible;
-}
-.tick-axis {
-  stroke: var(--line);
-}
-.tick-today {
-  stroke: var(--faint);
-}
-.tick {
-  fill: var(--paper);
-  stroke: var(--muted);
-  stroke-width: 1.2;
-}
-.tick.here {
-  fill: var(--ink-2);
-  stroke: none;
-}
-.tick.flag {
-  stroke: var(--warn);
-}
-.tick.here.retire {
-  fill: var(--warn);
-}
-.tick-undated {
-  stroke: var(--muted);
-  stroke-width: 1.6;
-  stroke-linecap: round;
-}
-.tick-undated.here {
-  stroke: var(--ink-2);
-}
-.tick-undated.here.retire,
-.tick-undated.flag {
-  stroke: var(--warn);
-}
-
-/* 판 눈금 단추 — 누르면 판 목록 (EditionList). 눈금 모양은 그대로, 올리면 바탕만 */
-.ticks-btn {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 3px;
-  margin: -2px -3px;
+/* 판 글자 단추 — 「v4 11-13 · 4판」. 누르면 판 목록 (EditionList). 올리면 바탕만.
+   2026.11.13 : 판 눈금(날짜 축 위 점)을 걷고 글자로 */
+.ver-btn {
+  min-width: 0;
+  padding: 2px 5px;
+  margin: -2px -5px;
   border-radius: 4px;
+  text-align: left;
+  color: inherit;
   cursor: pointer;
 }
-.ticks-btn:hover,
-.ticks-btn:focus-visible {
+.ver-btn:hover,
+.ver-btn:focus-visible {
   background: var(--hover);
+}
+.ver-n {
+  color: var(--muted);
 }
 
 /* 판 목록 창: 새 판이 위로 · 이 폴더 판은 진한 글자, 이전판은 옅게 · 꼴(pptx · pdf)마다 여는 단추 */
@@ -1096,12 +1083,8 @@ body.col-resizing * {
   box-shadow: inset 0 0 0 1px var(--warn);
   white-space: nowrap;
 }
-.issue-chip:hover,
-.issue-chip[aria-pressed="true"] {
+.issue-chip:hover {
   background: var(--warn-bg);
-}
-.issue-chip[aria-pressed="true"] {
-  font-weight: 600;
 }
 /* 날짜 · 크기는 고정폭 숫자 — 줄마다 자릿수가 위아래로 맞는다 */
 .cell.date {
@@ -1256,17 +1239,13 @@ button.side-empty:hover {
 .pane.in-split {
   animation: pane-in 0.18s ease-out;
 }
-.pane.in-split::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 2px;
-  background: transparent;
-  transition: background 0.15s ease;
-  z-index: 2;
+/* 지금 칸은 탭 밑줄 하나로 말한다 — 지금 칸의 지금 탭만 강조색, 다른 칸의 지금 탭은 회색 밑줄 · 흐린 글자.
+   2026.11.13 : 칸 맨 위 2px 띠를 걷었다. 바로 위 탭 밑줄과 가로선 둘이 붙어 「지금 탭」과 「지금 칸」이 한 줄로 뭉개졌다 (사용자 지적) */
+.tabs.dim .tab.active {
+  color: var(--ink-2);
 }
-.pane.focused-pane::before {
-  background: var(--accent);
+.tabs.dim .tab.active::after {
+  background: var(--faint);
 }
 .divider {
   cursor: col-resize;
@@ -1846,6 +1825,10 @@ body.resizing-y * {
   max-width: 100%;
   height: 30px;
   pointer-events: none;
+}
+.dock.zoned {
+  justify-self: start;
+  max-width: none;
 }
 .dock-shelf {
   pointer-events: auto;
@@ -2514,9 +2497,6 @@ body.resizing-y * {
   color: var(--warn);
   font-weight: 600;
 }
-.tile-meta .ticks {
-  flex: none;
-}
 .tile-memo {
   min-width: 0;
   max-width: 100%;
@@ -2527,29 +2507,6 @@ body.resizing-y * {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-/* 격자 위 문제 문서 — 문서 이름 + 목록의 문제 줄과 같은 문장 · 동작. 많으면 이 자리만 스크롤해 격자를 밀어내지 않는다 */
-.grid-issues {
-  flex: none;
-  max-height: 30%;
-  overflow-y: auto;
-  padding: 2px 24px 6px 22px;
-}
-.grid-issue {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  height: 30px;
-  font-size: 12.5px;
-}
-.grid-issue-doc {
-  flex: none;
-  max-width: 40%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 600;
-  color: var(--ink);
 }
 .grid-sort {
   display: flex;
@@ -2703,6 +2660,117 @@ body.resizing-y * {
   margin: 4px 6px;
   background: var(--line);
 }
+
+/* 오른쪽 메뉴 (ContextMenu) — 떠 있는 메뉴와 같은 겉모양에 단축키 글 · 하위 메뉴 화살 · 단추 줄 · 색 점 줄.
+   2026.11.13 : 셸 메뉴 대신 filedesk 가 그린다. 셸 메뉴는 맨 아래 「더 보기」. */
+.ctx-menu {
+  position: fixed;
+  z-index: 60;
+  min-width: 220px;
+  max-width: 320px;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--raise);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.16), inset 0 0 0 1px var(--line);
+  display: grid;
+  animation: pop-in 0.1s ease-out;
+  transform-origin: top left;
+  outline: none;
+}
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+  padding: 0 10px 0 4px;
+  border-radius: 5px;
+  font-size: 12.5px;
+  text-align: left;
+  color: var(--ink);
+}
+.ctx-item:hover:not(:disabled),
+.ctx-item.sub-open,
+.ctx-item:focus-visible,
+.ctx-quick button:hover:not(:disabled),
+.ctx-clear:hover:not(:disabled) {
+  background: var(--hover);
+}
+.ctx-item:focus-visible,
+.ctx-quick button:focus-visible,
+.ctx-clear:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1.5px var(--focus);
+}
+/* 색 점은 바탕이 색이라 바깥 고리로 */
+.ctx-colors .tag-swatch:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.ctx-item:disabled {
+  color: var(--faint);
+}
+.ctx-item.strong .ctx-label {
+  font-weight: 650;
+}
+.ctx-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ctx-hint {
+  margin-left: 18px;
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.ctx-more {
+  margin-left: 10px;
+  color: var(--muted);
+}
+/* 단추 줄 — 잘라내기 · 복사 · 이름 바꾸기 · 휴지통. 그림만 두고 이름 · 단축키는 올리면 보인다 */
+.ctx-quick {
+  display: flex;
+  gap: 2px;
+  padding: 2px 2px 4px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid var(--line);
+}
+.ctx-quick button {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  height: 30px;
+  border-radius: 5px;
+  color: var(--ink-2);
+}
+.ctx-quick button:disabled {
+  color: var(--faint);
+}
+/* 색 점 줄 — 고르기 창(tag-menu)과 같은 점. 하위 메뉴 없이 바로 누른다 */
+.ctx-colors {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px 4px 28px;
+}
+.ctx-colors .tag-swatch {
+  width: 18px;
+  height: 18px;
+}
+.ctx-colors .ctx-clear {
+  margin-left: auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+}
+.ctx-colors .ctx-clear:disabled {
+  visibility: hidden;
+}
 .file-glyph {
   color: var(--ink-2);
 }
@@ -2786,7 +2854,6 @@ body.resizing-y * {
   .row:not(.edition):not(.issue-line) {
     grid-template-columns: var(--cols-narrow);
   }
-  .row .cell.ver .ticks,
   .cols .resizer,
   .ladder-label {
     display: none;
@@ -3474,8 +3541,12 @@ body.resizing-y * {
 /* 「저장」 — 찾기 칸 안 오른쪽 끝. 찾는 말이 있을 때만 (스마트 폴더로 저장) */
 .filter-box {
   position: relative;
-  flex: none;
+  flex: 0 1 180px;
+  min-width: 96px;
   display: flex;
+}
+.filter-box .filter {
+  width: 100%;
 }
 .filter-box:has(.save-smart) .filter {
   padding-right: 44px;
@@ -3542,52 +3613,224 @@ body.resizing-y * {
 .qb .smart-line {
   grid-template-columns: 56px minmax(0, 1fr);
 }
-.qb-opts {
+
+/* 찾기 조건 판 (QueryBuilder) — 찾는 말이 가장 크게, 켠 조건만 줄로(이름 · 붙은 단추 줄 · ×), 안 켠 갈래는 「＋」 로 더한다.
+   2026.11.13 : 「상관없음」 라디오 일곱 줄을 걷고 다시 지었다. 상자 · 테두리 없이 이름 열 정렬과 여백으로 묶는다 */
+.cs {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 12px;
-  font-size: 13px;
+  flex-direction: column;
+  gap: 0;
 }
-.qb-opt {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  cursor: pointer;
+.cs-words {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 18px;
 }
-.qb-opt input {
-  accent-color: var(--accent);
-  margin: 0;
+.cs-terms {
+  width: 100%;
+  height: 38px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--hover);
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+  outline: none;
 }
-.qb-sub {
-  flex-basis: 100%;
+.cs-terms:focus,
+.cs-nots input:focus,
+.cs-text:focus,
+.cs-sub input:focus {
+  background: var(--raise);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.cs-nots {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 2px;
+  padding-left: 4px;
 }
-.qb .qb-sub input,
-.qb-unit {
-  height: 24px;
-  padding: 0 6px;
-  border-radius: 5px;
-  background: var(--paper);
-  color: var(--ink);
-  box-shadow: inset 0 0 0 1px var(--line);
+.cs-nots > span {
+  width: 14px;
+  color: var(--warn);
+  font-weight: 700;
+  text-align: center;
+}
+.cs-nots input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
   border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+.cs-rows {
+  display: grid;
+  gap: 2px;
+}
+/* 한 줄 = 이름 · 손잡이 · ×. 이름 열을 맞춰 줄끼리 세로로 읽힌다 */
+.cs-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) 24px;
+  align-items: start;
+  gap: 10px;
+  padding: 7px 0;
+  border-top: 1px solid var(--line);
+}
+.cs-row:last-child {
+  border-bottom: 1px solid var(--line);
+}
+.cs-label {
+  padding-top: 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.cs-ctl {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.cs-x {
+  width: 24px;
+  height: 24px;
+  border-radius: 12px;
+  color: var(--faint);
+  font-size: 15px;
+}
+.cs-x:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+/* 붙은 단추 줄 — 눌린 것 하나가 지금 값 */
+.cs-seg {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--hover);
+}
+.cs-seg button {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 5px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.cs-seg button:hover {
+  color: var(--ink);
+}
+.cs-seg button[aria-pressed="true"] {
+  background: var(--raise);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+.cs-sub {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+}
+.cs-sub input,
+.cs-unit,
+.cs-text {
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--hover);
+  color: var(--ink);
   font: inherit;
   font-size: 12.5px;
+  outline: none;
 }
-.qb .qb-sub input.qb-num {
+.cs-num {
   width: 56px;
 }
-.qb-text {
-  margin: 14px 0 0;
-  font-size: 12.5px;
-  overflow-wrap: anywhere;
+.cs-text {
+  flex: 1;
+  min-width: 0;
 }
-.qb-text code {
+/* 여럿을 켜는 점 단추 (종류 · 색) — 켜면 바탕이 차고 글자가 진해진다 */
+.cs-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.cs-chips > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: 13px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.cs-chips > button:hover {
   color: var(--ink);
+}
+.cs-chips > button[aria-pressed="true"] {
+  background: var(--sel);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px var(--focus);
+}
+.cs-chips > button.cs-swatch {
+  width: 26px;
+  padding: 0;
+  justify-content: center;
+}
+.cs-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 4px;
+  margin-top: 12px;
+}
+.cs-add button {
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: var(--accent);
+}
+.cs-add button:hover {
+  background: var(--hover);
+}
+.cs-out {
+  display: grid;
+  gap: 4px;
+  margin-top: auto;
+  padding-top: 18px;
+  font-size: 12.5px;
+}
+.cs-out-label {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.cs-out code {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--hover);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.set-backdrop.sheet > .smart-editor.cs {
+  display: flex;
 }
 
 /* 왼쪽 「스마트 폴더」 */
@@ -3757,4 +4000,260 @@ body.resizing-y * {
   max-width: 460px;
   font-family: var(--mono, ui-monospace, monospace);
   font-size: 12px;
+}
+
+/* 문제 문서 처리함 (IssueInbox) — 왼쪽 바탕색 기둥에 쌓인 일(지난 판 정리 · 직접 볼 것), 오른쪽에 고른 문서와 처리 뒤 모습.
+   2026.11.13 : 거르기 칩을 걷고 처리함으로. 같은 날 다시 지었다 — 표 대신 판마다 남김 / → 이전판, 묶음 머리에 한 번에 옮기기.
+   선 · 상자를 늘리지 않고 왼쪽 기둥의 바탕색 하나로 두 쪽을 가른다 */
+.ix {
+  width: min(860px, calc(100vw - 48px));
+  height: min(540px, calc(100vh - 80px));
+  display: grid;
+  grid-template-columns: minmax(220px, 290px) 1fr;
+  border-radius: 12px;
+  background: var(--raise);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22), inset 0 0 0 1px var(--line);
+  overflow: hidden;
+  animation: pop-in 0.16s ease-out;
+  outline: none;
+}
+.ix-side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 8px 12px;
+  background: var(--side);
+}
+.ix-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 18px 10px 10px;
+}
+.ix-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+.ix-count {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--warn);
+  font-variant-numeric: tabular-nums;
+}
+.ix-group + .ix-group {
+  margin-top: 14px;
+}
+.ix-group ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ix-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+  padding: 0 10px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.ix-group-name {
+  flex: 1;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+/* 한 번에 옮기기 확인 — 묶음 머리가 그 자리에서 확인 줄로 바뀐다 */
+.ix-group-head.confirm {
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  margin: 0 0 4px;
+  border-radius: 8px;
+  background: var(--warn-bg);
+  color: var(--ink);
+  font-size: 12px;
+}
+.ix-group-acts {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+.ix-link {
+  font-size: 12px;
+  color: var(--accent);
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+.ix-link:hover {
+  background: var(--hover);
+}
+.ix-skipped {
+  align-self: flex-start;
+  margin: 12px 6px 0;
+}
+.ix-item {
+  display: grid;
+  gap: 1px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 7px;
+  text-align: left;
+}
+.ix-item:hover {
+  background: var(--hover);
+}
+.ix-item.on {
+  background: var(--raise);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 0 0 1px var(--line);
+}
+.ix-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.ix-why {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--muted);
+}
+.ix-item.on .ix-why {
+  color: var(--warn);
+}
+.ix-main {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 24px 20px;
+  user-select: text;
+}
+.ix-x {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  font-size: 18px;
+  color: var(--muted);
+}
+.ix-x:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.ix-doc {
+  margin: 0 36px 4px 0;
+  font-size: 17px;
+  font-weight: 650;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.ix-issues {
+  margin: 0 0 18px;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  color: var(--warn);
+}
+/* 판 — 한 줄에 판 · 날짜 · 이름 · 처리 뒤. 「→ 이전판」 줄은 이름을 지운 듯 흐리게, 처리 뒤 글자는 경고색으로 */
+.ix-eds {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  column-gap: 14px;
+}
+.ix-ed {
+  display: contents;
+}
+.ix-ed > span {
+  padding: 7px 0;
+  border-top: 1px solid var(--line);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.ix-ver {
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.ix-date {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.ix-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink-2);
+}
+.ix-fate {
+  text-align: right;
+  color: var(--muted);
+}
+.ix-ed.latest .ix-fate {
+  color: var(--ok);
+  font-weight: 600;
+}
+.ix-ed.out .ix-name,
+.ix-ed.out .ix-ver {
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--faint);
+}
+.ix-ed.out .ix-fate {
+  color: var(--warn);
+  font-weight: 600;
+}
+.ix-ed.past > span {
+  color: var(--faint);
+}
+.ix-acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 20px;
+}
+.ix-acts .act {
+  height: 30px;
+  padding: 0 12px;
+}
+.ix-done {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--ok);
+}
+.ix-hint {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.ix-empty {
+  margin: auto;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  text-align: center;
+}
+.ix-empty p {
+  margin: 0;
+}
+.ix-empty-big {
+  font-size: 16px;
+  font-weight: 650;
+}
+@media (max-width: 640px) {
+  .ix {
+    grid-template-columns: 1fr;
+    grid-template-rows: 40% 1fr;
+  }
 }

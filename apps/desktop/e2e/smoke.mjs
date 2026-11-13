@@ -95,20 +95,13 @@ try {
   check("시험 폴더 목록", names, names?.join(" · "));
   check("폴더가 먼저", ["이전판", "하위", "산출물", "자료"].includes(names?.[0] ?? ""), names?.slice(0, 4).join(" · "));
   check("보고서는 한 줄로 접힌다 (문서 이름으로)", names?.filter((n) => n.startsWith("보고서")).length === 1 && names?.includes("보고서.pptx"), names?.find((n) => n.startsWith("보고서")));
-  const ticks = await row("보고서").locator("svg.ticks").getAttribute("aria-label");
-  // pptx · pdf 는 한 판으로 센다 — 보고서는 v3(pptx · pdf) · v2 두 판
-  check("판 눈금 — 글로도 읽힌다", ticks?.includes("2판") && ticks.includes("「이전판」 폴더 1"), ticks ?? "");
+  // 2026.11.13 : 판 눈금(점)을 걷고 판 글자 「v3 … · 2판」. pptx · pdf 는 한 판으로 센다 — 보고서는 v3(pptx · pdf) · v2 두 판
+  const verOf = (name) => row(name).locator(".ver-btn").textContent();
+  check("판 글자 — 판 수", ((await verOf("보고서")) ?? "").includes("· 2판"), (await verOf("보고서")) ?? "");
   check("D09 판 겹침은 문제 줄로", (await pane.locator(".row.issue-line", { hasText: "v1.6 이 여러 날짜" }).count()) === 1);
-  check("판 겹침은 두 판 모두 경고 테두리", (await row("LDM_D09").locator(".tick.flag").count()) === 2);
-  // 축이 1년 넘게 이어져도(예전계획) 열흘 사이 두 판(D09 10-07 · 10-15)이 6px 넘게 갈라진다 — 로그 축 · 밀어 찍기
-  const d9x = await row("LDM_D09").locator("circle.tick").evaluateAll((cs) => cs.map((c) => +c.getAttribute("cx")));
-  check("가까운 판도 갈라 찍는다", d9x.length === 2 && Math.abs(d9x[1] - d9x[0]) >= 5.9, d9x.join(" · "));
-  check("찬 점 둘이면 옮길 판만 경고색", (await row("회의자료").locator(".tick.here.retire").count()) === 1 && (await row("회의자료").locator(".tick.here:not(.retire)").count()) === 1);
-  check("날짜 없는 판은 세로 금", (await row("안내문").locator("line.tick-undated").count()) === 1);
-  check("날짜 없는 판은 글로도 알린다", ((await row("안내문").locator("svg.ticks title").textContent()) ?? "").includes("날짜 없음 · 고친 시각"));
-  check("문제 없는 문서는 경고가 없다", (await row("예전계획").locator(".tick.retire, .tick.flag").count()) === 0);
-  // 판 목록 — 판 눈금을 누르면 이전판까지 한 줄씩 (새 판이 위로 · pptx · pdf 는 한 줄)
-  await row("보고서").locator(".ticks-btn").click();
+  check("판 눈금은 없다", (await pane.locator("svg.ticks").count()) === 0);
+  // 판 목록 — 판 글자를 누르면 이전판까지 한 줄씩 (새 판이 위로 · pptx · pdf 는 한 줄)
+  await row("보고서").locator(".ver-btn").click();
   const edRows = await until(async () => {
     const t = await page.locator(".ed-list .ed-row").allInnerTexts();
     return t.length ? t.map((s) => s.replace(/\s+/g, " ")) : null;
@@ -232,19 +225,38 @@ try {
   check("비우면 메모를 뗀다", await until(() => row("차카타").locator(".memo").count().then((c) => c === 0)));
   await page.keyboard.press("Backspace");
 
-  // 10. 「문제 N문서」 — 문제 있는 문서만 거른다 (9-2 끝에서 시험 폴더로 돌아와 있다)
+  // 10. 「문제 문서 N개」 — 처리함 창 (9-2 끝에서 시험 폴더로 돌아와 있다).
+  //     2026.11.13 : 거르기 → 처리함. 지난 판이 최신판 곁에 남은 문서(계획)를 잠깐 만들어 옮기기까지 본다
   await until(async () => (await rowNames()).length >= 7);
+  writeFileSync(join(T, "계획_v1_20261101.docx"), "v1");
+  writeFileSync(join(T, "계획_v2_20261105.docx"), "v2");
   const chip = pane.locator(".issue-chip");
-  check("문제 칩", (await chip.textContent()) === "문제 문서 1개", (await chip.textContent()) ?? "");
+  check("문제 칩", await until(async () => (await chip.textContent()) === "문제 문서 2개"), (await chip.textContent()) ?? "");
+  const rowsBefore = (await rowNames()).length;
   await chip.click();
-  check("문제 있는 문서만", await until(async () => (await rowNames()).join() === "LDM_D09_테이블정의서_예시과업.xlsx"), (await rowNames()).join(" · "));
-  await page.screenshot({ path: join(SHOTS, "07_문제만.png") });
+  const inbox = page.locator(".ix");
+  check("처리함이 뜬다 · 문서 둘", await until(() => inbox.locator(".ix-item").count().then((c) => c === 2)));
+  check("목록은 거르지 않는다", (await rowNames()).length === rowsBefore);
+  await inbox.locator(".ix-item", { hasText: "계획" }).click();
+  check("옮길 판을 미리 보인다 — 처리 뒤 모습", await until(() => inbox.locator(".ix-ed.out", { hasText: "계획_v1_20261101.docx" }).count().then((c) => c === 1)));
+  await page.screenshot({ path: join(SHOTS, "07_문제처리함.png") });
+  await inbox.locator(".ix-acts .act.primary").click();
+  check("옮기면 처리함에서 빠지고 다음 문서로", await until(() => inbox.locator(".ix-item").count().then((c) => c === 1)) && (await inbox.locator(".ix-doc").textContent())?.startsWith("LDM_D09"));
+  check("지난 판은 「이전판」 폴더로", existsSync(join(T, "이전판", "계획_v1_20261101.docx")) && !existsSync(join(T, "계획_v1_20261101.docx")));
+  await inbox.locator(".ix-acts .act", { hasText: "목록에서" }).click();
+  check("「목록에서 보기」 — 창을 닫고 그 문서를 고른다", await until(async () => (await inbox.count()) === 0 && (await pane.locator(".row.selected", { hasText: "LDM_D09" }).count()) === 1));
   await chip.click();
-  check("다시 모두", await until(async () => (await rowNames()).length >= 7));
+  await inbox.locator(".ix-acts .act", { hasText: "건너뛰기" }).click();
+  check("건너뛰면 빈 처리함", await until(() => inbox.locator(".ix-empty").count().then((c) => c === 1)));
+  await page.keyboard.press("Escape");
+  check("Esc 로 닫는다", await until(() => inbox.count().then((c) => c === 0)));
+  rmSync(join(T, "계획_v2_20261105.docx"));
+  rmSync(join(T, "이전판", "계획_v1_20261101.docx"));
+  await until(async () => !(await rowNames()).some((n) => n.startsWith("계획")));
 
   // 10-2. 이전판 감시 — 이전판 안에만 파일이 생겨도 판 눈금이 따라온다 (감시는 한 단계라 이전판을 따로 본다)
   writeFileSync(join(T, "이전판", "보고서_v1_20260901.pptx"), "v1");
-  check("이전판 안만 바뀌어도 판 눈금이 따라온다", await until(async () => (await row("보고서").locator("svg.ticks").getAttribute("aria-label"))?.includes("3판"), 6000));
+  check("이전판 안만 바뀌어도 판 수가 따라온다", await until(async () => ((await row("보고서").locator(".ver-btn").textContent()) ?? "").includes("· 3판"), 6000));
 
   // 10-3. 종류 거르기 — 이 폴더에 있는 종류만 칩으로. 「표」를 누르면 xlsx 만
   const kindBtn = (label) => pane.locator(".kinds .kind", { hasText: label }).first();
@@ -276,6 +288,35 @@ try {
   check("고르기 창에서 파랑", await until(() => row("보고서").locator(".tag-dot.tag-blue").count().then((c) => c === 1)));
   await page.screenshot({ path: join(SHOTS, "10_색표시.png") });
 
+  // 10-4b. 오른쪽 메뉴 — filedesk 가 그린다 (2026.11.13~). 셸 메뉴는 맨 아래 「더 보기」라 여기서는 열지 않는다 (사람이 본다)
+  {
+    const menu = page.locator(".ctx-menu");
+    await row("회의자료").click({ button: "right" });
+    check("오른쪽 메뉴가 뜬다", await until(() => menu.count().then((c) => c === 1)));
+    check("단추 줄 넷 · 열기 · 더 보기", (await menu.locator(".ctx-quick button").count()) === 4 && (await menu.locator(".ctx-item", { hasText: "열기" }).count()) >= 1 && (await menu.locator(".ctx-item", { hasText: "더 보기" }).count()) === 1);
+    await page.screenshot({ path: join(SHOTS, "10a_파일메뉴.png") });
+    await menu.locator(".tag-swatch.tag-green").click();
+    check("메뉴의 색 점으로 바로 색 표시", await until(() => row("회의자료").locator(".tag-dot.tag-green").count().then((c) => c === 1)));
+    check("고르면 메뉴가 닫힌다", (await menu.count()) === 0);
+    await row("회의자료").click();
+    await page.keyboard.press("Alt+0");
+    await until(() => row("회의자료").locator(".tag-dot").count().then((c) => c === 0));
+    await page.keyboard.press("ContextMenu");
+    check("메뉴 키로도 뜬다", await until(() => menu.count().then((c) => c === 1)));
+    await page.keyboard.press("ArrowDown");
+    check("↓ 로 첫 자리에 초점", await until(() => page.evaluate(() => !!document.activeElement?.closest(".ctx-menu") && document.activeElement?.tagName === "BUTTON")));
+    await page.keyboard.press("Escape");
+    check("Esc 로 닫힌다 · 목록은 그대로", await until(() => menu.count().then((c) => c === 0)) && (await rowNames()).length >= 7);
+    const lb = await pane.locator(".list").boundingBox();
+    await page.mouse.click(lb.x + lb.width - 30, lb.y + lb.height - 20, { button: "right" });
+    check("빈 곳 메뉴 — 새 폴더 · 보기", await until(() => menu.locator(".ctx-item", { hasText: "새 폴더" }).count().then((c) => c === 1)));
+    await menu.first().locator(".ctx-item", { hasText: "보기" }).first().hover();
+    check("「보기」에 올리면 하위 메뉴", await until(() => menu.count().then((c) => c === 2)));
+    await page.screenshot({ path: join(SHOTS, "10b_오른쪽메뉴.png") });
+    await page.mouse.click(lb.x + lb.width - 30, lb.y + lb.height - 20);
+    check("밖을 누르면 닫힌다", await until(() => menu.count().then((c) => c === 0)));
+  }
+
   // 10-5. 아래 폴더까지 찾기 — 하위\차카타.txt 는 이 폴더 거르기에 없고, Shift+Enter 로 찾는다
   await page.keyboard.press("Control+f");
   await page.keyboard.type("차카타");
@@ -285,6 +326,20 @@ try {
   check("아래 폴더까지 찾기", await until(async () => (await rowNames()).some((n) => n.startsWith("차카타"))), (await rowNames()).join(" · "));
   check("찾은 자리를 곁에 적는다", (await row("차카타").locator(".where").textContent()) === "하위");
   await page.screenshot({ path: join(SHOTS, "11_아래폴더찾기.png") });
+  // 2026.11.13 : Tab · Shift+Tab 으로 범위를 돌린다 — 이 폴더 → 하위 폴더까지 → 모든 드라이브. 찾는 말이 있을 때만
+  const pressed = (label) => pane.locator(".scope button", { hasText: label }).getAttribute("aria-pressed").then((v) => v === "true");
+  await pane.locator("input.filter").press("Tab");
+  check("Tab — 모든 드라이브로", await until(() => pressed("모든 드라이브")));
+  await pane.locator("input.filter").press("Tab");
+  check("Tab — 한 바퀴 돌아 이 폴더로", await until(() => pressed("이 폴더")));
+  await pane.locator("input.filter").press("Shift+Tab");
+  check("Shift+Tab — 거꾸로 모든 드라이브로", await until(() => pressed("모든 드라이브")));
+  await pane.locator("input.filter").press("Shift+Tab");
+  check("Shift+Tab — 하위 폴더까지로", await until(() => pressed("하위 폴더까지")));
+  await pane.locator("input.filter").press("Control+Enter");
+  check("Ctrl+Enter — 문서 본문까지 켠다", await until(() => pressed("문서 본문까지")));
+  await pane.locator("input.filter").press("Control+Enter");
+  check("Ctrl+Enter — 다시 누르면 끈다 · 범위는 그대로", await until(async () => !(await pressed("문서 본문까지")) && (await pressed("하위 폴더까지"))));
   await pane.locator("input.filter").press("Escape");
   await until(async () => (await rowNames()).length >= 7);
 
@@ -346,6 +401,23 @@ try {
   check("나눠 보기 — 두 칸", await until(() => panes.count().then((c) => c === 2)));
   const focused = page.locator("section.pane.focused-pane");
   check("오른쪽 칸이 키보드를 받는다", await until(() => focused.count().then((c) => c === 1)));
+  // 2026.11.13 : 지금 칸은 탭 밑줄 하나로 — 칸 위 띠를 걷었다 · 다른 칸의 지금 탭은 회색(dim). 독은 지금 칸의 바닥 가운데에 선다
+  check("다른 칸의 탭 줄은 흐리다", (await page.locator(".tabs.dim").count()) === 1 && (await page.locator(".tabs.focused").count()) === 1);
+  {
+    const fb = await focused.boundingBox();
+    const db = await page.locator(".dock").boundingBox();
+    const mid = db.x + db.width / 2;
+    check("독은 지금 칸 바닥 가운데에", Math.abs(mid - (fb.x + fb.width / 2)) < 24 && db.width < fb.width, `독 ${Math.round(mid)} · 칸 ${Math.round(fb.x + fb.width / 2)}`);
+    // 파일을 끌어 칸 바닥 줄로 가져오면 독이 열린다 — 셸 끌기는 흉내 낼 수 없어 Tauri 끌기 이벤트를 보낸다
+    const dpr = await page.evaluate(() => window.devicePixelRatio);
+    const foot = await panes.first().locator(".foot").boundingBox();
+    const emit = (event, x, y) => page.evaluate(([event, x, y]) => window.__TAURI_INTERNALS__.invoke("plugin:event|emit", { event, payload: { paths: [], position: { x, y } } }), [event, x, y * 1]);
+    await emit("tauri://drag-enter", (foot.x + 40) * dpr, (foot.y - 200) * dpr);
+    await emit("tauri://drag-over", (foot.x + 40) * dpr, (foot.y + foot.height / 2) * dpr);
+    check("끌어서 바닥 줄로 오면 독이 열린다", await until(() => page.locator(".dock.open").count().then((c) => c === 1), 2000));
+    await emit("tauri://drag-leave", 0, 0);
+    check("끌기를 거두면 닫힌다", await until(() => page.locator(".dock.open").count().then((c) => c === 0), 2000));
+  }
   await focused.locator(".row", { hasText: "하위" }).first().dblclick();
   check(
     "오른쪽 칸만 옮긴다",
@@ -432,7 +504,8 @@ try {
     join(T, "그림.png"),
     Buffer.from("iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAJElEQVR4nGP8z8Dwn4ECwESJ5lEDRg0YNWDUgFEDRg0YNQAAOwYCH0xD9z4AAAAASUVORK5CYII=", "base64"),
   );
-  const ticksBefore = (await row("보고서").locator("svg.ticks").getAttribute("aria-label")) ?? "";
+  const edCount = (t) => /(\d+)판/.exec(t ?? "")?.[1];
+  const ticksBefore = edCount(await row("보고서").locator(".ver-btn").textContent());
   // 3fcf556 부터 목록 · 격자 단추가 크기 사다리 눈금이다 — 0 목록 촘촘 · 1 목록 · 2 격자 작게 …
   await pane.locator(".ladder-tick").nth(2).click();
   check("격자 보기", await until(() => pane.locator(".tile").count().then((c) => c >= 7)));
@@ -449,13 +522,26 @@ try {
     "그림은 미리보기로",
     await until(() => pane.locator(".tile", { hasText: "그림" }).locator("img.thumb").evaluate((img) => img.complete && img.naturalWidth > 0), 8000),
   );
-  const tileTicks = await pane.locator(".tile", { hasText: "보고서" }).locator("svg.ticks").getAttribute("aria-label");
-  check("판이 쌓인 문서는 목록과 같은 판 눈금", tileTicks === ticksBefore, `${tileTicks} · ${ticksBefore}`);
-  check("격자 위에 문제 줄 — 문장과 고칠 동작", (await pane.locator(".grid-issue", { hasText: "LDM_D09" }).locator(".act").count()) === 1);
+  const tileTicks = edCount(await pane.locator(".tile", { hasText: "보고서" }).locator(".ver-btn").textContent());
+  check("판이 쌓인 문서는 목록과 같은 판 수", !!tileTicks && tileTicks === ticksBefore, `${tileTicks} · ${ticksBefore}`);
   await pane.locator(".tile", { hasText: "LDM_D09" }).click();
   await page.keyboard.press("ArrowLeft");
   check("격자에서 화살표로 옮긴다", await until(() => pane.locator(".tile.selected").count().then((c) => c === 1)));
   await page.screenshot({ path: join(SHOTS, "14_격자.png") });
+  // 2026.11.13 : 격자인 채 새 탭을 열면 칸이 한 줄에 하나씩 세로로만 섰다 (목록 칸과 격자가 함께 처음 그려질 때 너비를 못 쟀다)
+  {
+    await page.keyboard.press("Control+t");
+    await until(() => pane.locator(".tile").count().then((c) => c >= 7));
+    const tops = () => pane.locator(".tile").evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().top)));
+    const rowsOk = await until(async () => {
+      const t = await tops();
+      return t.length >= 7 && new Set(t).size < t.length;
+    }, 3000);
+    const t = await tops();
+    check("새 탭에서도 격자가 한 줄에 여러 칸", rowsOk, `칸 ${t.length} · 줄 ${new Set(t).size}`);
+    await page.keyboard.press("Control+w");
+    await until(() => page.locator(".tab").count().then((c) => c >= 1));
+  }
   await pane.locator(".ladder-tick").nth(1).click();
   check("다시 목록", await until(() => pane.locator(".row").count().then((c) => c >= 7)));
 
@@ -526,6 +612,17 @@ try {
     await pane.locator("input.path-input").press("Enter");
     check("폴더 바로가기는 폴더 그림 + 화살표", await until(() => row("자료로").locator(".shortcut-glyph .folder-glyph").count().then((c) => c === 1)));
     await page.screenshot({ path: join(SHOTS, "12_바로가기.png") });
+    // 2026.11.13 : Windows 아이콘 설정에서도 바로가기에 화살표 — 셸 그림에는 탐색기의 화살표 덧그림이 없어 진짜 파일과 같아 보였다
+    const iconMode = async (name) => {
+      await page.locator(".settings-btn").click();
+      await page.locator(".set-nav button", { hasText: "아이콘" }).click();
+      await page.locator(".icon-row", { hasText: name }).first().click();
+      await page.keyboard.press("Escape");
+    };
+    await iconMode("Windows");
+    check("Windows 아이콘에서도 바로가기 화살표", await until(() => row("자료로").locator(".shortcut-glyph .shortcut-arrow").count().then((c) => c === 1)));
+    check("바로가기가 아닌 파일에는 화살표가 없다", (await row("설정").locator(".shortcut-arrow").count()) === 0);
+    await iconMode("filedesk");
     await row("설정").dblclick();
     check("ini 는 앱 안에서 연다", await until(() => page.locator(".viewer").textContent().then((t) => t.includes("name=filedesk"))));
     await page.keyboard.press("Escape");
@@ -553,6 +650,22 @@ try {
     await pane.locator(".preset-wrap > button").click();
     await page.locator(".preset-menu button", { hasText: "3일 안" }).click();
     check("＋ 조건이 찾기 칸에 붙는다", (await filter.inputValue()) === "고친:3일");
+    // 찾기 조건 판 — 켠 조건만 줄로 · 「＋」 로 더하고 × 로 뺀다 · Esc 는 연 때 글로 되돌린다 (2026.11.13 다시 지음)
+    await filter.fill("");
+    await pane.locator(".qb-btn").click();
+    const cs = page.locator(".cs");
+    check("조건 판 — 켠 조건이 없으면 줄도 없다", await until(() => cs.count().then((c) => c === 1)) && (await cs.locator(".cs-row").count()) === 0);
+    await cs.locator(".cs-add button", { hasText: "고친 날" }).click();
+    check("「＋ 고친 날」 — 줄이 서고 찾기 칸에 7일", await until(async () => (await cs.locator(".cs-row").count()) === 1 && (await filter.inputValue()) === "고친:7일"));
+    await cs.locator(".cs-seg button", { hasText: "오늘" }).click();
+    check("붙은 단추로 값을 바꾼다", await until(async () => (await filter.inputValue()) === "고친:오늘"));
+    await cs.locator(".cs-row .cs-x").click();
+    check("× 로 빼면 줄도 글도 빠진다", await until(async () => (await cs.locator(".cs-row").count()) === 0 && (await filter.inputValue()) === ""));
+    await cs.locator(".cs-add button", { hasText: "메모" }).click();
+    await page.screenshot({ path: join(SHOTS, "16b_조건판.png") });
+    await page.keyboard.press("Escape");
+    check("Esc 는 연 때 글로", await until(async () => (await cs.count()) === 0 && (await filter.inputValue()) === ""));
+    await filter.fill("고친:3일");
     // 하위 폴더까지 — 조건만으로도 찾는다
     await filter.press("Shift+Enter");
     check("조건만으로 하위 폴더까지", await until(async () => (await pane.locator(".foot").textContent())?.includes("하위 폴더에서"), 10000));

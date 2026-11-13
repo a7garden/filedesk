@@ -206,40 +206,20 @@ fn pick_out(p: MenuPick) -> String {
         MenuPick::None => "none".into(),
         MenuPick::Rename => "rename".into(),
         MenuPick::Invoked(v) => format!("invoked:{v}"),
-        MenuPick::App(k) => format!("app:{k}"),
     }
 }
 
-/// 화면이 보내는 filedesk 메뉴 항목 (`fd_shell::menu::AppItem`). 구분선은 key · label 이 비어 있다.
-#[derive(serde::Deserialize, Default)]
-#[serde(default)]
-struct MenuItemIn {
-    key: String,
-    label: String,
-    checked: bool,
-    disabled: bool,
-    children: Vec<MenuItemIn>,
-}
-
-fn app_items(v: Vec<MenuItemIn>) -> Vec<fd_shell::menu::AppItem> {
-    v.into_iter()
-        .map(|i| fd_shell::menu::AppItem { key: i.key, label: i.label, checked: i.checked, disabled: i.disabled, children: app_items(i.children) })
-        .collect()
-}
-
 #[tauri::command]
-async fn context_menu(app: AppHandle, window: WebviewWindow, paths: Vec<String>, dir: String, items: Option<Vec<MenuItemIn>>) -> CmdResult<String> {
+async fn context_menu(app: AppHandle, window: WebviewWindow, paths: Vec<String>, dir: String) -> CmdResult<String> {
     let hwnd = owner(&window)?;
-    let items = app_items(items.unwrap_or_default());
-    on_main(app, move || fd_shell::menu::show_items_menu(hwnd, &paths, &dir, &items).map(pick_out).map_err(|e| e.to_string()))
+    on_main(app, move || fd_shell::menu::show_items_menu(hwnd, &paths, &dir).map(pick_out).map_err(|e| e.to_string()))
         .await?
 }
 
 #[tauri::command]
-async fn background_menu(app: AppHandle, window: WebviewWindow, dir: String, items: Option<Vec<MenuItemIn>>) -> CmdResult<String> {
+async fn background_menu(app: AppHandle, window: WebviewWindow, dir: String) -> CmdResult<String> {
     let hwnd = owner(&window)?;
-    let items = app_items(items.unwrap_or_default());
-    on_main(app, move || fd_shell::menu::show_background_menu(hwnd, &dir, &items).map(pick_out).map_err(|e| e.to_string()))
+    on_main(app, move || fd_shell::menu::show_background_menu(hwnd, &dir).map(pick_out).map_err(|e| e.to_string()))
         .await?
 }
 

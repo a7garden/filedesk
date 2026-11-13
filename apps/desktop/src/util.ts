@@ -1,7 +1,7 @@
 // 경로 · 표시 도우미. Windows 경로만 다룬다 (드라이브 · UNC).
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { Entry, Theme } from "./api";
+import type { DocGroup, Entry, Theme } from "./api";
 
 export const samePath = (a: string, b: string) => norm(a) === norm(b);
 
@@ -204,4 +204,13 @@ export const canThumb = (ext: string) => THUMB_EXTS.has(ext.toLowerCase());
 
 export function kindOf(e: Pick<Entry, "isDir" | "ext">): string {
   return e.isDir ? FOLDER : (extKind.get(e.ext.toLowerCase())?.id ?? OTHER);
+}
+
+/** 최신판 자리에 남은 지난 판 수 — 최신판 폴더에서 fd-core 가 「옮길 판」으로 표시한 파일 수. 판 눈금의 경고색과 같은 표시다.
+ *  단추 글자용이고, 옮길 목록은 백엔드(`stale_in_place`)가 다시 센다. */
+export function staleCount(g: DocGroup): number {
+  const latest = g.files[0];
+  if (!latest || latest.inHistory) return 0;
+  const dir = parentOf(latest.path) ?? "";
+  return g.files.filter((f) => f.retire && samePath(parentOf(f.path) ?? "", dir)).length;
 }

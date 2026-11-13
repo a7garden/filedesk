@@ -183,9 +183,6 @@ export type ColKey = "ver" | "date" | "size";
 export const DEFAULT_VIEW: ViewPrefs = { mode: "list", dense: false, size: 1, icons: "shell", iconPack: "", thumbs: true, hiddenCols: [], kinds: DEFAULT_KINDS, folderClick: "double",
   sort: { key: "name", asc: true }, dirsFirst: true, foldStart: true, dateStyle: "relative", sizeUnit: "kb", recent: true, links: false };
 
-/** 오른쪽 메뉴에 얹는 filedesk 항목 (fd-shell menu::AppItem). key 와 label 이 비면 구분선. */
-export type MenuItem = { key?: string; label?: string; checked?: boolean; disabled?: boolean; children?: MenuItem[] };
-
 export type Theme = "system" | "light" | "dark";
 
 
@@ -198,10 +195,9 @@ export const api = {
   resolveInput: (input: string, cwd: string) => invoke<string>("resolve_input", { input, cwd }),
   /** 폴더면 열지 않고 이동할 경로를 돌려준다. */
   openItem: (path: string) => invoke<string | null>("open_item", { path }),
-  /** `none` · `rename` · `invoked:<동사>` */
-  /** 돌려주는 값: `none` · `rename` · `invoked:<동사>` · `app:<열쇠>` (items 로 얹은 filedesk 항목). */
-  contextMenu: (paths: string[], dir: string, items: MenuItem[] = []) => invoke<string>("context_menu", { paths, dir, items }),
-  backgroundMenu: (dir: string, items: MenuItem[] = []) => invoke<string>("background_menu", { dir, items }),
+  /** 셸 메뉴 (filedesk 메뉴의 「더 보기」). 돌려주는 값: `none` · `rename` · `invoked:<동사>`. */
+  contextMenu: (paths: string[], dir: string) => invoke<string>("context_menu", { paths, dir }),
+  backgroundMenu: (dir: string) => invoke<string>("background_menu", { dir }),
   shellVerb: (paths: string[], verb: "copy" | "cut" | "paste" | "properties", dir: string) =>
     invoke<void>("shell_verb", { paths, verb, dir }),
   rename: (path: string, newName: string) => invoke<Outcome>("rename", { path, newName }),

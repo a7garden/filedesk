@@ -1,7 +1,8 @@
 // 바로가기(.lnk) 그림 — 바로가기 자체가 아니라 가리키는 것의 그림에 작은 화살표를 얹는다. 탐색기와 같다.
 //
 // 2026.11.12 : 사용자 요청. filedesk 그림 · 아이콘 팩 설정에서 바로가기가 모두 같은 「링크」 그림이라, 바탕화면의 바로가기 여럿이 무엇을 가리키는지 몰랐다.
-//              셸 아이콘 설정은 셸이 이미 대상 그림 + 화살표를 그려 주므로 여기를 거치지 않는다.
+// 2026.11.13 : 셸 아이콘 설정에도 화살표를 얹는다 (ShortcutMark). 셸이 주는 그림(SHGetFileInfo · 큰 그림)에는 탐색기의 화살표 덧그림이 빠져
+//              바로가기가 진짜 파일과 똑같이 보였다 — 메일 첨부 · 보내기에 바로가기를 보낼 수 있다는 사용자 지적.
 //
 // 대상 풀기(link_targets)는 COM 이라 줄마다 부르지 않는다 — 한 번 그리는 동안 나온 바로가기를 모아 한 번에 묻고, 답은 앱이 켜 있는 동안 기억한다.
 // 그동안은 지금처럼 「링크」 그림을 그린다.
@@ -80,12 +81,31 @@ function ShortcutGlyph({ path, size }: { path: string; size: number }) {
   return (
     <span className="shortcut-glyph" style={{ width: size, height: size }} title={t ? `바로가기 → ${t.path}` : undefined}>
       {pic}
-      {t && (
-        <svg className="shortcut-arrow" viewBox="0 0 10 10" aria-hidden="true">
-          <rect x="0.5" y="0.5" width="9" height="9" rx="1.5" />
-          <path d="M3 7l3.6-3.6M4 3.2h2.8V6" />
-        </svg>
-      )}
+      {t && <ShortcutArrow />}
+    </span>
+  );
+}
+
+/** 바로가기 화살표 — 그림 왼쪽 아래에 얹는다. */
+function ShortcutArrow() {
+  return (
+    <svg className="shortcut-arrow" viewBox="0 0 10 10" aria-hidden="true">
+      <rect x="0.5" y="0.5" width="9" height="9" rx="1.5" />
+      <path d="M3 7l3.6-3.6M4 3.2h2.8V6" />
+    </svg>
+  );
+}
+
+/** 바로가기인가 — 셸 바로가기(.lnk) · 인터넷 바로가기(.url). */
+export const isShortcut = (ext: string) => ext === "lnk" || ext === "url";
+
+/** 셸 아이콘 · 미리보기 위에 바로가기 화살표를 얹는다 (바로가기가 아니면 그대로). */
+export function ShortcutMark({ ext, size, children }: { ext: string; size: number; children: React.ReactNode }) {
+  if (!isShortcut(ext.toLowerCase())) return <>{children}</>;
+  return (
+    <span className="shortcut-glyph" style={{ width: size, height: size }} title="바로가기">
+      {children}
+      <ShortcutArrow />
     </span>
   );
 }

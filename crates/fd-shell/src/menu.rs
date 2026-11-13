@@ -4,8 +4,8 @@
 //! 그 메시지(WM_INITMENUPOPUP · WM_DRAWITEM · WM_MEASUREITEM · WM_MENUCHAR)를 메뉴 동안 IContextMenu2/3 으로
 //! 넘겨 주지 않으면 하위 메뉴가 빈 채로 열린다. 그래서 메뉴를 띄우는 동안만 창을 서브클래싱한다.
 //!
-//! 2026.11.11 : 셸 메뉴 맨 위에 filedesk 항목(메모 · 색 표시 · 즐겨찾기 · 옆 칸에서 열기 …)을 얹는다 — 메뉴를 둘로 나누면
-//! 「무엇이 어느 메뉴에 있나」를 사람이 외워야 한다. 앱 항목 번호는 셸 번호(1~0x7FFF) 밖(0x8000~)에 두어 섞이지 않게 한다.
+//! 2026.11.13 : 셸 메뉴 위에 filedesk 항목을 얹던 것(11.11~)을 걷었다. 오른쪽 단추는 화면이 그리는 filedesk 메뉴가 먼저 받고,
+//! 이 셸 메뉴는 그 메뉴의 「더 보기」 · Shift+오른쪽 단추 · Shift+F10 으로 연다 (Windows 11 과 같은 두 겹).
 
 use std::ffi::CString;
 
@@ -17,9 +17,8 @@ use windows::Win32::UI::Shell::{
     GCS_VERBW, IContextMenu, IContextMenu2, IContextMenu3, IShellFolder, RemoveWindowSubclass, SetWindowSubclass,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreatePopupMenu, DestroyMenu, GetCursorPos, GetMenuItemCount, HMENU, MF_CHECKED, MF_GRAYED, MF_POPUP,
-    MF_SEPARATOR, MF_STRING, SW_SHOWNORMAL, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenuEx, WM_DRAWITEM,
-    WM_INITMENUPOPUP, WM_MEASUREITEM, WM_MENUCHAR,
+    CreatePopupMenu, DestroyMenu, GetCursorPos, SW_SHOWNORMAL, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenuEx,
+    WM_DRAWITEM, WM_INITMENUPOPUP, WM_MEASUREITEM, WM_MENUCHAR,
 };
 use windows::core::{HSTRING, Interface, PCSTR, PCWSTR, PSTR};
 
@@ -31,20 +30,6 @@ const CMIC_MASK_UNICODE: u32 = 0x0000_4000;
 const FIRST_ID: u32 = 1;
 const LAST_ID: u32 = 0x7FFF;
 const SUBCLASS_ID: usize = 0xFD01;
-/// 앱 항목 번호의 시작 — 셸 번호(FIRST_ID..=LAST_ID) 밖.
-const APP_FIRST_ID: u32 = 0x8000;
-
-/// 셸 메뉴 위에 얹는 filedesk 항목. `key` 가 빈 글이면 구분선. `children` 이 있으면 하위 메뉴.
-#[derive(Debug, Clone, Default)]
-pub struct AppItem {
-    pub key: String,
-    /// 보일 글. 단축키는 `	` 뒤에 (`메모…	Ctrl+M`).
-    pub label: String,
-    pub checked: bool,
-    pub disabled: bool,
-    pub children: Vec<AppItem>,
-}
-
 /// 메뉴에서 고른 결과.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MenuPick {
@@ -54,52 +39,20 @@ pub enum MenuPick {
     Rename,
     /// 셸이 실행했다. 동사(verb)를 알 수 있으면 함께 (예: `delete` · `properties`).
     Invoked(String),
-    /// filedesk 항목을 골랐다 — 화면이 그 일을 한다.
-    App(String),
 }
 
 /// 고른 항목들의 메뉴. 주 스레드에서 부른다.
-pub fn show_items_menu(owner: RawHwnd, paths: &[String], dir: &str, app: &[AppItem]) -> Result<MenuPick> {
+pub fn show_items_menu(owner: RawHwnd, paths: &[String], dir: &str) -> Result<MenuPick> {
     let arr = item_array(paths)?;
     let cm: IContextMenu = unsafe { arr.BindToHandler(None, &BHID_SFUIObject) }?;
-    run_menu(hwnd(owner), &cm, dir, CMF_CANRENAME, app)
+    run_menu(hwnd(owner), &cm, dir, CMF_CANRENAME)
 }
 
 /// 빈 곳 메뉴 (새로 만들기 · 붙여넣기 · 속성). 주 스레드에서 부른다.
-pub fn show_background_menu(owner: RawHwnd, dir: &str, app: &[AppItem]) -> Result<MenuPick> {
+pub fn show_background_menu(owner: RawHwnd, dir: &str) -> Result<MenuPick> {
     let folder: IShellFolder = unsafe { shell_item(dir)?.BindToHandler(None, &BHID_SFObject) }?;
     let cm: IContextMenu = unsafe { folder.CreateViewObject(hwnd(owner)) }?;
-    run_menu(hwnd(owner), &cm, dir, 0, app)
-}
-
-/// 앱 항목을 메뉴에 붙인다. 고른 번호 → 열쇠를 `keys` 에 모은다.
-fn append_app(menu: HMENU, items: &[AppItem], keys: &mut Vec<String>) {
-    for it in items {
-        unsafe {
-            if it.key.is_empty() && it.children.is_empty() {
-                let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
-                continue;
-            }
-            let label = HSTRING::from(it.label.as_str());
-            if !it.children.is_empty() {
-                if let Ok(sub) = CreatePopupMenu() {
-                    append_app(sub, &it.children, keys);
-                    let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, PCWSTR(label.as_ptr()));
-                }
-                continue;
-            }
-            let id = APP_FIRST_ID + keys.len() as u32;
-            keys.push(it.key.clone());
-            let mut flags = MF_STRING;
-            if it.checked {
-                flags |= MF_CHECKED;
-            }
-            if it.disabled {
-                flags |= MF_GRAYED;
-            }
-            let _ = AppendMenuW(menu, flags, id as usize, PCWSTR(label.as_ptr()));
-        }
-    }
+    run_menu(hwnd(owner), &cm, dir, 0)
 }
 
 /// 메뉴 없이 셸 동사를 바로 실행한다 — `copy` · `cut` · `paste` · `properties` · `delete`.
@@ -121,23 +74,15 @@ pub fn invoke_verb(owner: RawHwnd, paths: &[String], verb: &str, dir: &str) -> R
     Ok(out?)
 }
 
-fn run_menu(owner: HWND, cm: &IContextMenu, dir: &str, extra: u32, app: &[AppItem]) -> Result<MenuPick> {
+fn run_menu(owner: HWND, cm: &IContextMenu, dir: &str, extra: u32) -> Result<MenuPick> {
     let menu = unsafe { CreatePopupMenu() }?;
-    let mut keys = Vec::new();
-    if !app.is_empty() {
-        append_app(menu, app, &mut keys);
-        unsafe {
-            let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
-        }
-    }
-    let shell_at = unsafe { GetMenuItemCount(Some(menu)) }.max(0) as u32;
     let mut flags = CMF_NORMAL | CMF_EXPLORE | extra;
     // Shift 를 누르고 열면 탐색기처럼 숨은 동사(「경로로 복사」 등)까지 보인다.
     if unsafe { GetKeyState(VK_SHIFT.0 as i32) } < 0 {
         flags |= CMF_EXTENDEDVERBS;
     }
     let result = (|| -> Result<MenuPick> {
-        unsafe { cm.QueryContextMenu(menu, shell_at, FIRST_ID, LAST_ID, flags) }.ok()?;
+        unsafe { cm.QueryContextMenu(menu, 0, FIRST_ID, LAST_ID, flags) }.ok()?;
         let mut pt = POINT::default();
         unsafe { GetCursorPos(&mut pt) }?;
 
@@ -151,9 +96,6 @@ fn run_menu(owner: HWND, cm: &IContextMenu, dir: &str, extra: u32, app: &[AppIte
         }
 
         let id = picked.0 as u32;
-        if id >= APP_FIRST_ID {
-            return Ok(keys.get((id - APP_FIRST_ID) as usize).map(|k| MenuPick::App(k.clone())).unwrap_or(MenuPick::None));
-        }
         if id < FIRST_ID {
             return Ok(MenuPick::None);
         }
