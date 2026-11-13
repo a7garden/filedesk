@@ -54,14 +54,14 @@ export default function IndexSettings({ current }: { current: string }) {
     <>
       <p className="muted set-note">
         「모든 드라이브」 찾기 · 스마트 폴더가 쓴다. 파일 이름 · 크기 · 때를 담고, 문서(hwpx · docx · pptx · xlsx · pdf · txt · md)는 본문도 담는다.
-        색인은 이 PC 안에만 있고 지워도 다시 만든다. NAS · 네트워크 드라이브는 담지 않는다 — 누를 때 그 자리에서 훑는다.
+        색인은 이 PC 안에만 있고 지워도 다시 만든다. NAS · 네트워크 드라이브는 담지 않는다. 누를 때 그 자리에서 훑는다.
       </p>
       <div className="set-line">
         <span className="set-label">빠른 색인</span>
         <div>
           <div className="set-acts">
             <span className="set-path">
-              {hub == null ? "확인 중…" : svc ? `서비스가 맡는다${old ? " — 앱과 판이 다르다" : ""}` : "앱이 드라이브를 훑어 색인한다"}
+              {hub == null ? "확인 중…" : svc ? `서비스가 맡는다${old ? " (앱과 판이 다르다)" : ""}` : "앱이 드라이브를 훑어 색인한다"}
             </span>
             {hub && !svc && (
               <button
@@ -79,14 +79,14 @@ export default function IndexSettings({ current }: { current: string }) {
               </button>
             )}
             {svc && (
-              <button className="act" disabled={!hub?.bundled || !!busy} onClick={() => run("uninstall", () => api.serviceSetup("uninstall"), "서비스를 지웠다 — 앱이 다시 색인한다")}>
+              <button className="act" disabled={!hub?.bundled || !!busy} onClick={() => run("uninstall", () => api.serviceSetup("uninstall"), "서비스를 지웠다. 앱이 다시 색인한다")}>
                 서비스 지우기
               </button>
             )}
           </div>
           <p className="muted set-hint">
             관리자 권한 서비스가 NTFS 드라이브의 파일 목록(MFT)을 바로 읽어 몇 초 만에 색인하고, 앱이 꺼져 있던 동안 바뀐 것도 정확히 따라간다. 파일 내용은 열지 않는다.
-            설치할 때 Windows 가 관리자 권한을 묻고, 서명하지 않은 서비스라 보안 프로그램이 막을 수 있다 — 막히면 앱이 계속 색인한다.
+            설치할 때 Windows 가 관리자 권한을 묻고, 서명하지 않은 서비스라 보안 프로그램이 막을 수 있다. 막히면 앱이 계속 색인한다.
           </p>
         </div>
       </div>
@@ -118,7 +118,7 @@ export default function IndexSettings({ current }: { current: string }) {
               </tbody>
             </table>
           ) : (
-            <p className="muted set-hint">{hub ? "아직 색인이 없다 — 만드는 중이거나 고정 드라이브가 없다" : ""}</p>
+            <p className="muted set-hint">{hub ? "아직 색인이 없다. 만드는 중이거나 고정 드라이브가 없다" : ""}</p>
           )}
         </div>
       </div>
@@ -144,11 +144,11 @@ export default function IndexSettings({ current }: { current: string }) {
                 </button>
               </div>
               <p className="muted set-hint">
-                뒤에서 천천히 담는다 — pdf 는 한 개에 몇 초가 걸려 맨 뒤에 따로 한다. Windows · Program Files · AppData · 다른 계정 폴더는 담지 않는다.
+                뒤에서 천천히 담는다. pdf 는 한 개에 몇 초가 걸려 맨 뒤에 따로 한다. Windows · Program Files · AppData · 다른 계정 폴더는 담지 않는다.
               </p>
             </>
           ) : (
-            <p className="muted set-hint">본문 색인을 열지 못했다 — 「문서 본문까지」는 그 자리에서 읽는다</p>
+            <p className="muted set-hint">본문 색인을 열지 못했다. 「문서 본문까지」는 그 자리에서 읽는다</p>
           )}
         </div>
       </div>
@@ -160,11 +160,11 @@ export default function IndexSettings({ current }: { current: string }) {
             rows={3}
             value={exclude}
             spellCheck={false}
-            placeholder={"한 줄에 하나 — D:\\임시\nC:\\Users\\나\\OneDrive\\옛 자료"}
+            placeholder={"한 줄에 하나: D:\\임시\nC:\\Users\\나\\OneDrive\\옛 자료"}
             onChange={(e) => setExclude(e.target.value)}
           />
           <div className="set-acts">
-            <button className="act" onClick={() => run("exclude", () => api.indexExclude(exclude.split("\n")), "빼는 폴더를 바꿨다 — 찾기 결과에서 바로 빠진다")}>
+            <button className="act" onClick={() => run("exclude", () => api.indexExclude(exclude.split("\n")), "빼는 폴더를 바꿨다. 찾기 결과에서 바로 빠진다")}>
               저장
             </button>
             <button className="link-btn" onClick={() => setExclude((x) => (x.trim() ? `${x.trim()}\n${current}` : current))} title={current}>
@@ -174,7 +174,7 @@ export default function IndexSettings({ current }: { current: string }) {
         </div>
       </div>
       <div className="set-acts">
-        <button className="act" disabled={!!busy} onClick={() => run("rebuild", () => api.indexRebuild(), "처음부터 다시 만든다 — 그동안은 지난 색인으로 찾는다")}>
+        <button className="act" disabled={!!busy} onClick={() => run("rebuild", () => api.indexRebuild(), "처음부터 다시 만든다. 그동안은 지난 색인으로 찾는다")}>
           다시 만들기
         </button>
         {msg && <span className={msg.warn ? "warn-text" : "muted"}>{msg.text}</span>}

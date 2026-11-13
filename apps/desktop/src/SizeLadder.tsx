@@ -48,7 +48,7 @@ export default function SizeLadder({ view, setView }: { view: ViewPrefs; setView
       className="ladder"
       role="radiogroup"
       aria-label="보기 크기"
-      title="보기 크기 — Ctrl+휠 · Ctrl+= / Ctrl+− · Ctrl+0 은 목록"
+      title="보기 크기: Ctrl+휠 · Ctrl+= / Ctrl+− · Ctrl+0 은 목록"
       onKeyDown={(e) => {
         if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
           e.preventDefault();

@@ -175,7 +175,7 @@ pub fn stale_in_place(g: &DocGroup) -> Vec<String> {
 /// 폴더 `dir` 의 문서 `key` 에서 최신판 자리에 남은 지난 판. 화면의 「지난 판을 이전판으로」와 `fd retire --doc` 이 쓴다.
 pub fn stale_of(dir: &Path, key: &str) -> Result<Vec<String>, String> {
     let groups = group_dir(dir, false);
-    let g = groups.iter().find(|g| g.key == key).ok_or("문서를 찾지 못했다 — 폴더가 바뀌었다")?;
+    let g = groups.iter().find(|g| g.key == key).ok_or("문서를 찾지 못했다. 폴더가 바뀌었다")?;
     Ok(stale_in_place(g))
 }
 

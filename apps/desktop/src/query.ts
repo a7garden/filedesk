@@ -137,6 +137,6 @@ export function sourceLabel(r: { sources: string[]; indexedAt: number; partial: 
   if (s.includes("live")) parts.push("그 자리에서 훑음");
   if (s.includes("content")) parts.push("본문 색인");
   if (s.includes("notes")) parts.push("메모 · 색 표시");
-  if (r.partial) parts.push("일부 — 색인을 만드는 중");
+  if (r.partial) parts.push("일부: 색인을 만드는 중");
   return parts.join(" · ");
 }

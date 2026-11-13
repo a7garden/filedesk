@@ -23,6 +23,10 @@ export type UpdateState = {
   installable: boolean;
   /** 손으로 누른 확인인가 — 「최신 판이다」 · 실패를 보일지 가른다. 자동 확인은 조용히. */
   manual: boolean;
+  /** 손으로 누른 확인이 어디서 왔나 — 설정 카드에서 누른 것은 그 카드가 결과를 보이므로 제목 줄은 따라 띄우지 않는다. */
+  from: "titlebar" | "settings";
+  /** 「나중에」 — 새 판은 그대로 두고 제목 줄 알림만 접었다. 다음 자동 확인에서 다시 보인다. 설정 카드는 늘 보인다. */
+  dismissed: boolean;
 };
 
 /** 릴리즈 페이지. 설치본이 아니면 여기서 받는다. */
@@ -43,6 +47,8 @@ let state: UpdateState = {
   checkedAt: null,
   installable: false,
   manual: false,
+  from: "titlebar",
+  dismissed: false,
 };
 let nextAt = 0;
 let fails = 0;
@@ -67,16 +73,16 @@ export function useUpdateState(): UpdateState {
 const retryAfterMs = (n: number) => Math.min(5 * 2 ** (Math.max(n, 1) - 1), 60) * 60_000;
 
 /** 새 판 확인. `manual` 이면 확인 중 · 최신 · 실패를 화면에 보이고, 아니면 실패해도 조용히 넘어간다. */
-export async function checkUpdate(manual: boolean): Promise<void> {
+export async function checkUpdate(manual: boolean, from: UpdateState["from"] = "titlebar"): Promise<void> {
   if (state.phase === "checking" || state.phase === "downloading") return;
-  // 자동 확인이 이미 받아 둔 새 판을 다시 묻느라 지우지 않는다 — 사용자가 보던 판과 다른 판이 깔리지 않게.
-  if (!manual && state.phase === "available") return;
-  if (manual) set({ phase: "checking", error: "", manual: true });
+  // 자동 확인이 이미 받아 둔 새 판을 다시 묻느라 지우지 않는다 — 사용자가 보던 판과 다른 판이 깔리지 않게. 접어 둔 알림만 다시 편다.
+  if (!manual && state.phase === "available") return set({ dismissed: false });
+  if (manual) set({ phase: "checking", error: "", manual: true, from });
   try {
     const update = await check();
     fails = 0;
     nextAt = Date.now() + CHECK_EVERY_MS;
-    set({ phase: update ? "available" : manual ? "latest" : "idle", update, error: "", checkedAt: Date.now(), manual });
+    set({ phase: update ? "available" : manual ? "latest" : "idle", update, error: "", checkedAt: Date.now(), manual, dismissed: false });
   } catch (e) {
     fails += 1;
     nextAt = Date.now() + retryAfterMs(fails);
@@ -102,9 +108,14 @@ export async function installUpdate(): Promise<void> {
   }
 }
 
-/** 알림을 접는다 (「나중에」). 다음 자동 확인에서 다시 보인다. */
+/** 제목 줄 알림을 접는다 (「나중에」). 새 판은 그대로 — 설정 「업데이트」에서 언제든 설치하고, 다음 자동 확인에서 알림이 다시 선다. */
 export function dismissUpdate() {
-  set({ phase: "idle", manual: false });
+  set({ dismissed: true, manual: false });
+}
+
+/** 손으로 확인한 결과(최신 · 실패)를 거둔다 — 제목 줄의 잠깐 알림이 사라질 때. */
+export function clearCheckResult() {
+  if (state.phase === "latest" || state.phase === "error") set({ phase: "idle", manual: false });
 }
 
 export function openReleases() {

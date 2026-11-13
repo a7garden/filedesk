@@ -145,7 +145,7 @@ export default function Sidebar(props: Props) {
     api
       .dirsOf([path])
       .then(([ok]) => {
-        if (!ok) return setAddState({ busy: false, err: "열 수 없다 — 주소와 연결 상태를 확인한다" });
+        if (!ok) return setAddState({ busy: false, err: "열 수 없다. 주소와 연결 상태를 확인한다" });
         onAddLinks([path]);
         setAddr("");
         setAddState({ busy: false, err: "" });
@@ -221,14 +221,14 @@ export default function Sidebar(props: Props) {
 
       {view.links && (
         <section>
-          <h2 className="side-head" data-drop={LINK_DROP} title="NAS · 공유 폴더처럼 드라이브 문자 없이 가는 자리 — 폴더를 여기로 끌어다 놓아도 더한다">
+          <h2 className="side-head" data-drop={LINK_DROP} title="NAS · 공유 폴더처럼 드라이브 문자 없이 가는 자리: 폴더를 여기로 끌어다 놓아도 더한다">
             연결
           </h2>
           {[...hosts].map(([host, ls]) => {
             const down = ls.every((l) => offline?.has(norm(l.path)));
             return (
               <div key={host} className="link-host">
-                <div className={"link-server" + (down ? " off" : "")} title={down ? "열 수 없다 — 꺼졌거나 연결이 끊겼다" : undefined}>
+                <div className={"link-server" + (down ? " off" : "")} title={down ? "열 수 없다. 꺼졌거나 연결이 끊겼다" : undefined}>
                   <PlaceGlyph kind="net" size={14} />
                   <span>{host}</span>
                   {down && <em>끊김</em>}
@@ -240,7 +240,7 @@ export default function Sidebar(props: Props) {
                       <li key={l.path} className="side-row">
                         <button
                           className={"nav-item link-share" + (norm(l.path) === here ? " current" : "") + (off ? " off" : "")}
-                          title={`${l.path}${off ? "\n열 수 없다 — 꺼졌거나 연결이 끊겼다" : ""}\n가운데 단추 · Ctrl: 새 탭`}
+                          title={`${l.path}${off ? "\n열 수 없다. 꺼졌거나 연결이 끊겼다" : ""}\n가운데 단추 · Ctrl: 새 탭`}
                           {...nav(l.path)}
                         >
                           <span>{shareOf(l.path) ?? l.name}</span>
@@ -268,7 +268,7 @@ export default function Sidebar(props: Props) {
             <input
               value={addr}
               placeholder={links.length ? "\\\\서버\\공유 더하기" : "\\\\서버\\공유 적기 · 폴더 끌어 놓기"}
-              aria-label="연결할 주소 — Enter 로 더한다"
+              aria-label="연결할 주소: Enter 로 더한다"
               spellCheck={false}
               disabled={addState.busy}
               onChange={(e) => {
@@ -305,7 +305,7 @@ export default function Sidebar(props: Props) {
                 className={`tag-key tag-${c}` + (n ? " used" : "")}
                 data-drop={TAG_DROP + c}
                 aria-label={`${TAG_LABEL[c]} ${n}개`}
-                title={n ? `${TAG_LABEL[c]} ${n}개 — 모든 폴더에서 모아 보기 (Alt+${i + 1} 로 단다)` : `${TAG_LABEL[c]} — 아직 단 것이 없다 (Alt+${i + 1} 로 단다)`}
+                title={n ? `${TAG_LABEL[c]} ${n}개: 모든 폴더에서 모아 보기 (Alt+${i + 1} 로 단다)` : `${TAG_LABEL[c]}: 아직 단 것이 없다 (Alt+${i + 1} 로 단다)`}
                 onClick={() => n && window.dispatchEvent(new CustomEvent("fd:tagged", { detail: c }))}
               >
                 <span className="tag-key-dot" />
@@ -318,7 +318,7 @@ export default function Sidebar(props: Props) {
 
       {view.recent && (
         <section className="smart-section">
-          <h2 className="side-head" title="조건에 이름을 붙여 둔 것 — 누르면 지금 칸에 모아 보인다 · 찾기 칸의 「스마트 폴더로 저장」으로 만든다 · 설정 › 보기에서 끈다">
+          <h2 className="side-head" title="조건에 이름을 붙여 둔 것: 누르면 지금 칸에 모아 보인다 · 찾기 칸의 「스마트 폴더로 저장」으로 만든다 · 설정 › 보기에서 끈다">
             스마트 폴더
             <button className="side-add" aria-label="새 스마트 폴더" title="새 스마트 폴더" onClick={onNewSmart}>
               ＋
@@ -358,7 +358,7 @@ export default function Sidebar(props: Props) {
       )}
 
       <div className="side-foot">
-        <button className="settings-btn" aria-expanded={settingsOpen} title="설정 — 보기 · 종류 · 화면 색 · Claude 스킬 (Ctrl+,)" onClick={onSettings}>
+        <button className="settings-btn" aria-expanded={settingsOpen} title="설정: 보기 · 종류 · 화면 색 · Claude 스킬 (Ctrl+,)" onClick={onSettings}>
           설정
         </button>
       </div>
@@ -414,7 +414,7 @@ function shareOf(path: string): string | null {
 /** 색인 상태 한 줄 — 「색인 · 파일 128만 개 · 방금」 · 「색인을 만드는 중」. */
 function indexLine(h: HubStatus): string {
   const vs = h.index.volumes;
-  if (!vs.length) return "색인 없음 — 그 자리에서 훑는다";
+  if (!vs.length) return "색인 없음: 그 자리에서 훑는다";
   const files = vs.reduce((n, v) => n + v.files, 0);
   const building = vs.some((v) => v.state === "building" || v.state === "rebuild");
   const oldest = Math.min(...vs.map((v) => v.updated || Date.now()));
@@ -424,7 +424,7 @@ function indexLine(h: HubStatus): string {
 
 function indexTitle(h: HubStatus): string {
   const lines = h.index.volumes.map((v) => `${v.root} ${v.method === "ntfs" ? "MFT" : "훑기"} · ${v.files.toLocaleString("ko-KR")}개 · ${v.state === "ready" ? ago(v.updated) : "만드는 중"}${v.note ? ` · ${v.note}` : ""}`);
-  lines.push(h.index.service ? "빠른 색인 서비스가 맡는다" : "앱이 색인한다 — 설정 › 색인에서 빠른 색인 서비스를 깔 수 있다");
+  lines.push(h.index.service ? "빠른 색인 서비스가 맡는다" : "앱이 색인한다. 설정 › 색인에서 빠른 색인 서비스를 깔 수 있다");
   if (h.content) lines.push(`문서 본문 ${h.content.indexed.toLocaleString("ko-KR")}개${h.content.queued ? ` · 남은 것 ${h.content.queued.toLocaleString("ko-KR")}` : ""}`);
   return lines.join("\n");
 }

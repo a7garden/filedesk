@@ -100,7 +100,7 @@ impl Engine {
                     s.files = v.len() as u64;
                     s.updated = v.updated;
                     s.state = "ready".into();
-                    s.note = "지난번 색인 — 다시 맞추는 중".into();
+                    s.note = "지난번 색인: 다시 맞추는 중".into();
                 });
                 self.put(v);
             }

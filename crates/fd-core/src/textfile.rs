@@ -81,7 +81,7 @@ pub fn read(path: &Path) -> Result<TextFile, String> {
         }
         tries += 1;
         if tries >= 3 {
-            return Err("파일이 계속 바뀌고 있어 읽지 못했다 — 잠시 뒤 다시 연다".into());
+            return Err("파일이 계속 바뀌고 있어 읽지 못했다. 잠시 뒤 다시 연다".into());
         }
     };
     let (text, encoding) = decode(&bytes)?;
@@ -153,7 +153,7 @@ fn replace_in_place(path: &Path, bytes: &[u8]) -> Result<(), String> {
     });
     if let Err(e) = staged {
         let _ = std::fs::remove_file(&tmp);
-        return Err(format!("저장할 자리를 만들지 못했다 — {e}"));
+        return Err(format!("저장할 자리를 만들지 못했다. {e}"));
     }
     // 여는 데서 실패하면(읽기 전용 · 다른 프로그램이 잠금) 원본은 손대지 않은 것이니 임시 파일을 치운다
     let mut out = match std::fs::OpenOptions::new().write(true).truncate(true).open(path) {
@@ -164,7 +164,7 @@ fn replace_in_place(path: &Path, bytes: &[u8]) -> Result<(), String> {
         }
     };
     if let Err(e) = out.write_all(bytes).and_then(|_| out.sync_all()) {
-        return Err(format!("원본을 덮다가 멈췄다 ({e}) — 고친 내용은 {} 에 온전히 남아 있다", tmp.display()));
+        return Err(format!("원본을 덮다가 멈췄다 ({e}): 고친 내용은 {} 에 온전히 남아 있다", tmp.display()));
     }
     drop(out);
     let _ = std::fs::remove_file(&tmp);

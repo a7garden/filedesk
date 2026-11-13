@@ -69,7 +69,7 @@ export default function Viewer(p: Props) {
   );
 
   const close = () =>
-    void flush.current().then((ok) => (ok ? p.onClose() : setNote("다른 곳에서 고친 것과 겹친다 — 아래에서 다시 읽을지 덮어쓸지 먼저 고른다")));
+    void flush.current().then((ok) => (ok ? p.onClose() : setNote("다른 곳에서 고친 것과 겹친다. 아래에서 다시 읽을지 덮어쓸지 먼저 고른다")));
   const external = () => void flush.current().then(() => api.openItem(p.target.path).catch(fail));
 
   /** 마크다운 속 링크 — 웹 주소는 브라우저로, 앱 안에서 볼 파일은 여기서, 나머지는 기본 앱으로. */
@@ -78,10 +78,10 @@ export default function Viewer(p: Props) {
     const path = localPath(href, p.target.path);
     if (!path) return;
     // 실행되는 파일 · 다른 서버의 경로는 링크로 열지 않는다 — 받은 문서 하나로 프로그램이 돌거나 로그인 정보가 남의 서버로 가지 않게 (2026.11.11 리뷰)
-    if (runnable(path)) return setNote(`실행 파일 링크는 열지 않는다 — 필요하면 목록에서 직접 연다: ${path}`);
-    if (foreignShare(path, p.target.path)) return setNote(`다른 서버의 경로는 링크로 열지 않는다 — 필요하면 주소 줄에 넣어 연다: ${path}`);
+    if (runnable(path)) return setNote(`실행 파일 링크는 열지 않는다. 필요하면 목록에서 직접 연다: ${path}`);
+    if (foreignShare(path, p.target.path)) return setNote(`다른 서버의 경로는 링크로 열지 않는다. 필요하면 주소 줄에 넣어 연다: ${path}`);
     if (viewKind(path.split(".").pop() ?? ""))
-      void flush.current().then((ok) => (ok ? p.onPick(targetOf(path)) : setNote("다른 곳에서 고친 것과 겹친다 — 먼저 다시 읽을지 덮어쓸지 고른다")));
+      void flush.current().then((ok) => (ok ? p.onPick(targetOf(path)) : setNote("다른 곳에서 고친 것과 겹친다. 먼저 다시 읽을지 덮어쓸지 고른다")));
     else api.openItem(path).catch(fail);
   };
 
@@ -280,7 +280,7 @@ function TextView(p: {
   if (status === "error" && !file)
     return (
       <div className="viewer-empty">
-        <p>앱 안에서 열 수 없다 — {err}</p>
+        <p>앱 안에서 열 수 없다. {err}</p>
       </div>
     );
   if (!file) return <div className="viewer-empty" />;
@@ -300,12 +300,12 @@ function TextView(p: {
       )}
       {file.mixed && (
         <div className="viewer-bar" role="note">
-          <span>줄바꿈 방식(CRLF · LF)이 섞인 파일이라 읽기만 한다 — 여기서 고치면 다른 줄의 줄바꿈까지 바뀐다. 고치려면 「기본 앱으로 열기」.</span>
+          <span>줄바꿈 방식(CRLF · LF)이 섞인 파일이라 읽기만 한다. 여기서 고치면 다른 줄의 줄바꿈까지 바뀐다. 고치려면 「기본 앱으로 열기」.</span>
         </div>
       )}
       {status === "error" && (
         <div className="viewer-bar warn" role="alert">
-          <span>저장하지 못했다 — {err}</span>
+          <span>저장하지 못했다. {err}</span>
           {/* 강제(force)로 쓰지 않는다 — 실패한 사이 다른 곳에서 고쳤으면 다시 묻게 (2026.11.11 리뷰) */}
           <button className="act" onClick={() => void save()}>
             다시 저장

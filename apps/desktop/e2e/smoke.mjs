@@ -417,6 +417,17 @@ try {
     check("끌어서 바닥 줄로 오면 독이 열린다", await until(() => page.locator(".dock.open").count().then((c) => c === 1), 2000));
     await emit("tauri://drag-leave", 0, 0);
     check("끌기를 거두면 닫힌다", await until(() => page.locator(".dock.open").count().then((c) => c === 0), 2000));
+    // 앱 안에서 줄을 끄는 동안은 Rust 끌기 소스가 자리를 fd:drag-at 으로 보낸다 (Tauri 알림은 끌기가 끝날 때까지 묶인다 — 2026.11.13)
+    const at = (d) => page.evaluate((d) => window.dispatchEvent(new CustomEvent("fd:drag-at", { detail: d })), d);
+    await at({ x: Math.round((foot.x + 40) * dpr), y: Math.round((foot.y + foot.height / 2) * dpr) });
+    check("앱 안 끌기 — 바닥 줄로 오면 독이 열린다", await until(() => page.locator(".dock.open").count().then((c) => c === 1), 2000));
+    await at(null);
+    // 끝난 뒤 묶여 있던 지난 알림(들어옴 · 화면 좌표)이 와도 독을 접지 않는다 — 놓기 · 떠남만 받는다
+    await emit("tauri://drag-enter", 1, 1);
+    await sleep(300);
+    check("끝난 뒤 늦게 온 지난 알림은 무시한다", (await page.locator(".dock.open").count()) === 1);
+    await emit("tauri://drag-leave", 0, 0);
+    check("떠남이 오면 접는다", await until(() => page.locator(".dock.open").count().then((c) => c === 0), 2000));
   }
   await focused.locator(".row", { hasText: "하위" }).first().dblclick();
   check(
@@ -493,6 +504,10 @@ try {
   check("설정은 보기부터", (await page.locator(".set-nav button[aria-current]").textContent()) === "보기");
   check("앱 판은 설정 안에만", /v\d+\.\d+\.\d+/.test((await page.locator(".set-ver").textContent()) ?? "") && (await page.locator(".side-foot").textContent())?.trim() === "설정");
   check("고르기는 라디오", (await page.locator('.settings .pick input[type="radio"]').count()) >= 6);
+  // 2026.11.13 : 설정에서 확인부터 설치까지 — 판 표시를 누르면 「업데이트」 구획의 업데이트 카드
+  await page.locator(".set-ver").click();
+  check("판 표시를 누르면 업데이트 카드", await until(() => page.locator("#set-update .uc .uc-ver-n").textContent().then((t) => /v\d+\.\d+\.\d+/.test(t ?? ""))));
+  check("카드에서 바로 확인한다", (await page.locator("#set-update .uc .act", { hasText: "업데이트 확인" }).count()) + (await page.locator("#set-update .uc-new").count()) >= 1);
   await page.locator(".set-nav button", { hasText: "Claude 스킬" }).click();
   check("Claude 스킬 상태", await until(async () => /설치/.test((await page.locator(".settings").textContent()) ?? "")));
   await page.screenshot({ path: join(SHOTS, "13_설정.png") });

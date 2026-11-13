@@ -23,7 +23,8 @@ import { api, iconUrl, type ColKey, type Entry, type SkillStatus, type Theme, ty
 import { FileGlyph, FolderGlyph } from "./glyphs";
 import IndexSettings from "./IndexSettings";
 import SizeLadder from "./SizeLadder";
-import { checkUpdate } from "./updater";
+import UpdateCard from "./UpdateCard";
+import { useUpdateState } from "./updater";
 import { DEFAULT_KINDS, errText, formatSize, KIND_PALETTE, type KindDef, parseExts, relDate, type SortKey } from "./util";
 
 type Props = {
@@ -50,6 +51,7 @@ const SECTIONS = [
   { id: "kinds", label: "종류" },
   { id: "index", label: "색인" },
   { id: "skill", label: "Claude 스킬" },
+  { id: "update", label: "업데이트" },
 ] as const;
 type SectionId = (typeof SECTIONS)[number]["id"];
 
@@ -74,6 +76,7 @@ export default function SettingsPanel(props: Props) {
   const [skill, setSkill] = useState<SkillStatus | null>(null);
   const [skillMsg, setSkillMsg] = useState("");
   const [version, setVersion] = useState("");
+  const upd = useUpdateState();
   /** 아이콘 팩 폴더에서 찾은 그림 — 이름 → 경로. */
   const [packMap, setPackMap] = useState<Record<string, string> | null>(null);
   const [packErr, setPackErr] = useState("");
@@ -134,7 +137,7 @@ export default function SettingsPanel(props: Props) {
       .installSkill()
       .then((s) => {
         setSkill(s);
-        setSkillMsg("설치했다 — Claude Code 를 새로 열면 「filedesk」 스킬이 보인다");
+        setSkillMsg("설치했다. Claude Code 를 새로 열면 「filedesk」 스킬이 보인다");
       })
       .catch((e) => setSkillMsg(errText(e)));
   };
@@ -194,12 +197,11 @@ export default function SettingsPanel(props: Props) {
               {s.label}
             </button>
           ))}
-          <div className="set-ver">
+          {/* 판 표시 — 누르면 「업데이트」 구획. 새 판이 있으면 점과 새 판 번호 */}
+          <button className={"set-ver" + (upd.update && (upd.phase === "available" || upd.phase === "downloading") ? " has-new" : "")} onClick={() => jump("update")}>
             <span>filedesk {version && `v${version}`}</span>
-            <button className="act" onClick={() => checkUpdate(true)}>
-              업데이트 확인
-            </button>
-          </div>
+            {upd.update && (upd.phase === "available" || upd.phase === "downloading") && <span className="set-ver-new">새 버전 {upd.update.version}</span>}
+          </button>
         </nav>
         <div className="set-body" ref={body}>
           <button className="set-close" aria-label="설정 닫기" title="닫기 (Esc)" onClick={onClose}>
@@ -379,9 +381,9 @@ export default function SettingsPanel(props: Props) {
             <div className="icon-pick" role="radiogroup" aria-label="아이콘">
               {(
                 [
-                  ["shell", "Windows", "탐색기와 같은 그림 — 깔린 프로그램을 따른다"],
-                  ["filedesk", "filedesk", "형식마다 그린 그림 — 깔린 프로그램과 상관없이 같다"],
-                  ["pack", "아이콘 팩", "고른 폴더의 그림 — 없는 것은 filedesk 그림"],
+                  ["shell", "Windows", "탐색기와 같은 그림: 깔린 프로그램을 따른다"],
+                  ["filedesk", "filedesk", "형식마다 그린 그림: 깔린 프로그램과 상관없이 같다"],
+                  ["pack", "아이콘 팩", "고른 폴더의 그림: 없는 것은 filedesk 그림"],
                 ] as [ViewPrefs["icons"], string, string][]
               ).map(([m, l, hint]) => (
                 <button key={m} role="radio" aria-checked={view.icons === m} className={"icon-row" + (view.icons === m ? " on" : "")} onClick={() => setView((v) => ({ ...v, icons: m }))}>
@@ -410,7 +412,7 @@ export default function SettingsPanel(props: Props) {
                 <p className="muted set-note">
                   폴더에 그림(svg · png · ico · webp)을 두고 이름을 확장자(<code>pdf.svg</code>) · 종류(<code>doc.png</code>) · <code>folder</code> · <code>file</code> 로 짓는다.
                   확장자 → 종류 → file 차례로 찾는다.
-                  {packMap && ` 찾은 그림 ${Object.keys(packMap).length}개${Object.keys(packMap).length ? ` — ${Object.keys(packMap).sort().slice(0, 12).join(" · ")}${Object.keys(packMap).length > 12 ? " …" : ""}` : ""}`}
+                  {packMap && ` 찾은 그림 ${Object.keys(packMap).length}개${Object.keys(packMap).length ? `: ${Object.keys(packMap).sort().slice(0, 12).join(" · ")}${Object.keys(packMap).length > 12 ? " …" : ""}` : ""}`}
                 </p>
               </div>
             )}
@@ -437,7 +439,7 @@ export default function SettingsPanel(props: Props) {
                   ? "확인 중…"
                   : skill.installed
                     ? skillOld
-                      ? `설치됨 (${skill.installed}) — 앱은 ${skill.current}. 다시 설치하면 새 명령이 들어간다`
+                      ? `설치됨 (${skill.installed}): 앱은 ${skill.current}. 다시 설치하면 새 명령이 들어간다`
                       : `설치됨 (${skill.installed})`
                     : "설치 안 됨"}
               </span>
@@ -453,6 +455,12 @@ export default function SettingsPanel(props: Props) {
             </div>
             {skillMsg && <p className="set-note">{skillMsg}</p>}
             {skill?.file && <p className="muted set-note">자리: {skill.file}</p>}
+          </section>
+
+          {/* 2026.11.13 : 확인만 하던 설정에서 바로 설치까지 — 제목 줄 알림과 같은 업데이트 카드 */}
+          <section id="set-update" aria-labelledby="h-update">
+            <h3 id="h-update">업데이트</h3>
+            <UpdateCard version={version} />
           </section>
         </div>
       </div>
@@ -572,7 +580,7 @@ function KindsEditor({ kinds, set }: { kinds: KindDef[]; set: (k: KindDef[]) => 
                     key={x}
                     className={"ext-chip" + (lost ? " lost" : "") + (drag?.on && drag.ext === x && drag.from === k.id ? " lifted" : "")}
                     style={{ ["--kc" as string]: k.color }}
-                    title={lost ? `${x} — 위 종류에 이미 있어 여기서는 쓰이지 않는다` : `${x} — 끌어서 다른 종류로`}
+                    title={lost ? `${x}: 위 종류에 이미 있어 여기서는 쓰이지 않는다` : `${x}: 끌어서 다른 종류로`}
                     onMouseDown={(e) => {
                       if (e.button === 0 && !(e.target as HTMLElement).closest("button")) setDrag({ ext: x, from: k.id, x: e.clientX, y: e.clientY, on: false, over: null });
                     }}
@@ -602,13 +610,13 @@ function KindsEditor({ kinds, set }: { kinds: KindDef[]; set: (k: KindDef[]) => 
               />
             </div>
             <span className="kind-edit-acts">
-              <button className="icon-btn" aria-label="위로" title="위로 — 확장자가 겹치면 위 종류가 갖는다" disabled={i === 0} onClick={() => move(i, -1)}>
+              <button className="icon-btn" aria-label="위로" title="위로: 확장자가 겹치면 위 종류가 갖는다" disabled={i === 0} onClick={() => move(i, -1)}>
                 ↑
               </button>
               <button className="icon-btn" aria-label="아래로" title="아래로" disabled={i === kinds.length - 1} onClick={() => move(i, 1)}>
                 ↓
               </button>
-              <button className="icon-btn" aria-label={`${k.label} 빼기`} title="종류 빼기 — 이 확장자들은 「기타」가 된다" onClick={() => set(kinds.filter((_, j) => j !== i))}>
+              <button className="icon-btn" aria-label={`${k.label} 빼기`} title="종류 빼기: 이 확장자들은 「기타」가 된다" onClick={() => set(kinds.filter((_, j) => j !== i))}>
                 ×
               </button>
             </span>

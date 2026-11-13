@@ -190,13 +190,13 @@ impl QuerySpec {
     fn apply(&mut self, key: Key, v: &str, clock: Clock) -> Result<String, String> {
         match key {
             Key::When => {
-                let (after, before, label) = parse_when(v, clock).ok_or_else(|| format!("고친 날 「{v}」을 모른다 — 오늘 · 3일 · <7일 · >30일 · 2026-11-01 · 2026-11-01..2026-11-10"))?;
+                let (after, before, label) = parse_when(v, clock).ok_or_else(|| format!("고친 날 「{v}」을 모른다. 오늘 · 3일 · <7일 · >30일 · 2026-11-01 · 2026-11-01..2026-11-10"))?;
                 self.after = after;
                 self.before = before;
                 Ok(label)
             }
             Key::Size => {
-                let (min, max, label) = parse_size(v).ok_or_else(|| format!("크기 「{v}」를 모른다 — >10MB · <1KB · 1MB..1GB"))?;
+                let (min, max, label) = parse_size(v).ok_or_else(|| format!("크기 「{v}」를 모른다. >10MB · <1KB · 1MB..1GB"))?;
                 self.min_size = min;
                 self.max_size = max;
                 Ok(label)
@@ -248,7 +248,7 @@ impl QuerySpec {
                         self.colors.push((*en).to_string());
                         shown.push(format!("{ko} 표시"));
                     } else {
-                        return Err(format!("색 「{x}」를 모른다 — 빨강 · 주황 · 노랑 · 초록 · 파랑 · 보라 · 회색 · 있음"));
+                        return Err(format!("색 「{x}」를 모른다. 빨강 · 주황 · 노랑 · 초록 · 파랑 · 보라 · 회색 · 있음"));
                     }
                 }
                 if shown.is_empty() {
@@ -265,7 +265,7 @@ impl QuerySpec {
                     self.memo = Some(false);
                     Ok("메모 없음".into())
                 }
-                _ => Err(format!("메모 「{v}」를 모른다 — 있음 · 없음 (메모 글로 찾으려면 그냥 낱말로 적는다)")),
+                _ => Err(format!("메모 「{v}」를 모른다. 있음 · 없음 (메모 글로 찾으려면 그냥 낱말로 적는다)")),
             },
         }
     }

@@ -216,7 +216,7 @@ export default function IssueInbox({ docs, dir, onRetire, onRetireAll, onShow, o
                   const fate = f.inHistory ? "이전판" : out ? "→ 이전판" : i === 0 ? "최신판" : "남김";
                   return (
                     <li key={f.path} className={"ix-ed" + (f.inHistory ? " past" : out ? " out" : i === 0 ? " latest" : "")} title={f.path}>
-                      <span className="ix-ver">{ver(f) || "—"}</span>
+                      <span className="ix-ver">{ver(f) || ""}</span>
                       <span className="ix-date">{ymd(f.parsed.date)}</span>
                       <span className="ix-name">{f.name}</span>
                       <span className="ix-fate">{fate}</span>
@@ -245,7 +245,7 @@ export default function IssueInbox({ docs, dir, onRetire, onRetireAll, onShow, o
                 </button>
                 {done > 0 && <span className="ix-done">지난 판 {done}개 옮김</span>}
               </div>
-              {selStale === 0 && <p className="ix-hint">이름 · 판 번호는 앱이 대신 고치지 않는다 — 목록에서 F2 로 이름을 바꾼다.</p>}
+              {selStale === 0 && <p className="ix-hint">이름 · 판 번호는 앱이 대신 고치지 않는다. 목록에서 F2 로 이름을 바꾼다.</p>}
             </>
           )}
         </section>

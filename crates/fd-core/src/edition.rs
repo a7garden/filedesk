@@ -25,8 +25,8 @@ pub enum EditionError {
 impl std::fmt::Display for EditionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            EditionError::NotStandard => f.write_str("이름에 판(v3 · rev3 · 제3판)도 날짜도 없어 새 판 이름을 지을 수 없다 — 이름에 판이나 날짜를 넣은 뒤 다시"),
-            EditionError::SameDay => f.write_str("이름에 판 없이 날짜만 있는데 오늘 날짜다 — 새 판 이름이 지금 이름과 같아진다. 이름에 판(v2)을 넣거나 오늘 판을 그대로 고친다"),
+            EditionError::NotStandard => f.write_str("이름에 판(v3 · rev3 · 제3판)도 날짜도 없어 새 판 이름을 지을 수 없다. 이름에 판이나 날짜를 넣은 뒤 다시"),
+            EditionError::SameDay => f.write_str("이름에 판 없이 날짜만 있는데 오늘 날짜다. 새 판 이름이 지금 이름과 같아진다. 이름에 판(v2)을 넣거나 오늘 판을 그대로 고친다"),
         }
     }
 }
@@ -160,7 +160,7 @@ pub fn plan(path: &std::path::Path, today: &str) -> Result<EditionPlan, String> 
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).ok_or("파일 이름이 없다")?;
     let folder = path.parent().ok_or("상위 폴더가 없다")?.to_path_buf();
     if folder.file_name().is_some_and(|n| is_history_name(&n.to_string_lossy())) {
-        return Err("「이전판」 폴더 안의 파일에서는 새 판을 내지 않는다 — 그 위 폴더의 최신판에서 낸다".into());
+        return Err("「이전판」 폴더 안의 파일에서는 새 판을 내지 않는다. 그 위 폴더의 최신판에서 낸다".into());
     }
     if !path.is_file() {
         return Err(format!("{}: 파일이 없다", path.display()));
@@ -217,9 +217,9 @@ fn same_day_note(folder: &std::path::Path, key: &str, today: &str) -> Option<Str
     let one_a_day = eds.len() >= 3 && sorted.len() == eds.len();
     let have = todays.iter().map(|v| if v.is_empty() { "오늘 판".to_string() } else { format!("v{v}") }).collect::<Vec<_>>().join(" · ");
     Some(if one_a_day {
-        format!("오늘 낸 판({have})이 이미 있다 — 이 문서는 지금까지 하루에 한 판이었다. 오늘 판을 그대로 고칠 수도 있다")
+        format!("오늘 낸 판({have})이 이미 있다. 이 문서는 지금까지 하루에 한 판이었다. 오늘 판을 그대로 고칠 수도 있다")
     } else {
-        format!("오늘 낸 판({have})이 이미 있다 — 같은 날 판을 하나 더 올린다")
+        format!("오늘 낸 판({have})이 이미 있다. 같은 날 판을 하나 더 올린다")
     })
 }
 

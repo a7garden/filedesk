@@ -798,21 +798,58 @@ export default function App() {
       el?.classList.add("drop-hover");
       hoverEl.current = el;
     };
+    /** 끄는 중인 자리(창 안 물리 픽셀) — 놓을 자리를 밝히고, 독 가까이면 독을 연다. */
+    const over = (x: number, y: number) => {
+      setHover(at(x, y));
+      // 열린 독 위에 있는 동안은 가장자리에서 멀어져도 닫지 않는다 — 선반 위쪽 줄에 놓으러 가는 길이다
+      // 2026.11.13 : 칸 바닥 줄(.foot) 위도 연다 — 아래 가장자리 64px 만으로는 독 쪽으로 끌고 와도 열리지 않는다는 지적이 있었다
+      //   (나눠 보기에서 위쪽 칸의 바닥 줄은 창 아래 가장자리에서 멀다)
+      const r = window.devicePixelRatio || 1;
+      const raw = document.elementFromPoint(x / r, y / r);
+      peek(window.innerHeight - y / r < DOCK_REACH || !!raw?.closest(".dock, .foot") ? "near" : "far");
+    };
+    // 앱 안에서 시작한 끌기는 Rust 끌기 소스가 커서 자리를 바로 보낸다 (fd-shell drag 머리말).
+    // 2026.11.13 : 그 끌기가 주 스레드를 붙잡은 동안 아래 Tauri 끌기 알림은 대기열에 묶여 놓은 뒤에야 닿았다 — 독이 열리지 않던 까닭.
+    //   끌기가 끝나면(null) 묶여 있던 Tauri 알림이 한꺼번에 몰려온다. 그중 들어옴 · 끄는 중은 지난 자리라 무시하고(들어옴은 화면 좌표라
+    //   독을 잠깐 닫을 수도 있다 — 그 사이 놓기가 독 아래 폴더 줄로 떨어지면 파일이 옮겨진다), 독과 밝힌 자리를 그대로 둔 채 놓기 · 떠남만 받는다.
+    //   놓기 · 떠남이 끝내 오지 않으면(받는 쪽이 없음) 잠시 뒤 거둔다.
+    let appDrag: "on" | "ending" | null = null;
+    let endTimer = 0;
+    const fromApp = (ev: Event) => {
+      const d = (ev as CustomEvent<{ x: number; y: number } | null>).detail;
+      window.clearTimeout(endTimer);
+      if (d) {
+        appDrag = "on";
+        const r = window.devicePixelRatio || 1;
+        // 창 밖(메일 · 탐색기로 끌어 가는 길)이면 독 · 밝힌 자리를 거둔다 — 창 아래로 나간 자리가 「독 가까이」로 셈해지지 않게
+        if (d.x < 0 || d.y < 0 || d.x / r > window.innerWidth || d.y / r > window.innerHeight) {
+          setHover(null);
+          peek(null);
+        } else over(d.x, d.y);
+      } else {
+        appDrag = "ending";
+        endTimer = window.setTimeout(() => {
+          appDrag = null;
+          setHover(null);
+          peek(null);
+        }, 1500);
+      }
+    };
+    window.addEventListener("fd:drag-at", fromApp);
     const un = getCurrentWebview().onDragDropEvent((ev) => {
       const p = ev.payload;
       if (p.type === "over" || p.type === "enter") {
-        setHover(at(p.position.x, p.position.y));
-        // 열린 독 위에 있는 동안은 가장자리에서 멀어져도 닫지 않는다 — 선반 위쪽 줄에 놓으러 가는 길이다
-        // 2026.11.13 : 칸 바닥 줄(.foot) 위도 연다 — 아래 가장자리 64px 만으로는 독 쪽으로 끌고 와도 열리지 않는다는 지적이 있었다
-        //   (나눠 보기에서 위쪽 칸의 바닥 줄은 창 아래 가장자리에서 멀다)
-        const r = window.devicePixelRatio || 1;
-        const raw = document.elementFromPoint(p.position.x / r, p.position.y / r);
-        peek(window.innerHeight - p.position.y / r < DOCK_REACH || !!raw?.closest(".dock, .foot") ? "near" : "far");
+        if (!appDrag) over(p.position.x, p.position.y);
       } else if (p.type === "leave") {
+        appDrag = null;
+        window.clearTimeout(endTimer);
         setHover(null);
         peek(null);
       } else if (p.type === "drop") {
-        const el = at(p.position.x, p.position.y);
+        // 앱 안 끌기면 놓을 자리는 끄는 동안 밝혀 둔 그 자리다 — 지금 화면에서 다시 찾으면 독이 접힌 사이일 수 있다
+        const el = appDrag && hoverEl.current ? hoverEl.current : at(p.position.x, p.position.y);
+        appDrag = null;
+        window.clearTimeout(endTimer);
         setHover(null);
         peek(null);
         const dest = el?.dataset.drop;
@@ -823,7 +860,7 @@ export default function App() {
             .then((dirs) => {
               const ds = p.paths.filter((_, i) => dirs[i]);
               if (ds.length) addLinks(ds);
-              if (ds.length < p.paths.length) setNotice({ text: "「연결」에는 폴더만 둔다 — 파일은 즐겨찾기 독으로", tone: "warn" });
+              if (ds.length < p.paths.length) setNotice({ text: "「연결」에는 폴더만 둔다. 파일은 즐겨찾기 독으로", tone: "warn" });
             })
             .catch((e) => setNotice({ text: errText(e), tone: "warn" }));
           return;
@@ -855,6 +892,8 @@ export default function App() {
       }
     });
     return () => {
+      window.removeEventListener("fd:drag-at", fromApp);
+      window.clearTimeout(endTimer);
       un.then((f) => f());
     };
   }, [pinMany, addLinks]);
@@ -940,13 +979,13 @@ export default function App() {
       ...smartItems,
       cmd("smart:new", "새 스마트 폴더", () => setSmartEdit({ folder: { id: newSmartId(), name: "", q: "", scope: { kind: "all" } }, isNew: true })),
       cmd("tab", "새 탭", () => openTab(active.path), "Ctrl+T"),
-      cmd("split", split ? "나눠 보기 끄기 — 한 칸으로 모으기" : "나눠 보기 — 오른쪽으로 나누기", toggleSplit, "Ctrl+\\"),
+      cmd("split", split ? "나눠 보기 끄기: 한 칸으로 모으기" : "나눠 보기: 오른쪽으로 나누기", toggleSplit, "Ctrl+\\"),
       cmd("hidden", showHidden ? "숨김 파일 감추기" : "숨김 파일 보이기", () => setShowHidden((v) => !v), "Ctrl+H"),
       cmd("settings", "설정", () => setSettingsOpen(true), "Ctrl+,"),
-      ...STEPS.map((l, i) => cmd(`step:${i}`, `보기 — ${l}`, () => setView((v) => atStep(v, i)))),
-      cmd("theme:system", "화면 색 — 시스템", () => setTheme("system")),
-      cmd("theme:light", "화면 색 — 밝게", () => setTheme("light")),
-      cmd("theme:dark", "화면 색 — 어둡게", () => setTheme("dark")),
+      ...STEPS.map((l, i) => cmd(`step:${i}`, `보기: ${l}`, () => setView((v) => atStep(v, i)))),
+      cmd("theme:system", "화면 색: 시스템", () => setTheme("system")),
+      cmd("theme:light", "화면 색: 밝게", () => setTheme("light")),
+      cmd("theme:dark", "화면 색: 어둡게", () => setTheme("dark")),
     ];
   };
   const searchInPane = useCallback((q: string, scope: FindScope) => window.dispatchEvent(new CustomEvent("fd:search", { detail: { q, scope } })), []);

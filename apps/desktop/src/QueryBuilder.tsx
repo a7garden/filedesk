@@ -245,8 +245,11 @@ const CLEAR: Record<Sec, Partial<Form>> = {
   memo: { memo: "any" },
 };
 
-export default function QueryBuilder(p: Props) {
-  const [f, setF] = useState<Form>(() => read(p.initial, p.kinds));
+/** 조건 고르기 — 찾는 말 · 켠 조건 줄 · 「＋」 더하기 · 만들어진 글. 찾기 조건 판과 스마트 폴더 고치기가 같이 쓴다.
+ *  `initial` 글을 읽어 시작하고, 고칠 때마다 `onText` 로 글을 알린다 (처음 그릴 때는 알리지 않는다 — 읽고 다시 쓴 글이 꼴만 달라 보인다).
+ *  처음부터 다시 시작하려면 key 를 바꿔 새로 그린다. */
+export function ConditionForm({ initial, kinds, onText, autoFocus = false, outLabel = "찾기 칸 글" }: { initial: string; kinds: KindDef[]; onText: (text: string) => void; autoFocus?: boolean; outLabel?: string }) {
+  const [f, setF] = useState<Form>(() => read(initial, kinds));
   // 보이는 갈래 — 켠 조건 + 방금 더한 것(종류 · 확장자는 값을 고르기 전에도 줄이 서야 한다)
   const [shown, setShown] = useState<Sec[]>(() => SECS.map((s) => s.id).filter((s) => isOn(f, s)));
   const first = useRef<HTMLInputElement>(null);
@@ -254,37 +257,19 @@ export default function QueryBuilder(p: Props) {
   const text = write(f);
   const set = (patch: Partial<Form>) => setF((cur) => ({ ...cur, ...patch }));
 
-  // 고르는 대로 칸에 넣는다 — 처음 그릴 때는 넣지 않는다 (읽고 다시 쓴 글이 사용자가 친 글과 꼴만 달라 칸이 바뀌어 보인다)
   const opened = useRef(false);
   useEffect(() => {
     if (!opened.current) {
       opened.current = true;
       return;
     }
-    p.onChange(text);
+    onText(text);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 글이 바뀔 때만
   }, [text]);
 
-  const cancel = () => {
-    p.onChange(p.initial);
-    p.onClose();
-  };
-
   useEffect(() => {
-    first.current?.focus();
-    const key = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        cancel();
-      } else if (e.key === "Enter" && !(e.target instanceof HTMLButtonElement)) {
-        e.stopPropagation();
-        p.onClose();
-      }
-    };
-    window.addEventListener("keydown", key, true);
-    return () => window.removeEventListener("keydown", key, true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 연 때 한 번
-  }, []);
+    if (autoFocus) first.current?.focus();
+  }, [autoFocus]);
 
   // 더한 갈래의 첫 손잡이로 초점 — 키보드로 더하고 바로 값을 고르게
   const rowsRef = useRef<HTMLDivElement>(null);
@@ -303,10 +288,6 @@ export default function QueryBuilder(p: Props) {
   const drop = (s: Sec) => {
     set(CLEAR[s]);
     setShown((cur) => cur.filter((x) => x !== s));
-  };
-  const clearAll = () => {
-    setF(blank());
-    setShown([]);
   };
 
   /** 붙은 단추 줄 — 라디오 대신. 지금 값은 눌린 단추 하나. 「상관없음」은 두지 않는다 (줄의 × 가 그 일). */
@@ -400,7 +381,7 @@ export default function QueryBuilder(p: Props) {
         // 종류는 여럿을 함께 — 켜고 끄는 점 단추. 점 색은 목록의 종류 칩과 같다
         return (
           <span className="cs-chips" role="group" aria-label="종류">
-            {p.kinds.map((k) => {
+            {kinds.map((k) => {
               const on = f.kinds.includes(k.label);
               return (
                 <button key={k.id} aria-pressed={on} onClick={() => set({ kinds: on ? f.kinds.filter((x) => x !== k.label) : [...f.kinds, k.label] })}>
@@ -453,65 +434,107 @@ export default function QueryBuilder(p: Props) {
   };
 
   const more = SECS.filter((s) => !shown.includes(s.id));
+  const label = (s: Sec) => SECS.find((x) => x.id === s)!.label;
+
+  return (
+    <div className="cs-form">
+      {/* 찾는 말이 이 판의 주인공 — 가장 크게. 뺄 말은 그 아래 「−」 줄 */}
+      <div className="cs-words">
+        <input ref={first} className="cs-terms" value={f.terms} spellCheck={false} placeholder="찾는 말 (이름 · 메모)" aria-label="찾는 말" onChange={(e) => set({ terms: e.target.value })} />
+        <label className="cs-nots">
+          <span aria-hidden="true">−</span>
+          <input value={f.nots} spellCheck={false} placeholder="뺄 말 (빈칸으로 여럿)" aria-label="뺄 말" onChange={(e) => set({ nots: e.target.value })} />
+        </label>
+      </div>
+
+      <div className="cs-rows" ref={rowsRef}>
+        {shown.map((s) => (
+          <div key={s} className="cs-row" data-sec={s}>
+            <span className="cs-label">{label(s)}</span>
+            <div className="cs-ctl">{control(s)}</div>
+            <button className="cs-x" aria-label={`${label(s)} 조건 빼기`} title="이 조건 빼기" onClick={() => drop(s)}>
+              ×
+            </button>
+          </div>
+        ))}
+        {f.rest.length > 0 && (
+          <div className="cs-row">
+            <span className="cs-label">그 밖</span>
+            <div className="cs-ctl cs-chips">
+              {f.rest.map((r) => (
+                <span key={r} className="cond-chip" title="위 갈래로 담지 못한 조건이라 그대로 둔다">
+                  {r}
+                  <button className="kind-x" aria-label={`「${r}」 떼기`} onClick={() => set({ rest: f.rest.filter((x) => x !== r) })}>
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {more.length > 0 && (
+        <div className="cs-add" role="group" aria-label="조건 더하기">
+          {more.map((s) => (
+            <button key={s.id} onClick={() => add(s.id)}>
+              ＋ {s.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="cs-out" title="찾기 칸에 바로 적어도 같다">
+        <span className="cs-out-label">{outLabel}</span>
+        {text ? <code>{text}</code> : <span className="muted">조건을 더하면 여기 보인다</span>}
+      </div>
+    </div>
+  );
+}
+
+export default function QueryBuilder(p: Props) {
+  const [text, setText] = useState(p.initial);
+  // 「모두 지우기」 — 조건 고르기를 빈 글로 새로 그린다
+  const [seed, setSeed] = useState(0);
+  const [from, setFrom] = useState(p.initial);
+
+  const cancel = () => {
+    p.onChange(p.initial);
+    p.onClose();
+  };
+
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        cancel();
+      } else if (e.key === "Enter" && !(e.target instanceof HTMLButtonElement)) {
+        e.stopPropagation();
+        p.onClose();
+      }
+    };
+    window.addEventListener("keydown", key, true);
+    return () => window.removeEventListener("keydown", key, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 연 때 한 번
+  }, []);
+
+  const changed = (t: string) => {
+    setText(t);
+    p.onChange(t);
+  };
+  const clearAll = () => {
+    setFrom("");
+    setSeed((n) => n + 1);
+    changed("");
+  };
 
   return (
     <div className="set-backdrop sheet" onMouseDown={(e) => e.target === e.currentTarget && p.onClose()}>
       <div className="smart-editor qb cs" role="dialog" aria-modal="true" aria-label="찾기 조건">
         <h3>찾기 조건</h3>
-
-        {/* 찾는 말이 이 판의 주인공 — 가장 크게. 뺄 말은 그 아래 「−」 줄 */}
-        <div className="cs-words">
-          <input ref={first} className="cs-terms" value={f.terms} spellCheck={false} placeholder="찾는 말 — 이름 · 메모" aria-label="찾는 말" onChange={(e) => set({ terms: e.target.value })} />
-          <label className="cs-nots">
-            <span aria-hidden="true">−</span>
-            <input value={f.nots} spellCheck={false} placeholder="뺄 말 (빈칸으로 여럿)" aria-label="뺄 말" onChange={(e) => set({ nots: e.target.value })} />
-          </label>
-        </div>
-
-        <div className="cs-rows" ref={rowsRef}>
-          {shown.map((s) => (
-            <div key={s} className="cs-row" data-sec={s}>
-              <span className="cs-label">{SECS.find((x) => x.id === s)!.label}</span>
-              <div className="cs-ctl">{control(s)}</div>
-              <button className="cs-x" aria-label={`${SECS.find((x) => x.id === s)!.label} 조건 빼기`} title="이 조건 빼기" onClick={() => drop(s)}>
-                ×
-              </button>
-            </div>
-          ))}
-          {f.rest.length > 0 && (
-            <div className="cs-row">
-              <span className="cs-label">그 밖</span>
-              <div className="cs-ctl cs-chips">
-                {f.rest.map((r) => (
-                  <span key={r} className="cond-chip" title="위 갈래로 담지 못한 조건 — 그대로 둔다">
-                    {r}
-                    <button className="kind-x" aria-label={`「${r}」 떼기`} onClick={() => set({ rest: f.rest.filter((x) => x !== r) })}>
-                      ×
-                    </button>
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {more.length > 0 && (
-          <div className="cs-add" role="group" aria-label="조건 더하기">
-            {more.map((s) => (
-              <button key={s.id} onClick={() => add(s.id)}>
-                ＋ {s.label}
-              </button>
-            ))}
-          </div>
-        )}
-
-        <div className="cs-out" title="찾기 칸에 바로 적어도 같다">
-          <span className="cs-out-label">찾기 칸 글</span>
-          {text ? <code>{text}</code> : <span className="muted">조건을 더하면 여기 보인다</span>}
-        </div>
-
+        <ConditionForm key={seed} initial={from} kinds={p.kinds} onText={changed} autoFocus />
         <div className="set-acts smart-acts">
-          <button className="act" onClick={clearAll} disabled={!text}>
+          <button className="act" onClick={clearAll} disabled={!text.trim()}>
             모두 지우기
           </button>
           <span className="grow" />

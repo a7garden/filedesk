@@ -12,3 +12,5 @@ png = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 windows = { workspace = true }
+# 2026.11.13 : 끌기 소스(IDropSource)를 직접 구현한다 — #[implement] 매크로가 windows_core 를 이름으로 찾는다 (drag.rs)
+windows-core = "0.61"

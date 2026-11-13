@@ -3,12 +3,17 @@
 // 볼 곳: 모든 드라이브(색인) · 다운로드와 바탕화면(바로 아래만 — 「최근 파일」) · 고른 폴더(폴더마다 하위 폴더까지 켜고 끈다).
 // NAS · 공유 폴더를 고르면 색인 밖이라 누를 때 그 자리에서 훑는다 (상한 8초 · 2000개).
 // 2026.11.12 : 처음 씀.
+// 2026.11.13 : 다시 지었다 (사용자 요청 · bespoke). 조건이 글자 칸 하나라 문법을 알아야 고쳤고, 볼 곳은 설명 달린 라디오 세 줄이 자리를 먹었다.
+//   · 조건은 찾기 조건 판과 같은 조건 고르기(ConditionForm)로 — 같은 일을 두 곳에서 다른 꼴로 하지 않는다.
+//   · 이름 바로 밑에 「맞는 것 N개」 — 고칠 때마다 결과가 먼저 눈에 든다.
+//   · 볼 곳은 붙은 단추 줄 하나, 고른 쪽의 뜻은 그 밑 한 줄. 고른 폴더는 경로 줄마다 「하위까지」 단추 · ×.
 // 2026.11.12 : 가운데 모달 → 오른쪽 옆판, 바탕을 어둡게 하지 않는다. 있던 스마트 폴더를 고치면 왼쪽 칸이 고친 조건 · 볼 곳으로 바로 다시 모은다 —
 //              모달 아래로 결과가 가려 맞는 「개수」만 보였고 무엇이 걸렸는지는 저장한 뒤에야 알았다. 저장하지 않고 닫으면 원래 조건으로 되돌린다.
 //              새 스마트 폴더는 칸이 이미 그 찾기를 보이고 있어 미리 바꾸지 않는다 (닫으면 찾던 화면이 그대로 남는다).
 import { useEffect, useRef, useState } from "react";
 import { api, type QueryResult, type QuerySpec, type Root, type SmartFolder, type SmartScope } from "./api";
 import { kindTable, RECENT_ID, scopeOf, sourceLabel, tzOffset } from "./query";
+import { ConditionForm } from "./QueryBuilder";
 import { errText, type KindDef } from "./util";
 
 type Props = {
@@ -108,106 +113,101 @@ export default function SmartEditor(p: Props) {
   const canSave = name.trim() && q.trim() && (kind !== "roots" || roots.length > 0);
   const save = () => canSave && p.onSave({ id: p.folder.id, name: name.trim(), q: q.trim(), scope });
 
+  const WHERE: [SmartScope["kind"], string, string][] = [
+    ["all", "모든 드라이브", "고정 드라이브 전체를 색인에서 찾는다. NAS 는 빠진다"],
+    ["inbox", "다운로드 · 바탕화면", "두 폴더 바로 아래만. 받은 파일이 쌓이는 곳"],
+    ["roots", "고른 폴더", "NAS · 공유 폴더는 누를 때 그 자리에서 훑는다"],
+  ];
+  const count = busy
+    ? "세는 중…"
+    : preview
+      ? `맞는 것 ${preview.items.length.toLocaleString("ko-KR")}개${preview.truncated ? " 넘게" : ""}`
+      : q.trim()
+        ? ""
+        : "조건을 고르면 맞는 개수가 여기 보인다";
+
   return (
     <div className="set-backdrop sheet" onMouseDown={(e) => e.target === e.currentTarget && cancel()}>
-      <div className="smart-editor" role="dialog" aria-modal="true" aria-label="스마트 폴더 고치기">
-        <h3>{p.isNew ? "새 스마트 폴더" : "스마트 폴더 고치기"}</h3>
-        <label className="smart-line">
-          <span className="set-label">이름</span>
-          <input ref={nameRef} value={name} placeholder="이번 주 문서" onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && save()} />
-        </label>
-        <label className="smart-line">
-          <span className="set-label">조건</span>
-          <input
-            value={q}
-            spellCheck={false}
-            placeholder="보고 고친:7일 종류:문서 -임시"
-            title="찾는 말과 조건 — 고친:오늘 · 고친:3일 · 고친:>30일 · 크기:>10MB · 확장자:pdf · 종류:문서 · 색:빨강 · 메모:있음 · -뺄말"
-            onChange={(e) => setQ(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && save()}
-          />
-        </label>
-        {(spec?.chips.length || spec?.errors.length) ? (
-          <div className="smart-chips">
-            {spec?.chips.map((c) => (
-              <span key={c.raw} className="cond-chip" title={c.raw}>
-                {c.label}
-              </span>
-            ))}
-            {spec?.terms.map((t) => (
-              <span key={`t:${t}`} className="cond-chip term">
-                「{t}」
-              </span>
-            ))}
-            {spec?.errors.map((e) => (
-              <span key={e} className="cond-chip warn">
-                {e}
-              </span>
-            ))}
-          </div>
-        ) : null}
-        <div className="smart-line top">
-          <span className="set-label">볼 곳</span>
-          <div className="smart-scope" role="radiogroup" aria-label="볼 곳">
-            <label className="pick-opt">
-              <input type="radio" name="smart-scope" checked={kind === "all"} onChange={() => setKind("all")} />
-              <span className="pick-name">모든 드라이브</span>
-              <span className="pick-note">고정 드라이브 전체 — 색인에서 찾는다. NAS 는 빠진다</span>
-            </label>
-            <label className="pick-opt">
-              <input type="radio" name="smart-scope" checked={kind === "inbox"} onChange={() => setKind("inbox")} />
-              <span className="pick-name">다운로드 · 바탕화면</span>
-              <span className="pick-note">두 폴더 바로 아래만 — 받은 파일이 쌓이는 곳</span>
-            </label>
-            <label className="pick-opt">
-              <input type="radio" name="smart-scope" checked={kind === "roots"} onChange={() => setKind("roots")} />
-              <span className="pick-name">고른 폴더</span>
-            </label>
-            {kind === "roots" && (
-              <div className="smart-roots">
-                {roots.map((r, i) => (
-                  <div key={r.path} className="smart-root">
-                    <span className="set-path" title={r.path}>
-                      {r.path}
-                    </span>
-                    <label className="set-check">
-                      <input type="checkbox" checked={r.recursive} onChange={(e) => setRoots((rs) => rs.map((x, j) => (j === i ? { ...x, recursive: e.target.checked } : x)))} />
-                      <span>하위 폴더까지</span>
-                    </label>
-                    <button className="icon-btn" aria-label={`${r.path} 빼기`} onClick={() => setRoots((rs) => rs.filter((_, j) => j !== i))}>
-                      ×
-                    </button>
-                  </div>
-                ))}
-                <div className="smart-root add">
-                  <input value={adding} placeholder="폴더 경로 (D:\work · \\NAS\공유)" spellCheck={false} onChange={(e) => setAdding(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addRoot(adding)} />
-                  <button className="act" onClick={() => addRoot(adding)} disabled={!adding.trim()}>
-                    더하기
-                  </button>
-                  <button className="act" onClick={() => addRoot(p.current)} title={p.current}>
-                    지금 폴더
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-        <p className="muted smart-preview" aria-live="polite">
-          {busy
-            ? "세는 중…"
-            : preview
-              ? `맞는 것 ${preview.items.length.toLocaleString("ko-KR")}개${preview.truncated ? " 넘게" : ""}${sourceLabel(preview) ? ` · ${sourceLabel(preview)}` : ""}`
-              : q.trim()
-                ? ""
-                : "조건을 적으면 맞는 개수를 보인다"}
+      <div className="smart-editor se" role="dialog" aria-modal="true" aria-label={p.isNew ? "새 스마트 폴더" : "스마트 폴더 고치기"}>
+        {/* 이름이 머리 — 이 판의 제목이 곧 스마트 폴더 이름이다. 그 밑에 맞는 개수 */}
+        <input
+          ref={nameRef}
+          className="se-name"
+          value={name}
+          placeholder={p.isNew ? "새 스마트 폴더 이름" : "이름"}
+          aria-label="이름"
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && save()}
+        />
+        <p className="se-count" aria-live="polite">
+          <span className={preview ? "se-count-n" : "muted"}>{count}</span>
+          {preview && sourceLabel(preview) && <span className="muted"> · {sourceLabel(preview)}</span>}
           {err && <span className="warn-text"> {err}</span>}
         </p>
+
+        <section className="se-part" aria-label="볼 곳">
+          <h4>볼 곳</h4>
+          <span className="cs-seg se-where" role="radiogroup" aria-label="볼 곳">
+            {WHERE.map(([k, l]) => (
+              <button key={k} role="radio" aria-checked={kind === k} aria-pressed={kind === k} onClick={() => setKind(k)}>
+                {l}
+              </button>
+            ))}
+          </span>
+          <p className="se-note">{WHERE.find((w) => w[0] === kind)?.[2]}</p>
+          {kind === "roots" && (
+            <ul className="se-roots">
+              {roots.map((r, i) => (
+                <li key={r.path} className="se-root">
+                  <span className="se-path" title={r.path}>
+                    {r.path}
+                  </span>
+                  <button
+                    className="se-deep"
+                    aria-pressed={r.recursive}
+                    title={r.recursive ? "하위 폴더까지 본다 (누르면 이 폴더 바로 아래만)" : "이 폴더 바로 아래만 본다 (누르면 하위 폴더까지)"}
+                    onClick={() => setRoots((rs) => rs.map((x, j) => (j === i ? { ...x, recursive: !x.recursive } : x)))}
+                  >
+                    하위까지
+                  </button>
+                  <button className="cs-x" aria-label={`${r.path} 빼기`} title="빼기" onClick={() => setRoots((rs) => rs.filter((_, j) => j !== i))}>
+                    ×
+                  </button>
+                </li>
+              ))}
+              <li className="se-root add">
+                <input value={adding} placeholder="폴더 경로 (D:\work · \\NAS\공유)" spellCheck={false} aria-label="더할 폴더 경로" onChange={(e) => setAdding(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addRoot(adding)} />
+                <button className="act" onClick={() => addRoot(adding)} disabled={!adding.trim()}>
+                  더하기
+                </button>
+                <button className="act" onClick={() => addRoot(p.current)} title={p.current}>
+                  지금 폴더
+                </button>
+              </li>
+            </ul>
+          )}
+        </section>
+
+        <section className="se-part se-cond" aria-label="조건">
+          <h4>조건</h4>
+          <ConditionForm initial={p.folder.q} kinds={p.kinds} onText={setQ} outLabel="조건 글" />
+          {spec?.errors.length ? (
+            <div className="smart-chips">
+              {spec.errors.map((e) => (
+                <span key={e} className="cond-chip warn">
+                  {e}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </section>
+
         <div className="set-acts smart-acts">
           {!p.isNew && (
             <button
               className="act danger"
               onClick={() => p.onDelete(p.folder.id)}
-              title={p.folder.id === RECENT_ID ? "처음부터 있던 「최근 파일」도 뺄 수 있다 — 다시 만들려면 조건 「고친:3일 종류:파일」 · 다운로드 · 바탕화면" : "왼쪽에서 뺀다 (파일은 그대로)"}
+              title={p.folder.id === RECENT_ID ? "처음부터 있던 「최근 파일」도 뺄 수 있다. 다시 만들려면 조건 「고친:3일 종류:파일」 · 다운로드 · 바탕화면" : "왼쪽에서 뺀다 (파일은 그대로)"}
             >
               빼기
             </button>

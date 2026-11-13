@@ -5,7 +5,8 @@
 //   창 끌기는 `data-tauri-drag-region` 이 붙은 요소 자신을 누를 때만 된다 (자식 단추 · 탭은 제 일을 한다).
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { checkUpdate, dismissUpdate, installUpdate, openReleases, useUpdateState } from "./updater";
+import { checkUpdate, clearCheckResult, useUpdateState } from "./updater";
+import UpdateCard from "./UpdateCard";
 
 const win = getCurrentWindow();
 
@@ -51,16 +52,19 @@ export default function TitleBar({ children }: { children: ReactNode }) {
   );
 }
 
-/** 새 판 알림 — 평소엔 없고, 새 판이 있거나 · 받는 중이거나 · 손으로 확인한 결과가 있을 때만 제목 줄에 선다. 누르면 바뀐 내용과 설치. */
+/** 새 판 알림 — 평소엔 없고, 새 판이 있거나 · 받는 중이거나 · 제목 줄에서 손으로 확인한 결과가 있을 때만 선다. 누르면 업데이트 카드.
+ *  2026.11.13 : 펼침 창을 설정과 같은 업데이트 카드(UpdateCard)로. 설정에서 누른 확인의 결과는 설정 카드가 보이므로 여기 띄우지 않는다.
+ *  「나중에」는 알림만 접는다 — 새 판은 설정 「업데이트」에 남는다. */
 function UpdateChip() {
   const s = useUpdateState();
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
+  const mine = s.manual && s.from === "titlebar";
 
   // 손으로 확인해 「최신 판」이면 잠깐 보이고 사라진다.
   useEffect(() => {
     if (s.phase !== "latest") return;
-    const t = window.setTimeout(dismissUpdate, 4000);
+    const t = window.setTimeout(clearCheckResult, 4000);
     return () => window.clearTimeout(t);
   }, [s.phase]);
 
@@ -76,51 +80,25 @@ function UpdateChip() {
     };
   }, [open]);
 
-  if (s.phase === "checking") return <span className="upd muted">업데이트 확인 중…</span>;
-  if (s.phase === "latest") return <span className="upd muted">최신 버전이다</span>;
-  if (s.phase === "error" && s.manual)
+  if (s.phase === "checking" && mine) return <span className="upd muted">업데이트 확인 중…</span>;
+  if (s.phase === "latest" && mine) return <span className="upd muted">최신 버전이다</span>;
+  if (s.phase === "error" && mine)
     return (
       <button className="upd warn" title={s.error} onClick={() => checkUpdate(true)}>
         업데이트 확인 실패 · 다시
       </button>
     );
-  if (s.phase === "downloading") {
-    const pct = s.progress.total ? Math.round((s.progress.done / s.progress.total) * 100) : null;
-    return <span className="upd">업데이트 받는 중{pct != null ? ` ${pct}%` : "…"}</span>;
-  }
-  if (s.phase !== "available" || !s.update) return null;
-  const u = s.update;
+  const busy = s.phase === "downloading";
+  if (!busy && (s.phase !== "available" || !s.update || s.dismissed)) return null;
+  const pct = s.progress.total ? Math.round((s.progress.done / s.progress.total) * 100) : null;
   return (
     <div className="upd-wrap" ref={box}>
-      <button className="upd new" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        새 버전 {u.version}
+      <button className="upd new" aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen((v) => !v)}>
+        {busy ? `업데이트 받는 중${pct != null ? ` ${pct}%` : "…"}` : `새 버전 ${s.update?.version}`}
       </button>
       {open && (
-        <div className="upd-panel" role="dialog" aria-label={`새 버전 ${u.version}`}>
-          <b>
-            {u.currentVersion} → {u.version}
-          </b>
-          {u.body && <div className="upd-notes">{u.body}</div>}
-          <div className="upd-acts">
-            {s.installable ? (
-              <button className="act primary" onClick={() => installUpdate()} title="받아서 설치하면 앱이 꺼졌다 새 버전으로 다시 켜진다">
-                설치하고 다시 켜기
-              </button>
-            ) : (
-              <button className="act primary" onClick={openReleases} title="설치 파일(setup.exe)로 깐 앱이 아니라 스스로 업데이트하지 못한다 — 릴리스 페이지에서 받는다">
-                릴리스 페이지 열기
-              </button>
-            )}
-            <button
-              className="act"
-              onClick={() => {
-                setOpen(false);
-                dismissUpdate();
-              }}
-            >
-              나중에
-            </button>
-          </div>
+        <div className="upd-panel" role="dialog" aria-label="업데이트">
+          <UpdateCard compact onDone={() => setOpen(false)} />
         </div>
       )}
     </div>

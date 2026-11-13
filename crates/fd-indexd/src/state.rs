@@ -152,7 +152,7 @@ impl State {
             s.updated = v.updated;
             s.state = "ready".into();
             s.usn = usn;
-            s.note = if usn { String::new() } else { "USN 저널 꺼짐 — 바뀐 것은 하루 한 번 다시 읽어 맞춘다".into() };
+            s.note = if usn { String::new() } else { "USN 저널 꺼짐: 바뀐 것은 하루 한 번 다시 읽어 맞춘다".into() };
         });
         Ok(v)
     }

@@ -485,7 +485,7 @@ pub fn content_pause(app: AppHandle, paused: bool) {
 #[tauri::command]
 pub async fn service_setup(app: AppHandle, action: String) -> CmdResult<HubStatus> {
     tauri::async_runtime::spawn_blocking(move || {
-        let exe = bundled_indexd(&app).ok_or("색인 서비스 파일(fd-indexd.exe)이 앱 옆에 없다 — 설치 파일로 깐 앱에서 한다")?;
+        let exe = bundled_indexd(&app).ok_or("색인 서비스 파일(fd-indexd.exe)이 앱 옆에 없다. 설치 파일로 깐 앱에서 한다")?;
         let args = match action.as_str() {
             "install" => {
                 let sid = fd_shell::system::user_sid().ok_or("이 사용자의 SID 를 읽지 못했다")?;
@@ -499,7 +499,7 @@ pub async fn service_setup(app: AppHandle, action: String) -> CmdResult<HubStatu
         let code = fd_shell::system::run_elevated(&exe.to_string_lossy(), &args).map_err(|e| e.to_string())?;
         if code != 0 {
             let what = if action == "uninstall" { "지우지" } else { "설치하지" };
-            return Err(format!("색인 서비스를 {what} 못했다 (끝난 코드 {code}) — %ProgramData%\\filedesk\\service.log 에 까닭이 있다"));
+            return Err(format!("색인 서비스를 {what} 못했다 (끝난 코드 {code}): %ProgramData%\\filedesk\\service.log 에 까닭이 있다"));
         }
         let hub = app.state::<IndexHub>();
         if action == "uninstall" {

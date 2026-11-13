@@ -1301,7 +1301,7 @@ export default function Pane(p: Props) {
             className="kind"
             aria-pressed={isAll(deep?.scope)}
             onClick={() => startDeep(isContent(deep?.scope) ? "allContent" : "all")}
-            title="모든 고정 드라이브 — 색인에서 찾는다 (Alt+Enter). NAS 는 빠진다"
+            title="모든 고정 드라이브: 색인에서 찾는다 (Alt+Enter). NAS 는 빠진다"
           >
             <span className="long">모든 드라이브</span>
             <span className="short">전체</span>
@@ -1311,7 +1311,7 @@ export default function Pane(p: Props) {
             className="kind"
             aria-pressed={isContent(deep?.scope)}
             onClick={toggleContent}
-            title="문서 본문까지 — hwpx · docx · pptx · xlsx · pdf · txt · md (Ctrl+Enter). 하위 폴더 · 모든 드라이브에 더해 켜고 끈다"
+            title="문서 본문까지: hwpx · docx · pptx · xlsx · pdf · txt · md (Ctrl+Enter). 하위 폴더 · 모든 드라이브에 더해 켜고 끈다"
           >
             <span className="long">문서 본문까지</span>
             <span className="short">본문</span>
@@ -1326,8 +1326,8 @@ export default function Pane(p: Props) {
         placeholder={isFind(deep?.scope) ? `${FIND_LABEL[deep!.scope as FindScope]} 찾기` : "찾기"}
         aria-label={isFind(deep?.scope) ? `${FIND_LABEL[deep!.scope as FindScope]} 찾기` : "이 폴더에서 찾기"}
         title={
-          "Ctrl+F — 이 폴더의 이름 · 메모에서 찾는다\nTab · Shift+Tab — 범위 돌리기 (이 폴더 → 하위 폴더까지 → 모든 드라이브)\n" +
-          "Shift+Enter — 하위 폴더까지 · Alt+Enter — 모든 드라이브 · Ctrl+Enter — 문서 본문까지 켜고 끄기\n" +
+          "Ctrl+F: 이 폴더의 이름 · 메모에서 찾는다\nTab · Shift+Tab: 범위 돌리기 (이 폴더 → 하위 폴더까지 → 모든 드라이브)\n" +
+          "Shift+Enter: 하위 폴더까지 · Alt+Enter: 모든 드라이브 · Ctrl+Enter: 문서 본문까지 켜고 끄기\n" +
           "조건: 고친:오늘 · 고친:3일 · 고친:>30일 · 크기:>10MB · 확장자:pdf · 종류:문서 · 색:빨강 · 메모:있음 · -뺄말"
         }
         spellCheck={false}
@@ -1384,7 +1384,7 @@ export default function Pane(p: Props) {
           className="icon-btn qb-btn"
           aria-label="찾기 조건 고르기"
           aria-expanded={qbFrom != null}
-          title="찾기 조건 — 고친 날 · 크기 · 종류 · 색 · 메모를 골라 찾는다"
+          title="찾기 조건: 고친 날 · 크기 · 종류 · 색 · 메모를 골라 찾는다"
           onClick={() => setQbFrom((v) => (v == null ? filter : null))}
         >
           <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
@@ -1415,7 +1415,7 @@ export default function Pane(p: Props) {
   const verButton = (g: DocGroup, label: ReactNode, cls: string) => (
     <button
       className={"ver-btn " + cls}
-      title={`판 ${editionCount(g)}개 — 눌러 판 목록 보기`}
+      title={`판 ${editionCount(g)}개: 눌러 판 목록 보기`}
       onMouseDown={(ev) => ev.stopPropagation()}
       onDoubleClick={(ev) => ev.stopPropagation()}
       onClick={(ev) => {
@@ -1807,10 +1807,10 @@ export default function Pane(p: Props) {
                 .join("\n")}
             >
               {deep.scope === "recent" ? (
-                <>새 파일 — 다운로드 · 바탕화면 · {deep.q}</>
+                <>새 파일: 다운로드 · 바탕화면 · {deep.q}</>
               ) : deep.scope === "tag" ? (
                 <>
-                  <TagDot color={deep.color} /> {deep.q} 표시 — 모든 폴더
+                  <TagDot color={deep.color} /> {deep.q} 표시: 모든 폴더
                 </>
               ) : deep.scope === "smart" ? (
                 // 2026.11.12 : 이름 옆 「고치기」 단추를 걷고 이름 자체를 누르게 한다 — 칩 안에 글자 단추가 또 서면 칩이 둘로 갈라져 보인다.
@@ -1820,10 +1820,10 @@ export default function Pane(p: Props) {
                     title={`${deep.smart.q}\n누르면 이름 · 조건 · 볼 곳을 고친다`}
                     onClick={() => window.dispatchEvent(new CustomEvent("fd:smart-edit", { detail: deep.smart }))}
                   >
-                    스마트 폴더 — {deep.q}
+                    스마트 폴더: {deep.q}
                   </button>
                 ) : (
-                  <>스마트 폴더 — {deep.q}</>
+                  <>스마트 폴더: {deep.q}</>
                 )
               ) : (
                 <>
@@ -1869,7 +1869,7 @@ export default function Pane(p: Props) {
           ))}
           {(!deep || isFind(deep.scope)) && (
             <span className="preset-wrap">
-              <button className="kind" aria-expanded={presetOpen} title="조건 더하기 — 찾기 칸 끝에 붙는다" onClick={() => setPresetOpen((v) => !v)}>
+              <button className="kind" aria-expanded={presetOpen} title="조건 더하기: 찾기 칸 끝에 붙는다" onClick={() => setPresetOpen((v) => !v)}>
                 ＋ 조건
               </button>
               {presetOpen && (
@@ -2078,7 +2078,7 @@ export default function Pane(p: Props) {
                           : isAll(deep.scope)
                             ? "모든 드라이브에서"
                             : "하위 폴더에서"
-                } ${deep.items.length.toLocaleString("ko-KR")}개${deep.truncated ? " (더 있다 — 조건을 더 좁힌다)" : ""}${deep.info ? ` · ${sourceLabel(deep.info)}` : ""}`
+                } ${deep.items.length.toLocaleString("ko-KR")}개${deep.truncated ? " (더 있다. 조건을 더 좁힌다)" : ""}${deep.info ? ` · ${sourceLabel(deep.info)}` : ""}`
             : entries
               ? `${entries.length.toLocaleString("ko-KR")}개`
               : "읽는 중"}
@@ -2217,7 +2217,7 @@ function MemoEditor({ at, initial, onCommit, onCancel }: { at: { x: number; y: n
         ref={ref}
         className="memo-input"
         defaultValue={initial}
-        placeholder="메모 — 비우면 뗀다"
+        placeholder="메모: 비우면 뗀다"
         spellCheck={false}
         aria-label="메모"
         rows={1}

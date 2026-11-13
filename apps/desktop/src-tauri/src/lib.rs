@@ -306,7 +306,14 @@ async fn drop_files(window: WebviewWindow, paths: Vec<String>, dest: String) -> 
 #[tauri::command]
 async fn drag_out(app: AppHandle, window: WebviewWindow, paths: Vec<String>) -> CmdResult<u32> {
     let hwnd = owner(&window)?;
-    on_main(app, move || fd_shell::drag::drag_out(hwnd, &paths).map_err(|e| e.to_string())).await?
+    // 끄는 동안 커서 자리를 화면에 바로 알린다 (fd-shell drag 머리말) — 주 스레드에서 부르는 eval 은 이벤트 루프 대기열을 거치지 않아
+    // 끌기가 주 스레드를 붙잡은 동안에도 닿는다. 화면은 이것으로 독을 열고 놓을 자리를 밝힌다 (App.tsx 「끌어다 놓기 받기」).
+    let w = window.clone();
+    let on_move: fd_shell::drag::OnMove = Box::new(move |at| {
+        let detail = at.map_or("null".to_string(), |(x, y)| format!("{{\"x\":{x},\"y\":{y}}}"));
+        let _ = w.eval(format!("window.dispatchEvent(new CustomEvent('fd:drag-at',{{detail:{detail}}}))"));
+    });
+    on_main(app, move || fd_shell::drag::drag_out(hwnd, &paths, on_move).map_err(|e| e.to_string())).await?
 }
 
 // ───────────────────────────── [6] 폴더 변경 감시 ─────────────────────────────
@@ -574,7 +581,7 @@ fn image_mime(file: &str) -> Option<&'static str> {
 /// 같은 이름이 여러 꼴이면 svg → png → 나머지 차례로 하나만 (선명한 것 먼저).
 #[tauri::command]
 fn icon_pack(dir: String) -> CmdResult<std::collections::HashMap<String, String>> {
-    let rd = std::fs::read_dir(&dir).map_err(|e| format!("{dir} 을 읽지 못했다 — {e}"))?;
+    let rd = std::fs::read_dir(&dir).map_err(|e| format!("{dir} 을 읽지 못했다. {e}"))?;
     let rank = |p: &str| match Path::new(p).extension().map(|e| e.to_string_lossy().to_lowercase()).as_deref() {
         Some("svg") => 0,
         Some("png") => 1,
@@ -634,7 +641,7 @@ fn skill_status() -> SkillStatus {
 
 #[tauri::command]
 fn install_skill() -> CmdResult<SkillStatus> {
-    let fd = fd_exe().ok_or("앱 폴더에 fd.exe 가 없다 — 설치 파일(릴리스의 setup.exe)로 깔아야 함께 깔린다")?;
+    let fd = fd_exe().ok_or("앱 폴더에 fd.exe 가 없다. 설치 파일(릴리스의 setup.exe)로 깔아야 함께 깔린다")?;
     let file = fd_core::skill::default_file().ok_or("USERPROFILE 이 없다")?;
     fd_core::skill::install(&file, &fd)?;
     Ok(skill_status())

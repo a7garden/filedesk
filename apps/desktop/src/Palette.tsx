@@ -106,7 +106,7 @@ export default function Palette({ items, onSearch, onClose }: { items: PaletteIt
           ref={inputRef}
           className="pal-input"
           value={q}
-          placeholder="위치 · 명령 · 색 표시 — 초성으로도 찾는다 (ㅅㄹ → 산림)"
+          placeholder="위치 · 명령 · 색 표시: 초성으로도 찾는다 (ㅅㄹ → 산림)"
           aria-label="찾을 말"
           aria-controls="pal-list"
           aria-activedescendant={shown[at] ? `pal-${shown[at].id}` : undefined}
