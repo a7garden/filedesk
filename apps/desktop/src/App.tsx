@@ -101,6 +101,7 @@ function withDefaults(s: Partial<Settings> | null): Settings {
       folderClick: s?.view?.folderClick === "single" ? "single" : "double",
       sort: validSort(s?.view?.sort),
       dirsFirst: s?.view?.dirsFirst !== false,
+      editions: s?.view?.editions === true,
       foldStart: s?.view?.foldStart !== false,
       dateStyle: s?.view?.dateStyle === "absolute" ? "absolute" : "relative",
       recent: s?.view?.recent !== false,

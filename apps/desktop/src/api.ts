@@ -110,7 +110,8 @@ export const TAG_LABEL: Record<TagColor, string> = { red: "빨강", orange: "주
 export type Found = Entry & { memo?: string; snippet?: string };
 export type SearchResult = { root: string; query: string; items: Found[]; scanned: number; truncated: boolean; cancelled: boolean };
 
-export type SkillStatus = { file: string | null; installed: string | null; current: string; hasCli: boolean };
+export type SkillAgent = { id: string; name: string; file: string; detected: boolean; installed: string | null };
+export type SkillStatus = { agents: SkillAgent[]; current: string; hasCli: boolean };
 export type DocGroup = { key: string; title: string; files: DocFile[]; issues: string[] };
 export type EditionPlan = { newName: string; newPath: string; retire: string[]; history: string };
 
@@ -166,6 +167,10 @@ export type ViewPrefs = {
   sort: Sort;
   /** 폴더를 파일 위에 모은다 (탐색기와 같게). 끄면 고친 날 정렬에서 폴더와 파일이 섞인다. */
   dirsFirst: boolean;
+  /** 판 관리 — 문서의 판을 한 줄로 묶기 · 판 열 · 판 목록 · 새 판 · 문제 문서 처리함. 끄면 탐색기처럼 파일마다 한 줄이다.
+   *  2026.11.16 : 사용자 요청. 판 관리 없이도 쓸 만한 탐색기라 기본은 끈다 — 이름 규칙을 모르는 사람에게 묶인 줄 · 문제 줄이 낯설다.
+   *  지난 설정에 이 값이 없으면 끈 채로 읽는다 (App readSettings). */
+  editions: boolean;
   /** 판을 접은 채 시작한다. Ctrl+Shift+D 로 바꾼 것은 그 탭에서만 간다. */
   foldStart: boolean;
   /** 왼쪽 열에 「스마트 폴더」를 보인다. 2026.11.11 「최근 파일」로 더했고, 2026.11.12 「최근 파일」이 스마트 폴더 하나가 되며 구획 전체를 켜고 끈다
@@ -181,7 +186,7 @@ export type ViewPrefs = {
 };
 export type ColKey = "ver" | "date" | "size";
 export const DEFAULT_VIEW: ViewPrefs = { mode: "list", dense: false, size: 1, icons: "shell", iconPack: "", thumbs: true, hiddenCols: [], kinds: DEFAULT_KINDS, folderClick: "double",
-  sort: { key: "name", asc: true }, dirsFirst: true, foldStart: true, dateStyle: "relative", sizeUnit: "kb", recent: true, links: false };
+  sort: { key: "name", asc: true }, dirsFirst: true, editions: false, foldStart: true, dateStyle: "relative", sizeUnit: "kb", recent: true, links: false };
 
 export type Theme = "system" | "light" | "dark";
 
@@ -232,8 +237,13 @@ export const api = {
   tagged: (color: TagColor | null) => invoke<Entry[]>("tagged", { color }),
   /** 경로마다 폴더인가. */
   dirsOf: (paths: string[]) => invoke<boolean[]>("dirs_of", { paths }),
+  /** 「연결」 칸에 적은 주소를 푼다 — 서버면 공유 목록, 공유 · 폴더면 열리는지 확인한 경로. 로그인이 필요하면 Windows 로그인 창이 뜬다. */
+  netResolve: (input: string) => invoke<{ path: string; shares: string[] | null }>("net_resolve", { input }),
+  /** 이 PC 가 이미 쓰는 네트워크 위치 (네트워크 드라이브 · 탐색기 네트워크 위치 · 탐색기 주소 기록). */
+  netKnown: () => invoke<{ path: string; source: string }[]>("net_known"),
   skillStatus: () => invoke<SkillStatus>("skill_status"),
-  installSkill: () => invoke<SkillStatus>("install_skill"),
+  installSkill: (agent: string) => invoke<SkillStatus>("install_skill", { agent }),
+  removeSkill: (agent: string) => invoke<SkillStatus>("remove_skill", { agent }),
   /** 찾기 칸 글을 조건으로 푼다 (칩 · 틀린 곳). */
   parseQuery: (text: string, kinds: [string, string, string[]][], tzOffsetMin: number) => invoke<QuerySpec>("parse_query", { text, kinds, tzOffsetMin }),
   /** 조건으로 찾는다 — 색인(서비스 · 앱 안) · 그 자리 훑기 · 본문 색인 중 맞는 길로. */

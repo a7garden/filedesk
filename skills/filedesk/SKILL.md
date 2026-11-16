@@ -1,6 +1,6 @@
 ---
 name: filedesk
-description: Windows 에서 파일 · 폴더를 정리할 때 쓴다 — 문서의 판(v1 · v2 · 날짜) 보기, 새 판 내기, 최신판 자리에 남은 지난 판을 이전판 폴더로 옮기기, 파일 · 폴더 메모 읽고 쓰기, 휴지통으로 지우기. 「파일 정리」 「폴더 정리」 「새 판」 「이전판」 「판 정리」 「메모 달아」 「filedesk」 요청 때 쓴다.
+description: Windows 에서 파일을 찾거나 정리할 때 쓴다 — 위치를 모르는 파일을 모든 드라이브 색인에서 이름 · 고친 때 · 크기 · 확장자 · 종류로 바로 찾기, 문서 본문(hwpx · docx · xlsx · pptx · pdf · txt · md) 안의 말로 찾고 그 문서의 글 · 근거 단락 읽기, 최신판만 고르기, 문서의 판(v1 · v2 · 날짜) 보기, 새 판 내기, 지난 판을 이전판 폴더로 옮기기, 파일 · 폴더 메모 읽고 쓰기, 휴지통으로 지우기. 「파일 찾아」 「어디 있지」 「최근에 받은 파일」 「○○ 들어간 문서」 「파일 정리」 「새 판」 「이전판」 「메모 달아」 「filedesk」 요청 때, 그리고 작업 폴더 밖 파일을 찾으려 find · Get-ChildItem 으로 드라이브를 훑기 전에 쓴다.
 ---
 
 # filedesk — 파일 관리 (명령줄 `fd`, filedesk {{VERSION}})
@@ -11,6 +11,8 @@ filedesk 앱과 같은 판단을 명령줄로 한다. 사람이 앱에서 보는
 FD="{{FD}}"
 ```
 
+bash 는 `$FD query …`, PowerShell 은 `& "{{FD}}" query …` 로 부른다 (PowerShell 에서 `$FD …` 는 실행되지 않는다).
+
 명령은 모두 JSON 을 낸다. 실패하면 표준 오류에 `{"error": "…"}` 와 종료 코드 1 — 그 문장은 사용자에게 그대로 전해도 된다.
 경로는 `D:/문서/…` 처럼 빗금으로 줘도 된다 (안에서 역빗금 · 절대 경로로 맞춘다).
 
@@ -20,7 +22,7 @@ FD="{{FD}}"
 2. **지우기는 `fd trash` 로만 한다.** `rm` · `del` · `Remove-Item` 을 쓰지 않는다. 휴지통에 못 들어가는 자리(NAS 등)면 셸이 사람에게 묻는다 — 그 창이 뜨면 사용자에게 알린다.
 3. **옮기기 · 새 판은 셸이 한다.** 탐색기 Ctrl+Z 로 되돌릴 수 있다. `collisions` 가 비어 있지 않으면 `--apply` 가 멈춘다 — 겹치는 파일을 사용자와 정리한 뒤 다시 한다.
 4. **판단의 까닭은 메모로 남긴다.** 왜 이 파일을 남겼는지 · 무엇을 기다리는지 같은 것은 `fd memo set` 으로 그 파일에 붙인다. 앱 목록에 바로 보이고, 파일 이름이 바뀌거나 옮겨져도 따라간다.
-5. **이 스킬이 다루지 않는 것** — 파일 내용 읽기 · 고치기, 일반 복사 · 이름 바꾸기는 평소 도구로 한다.
+5. **이 스킬이 다루지 않는 것** — 파일 고치기, 코드 · 글 파일 읽기, 일반 복사 · 이름 바꾸기, 작업 저장소 안의 코드 찾기는 평소 도구로 한다. hwpx · docx · pptx · xlsx · pdf 의 글은 `$FD text` 로 읽는다.
 
 ## 명령
 
@@ -31,13 +33,31 @@ FD="{{FD}}"
 | 판 문제만 | `$FD docs <폴더> -r --summary` | `{files, documents, withIssues[{title, latest, issues}]}` |
 | 새 판 계획 / 실행 | `$FD edition <파일> [--today YYYYMMDD] [--apply]` | `{applied, plan{source, newName, newPath, retire[], history}, collisions[]}` |
 | 지난 판 정리 계획 / 실행 | `$FD retire <폴더> [--doc <key>] [--apply]` | `{applied, history, documents[{key, title, move[]}], collisions[]}` |
-| 조건으로 찾기 | `$FD query "<말 · 조건>" [--in <폴더>]… [--no-recurse] [--content] [--live] [--limit N]` | `{spec, sources[], truncated, items[{name, path, size, modified, created, memo?, snippet?}]}` — `--in` 이 없으면 모든 고정 드라이브 (색인) |
+| 조건으로 찾기 | `$FD query "<말 · 조건>" [--in <폴더>]… [--no-recurse] [--content] [--latest] [--live] [--limit N]` | `{spec, sources[], truncated, superseded, items[{name, path, size, modified, created, memo?, snippet?}]}` — `--in` 이 없으면 모든 고정 드라이브 (색인) · `--latest` 는 지난 판을 빼고 뺀 수를 `superseded` 에 |
+| 문서 본문 읽기 | `$FD text <파일> [--offset N] [--limit 글자수]` | `{path, source, chars, offset, next, text}` — 기본 2만 자. `next` 가 있으면 `--offset <next>` 로 이어 읽는다 |
+| 문서에서 근거 단락 | `$FD text <파일> --find "<말>…" [--around 300] [--limit 10]` | `{path, source, chars, hits, passages[{offset, terms[], hits, text}]}` — 든 말 가짓수 · 맞은 횟수 차례 |
 | 색인 상태 | `$FD index status` · `$FD index rebuild` | `{index{service, volumes[{root, method, files, updated, state}]}, contentDocuments}` |
 | 휴지통 | `$FD trash <경로>…` | `{trashed[]}` |
 | 메모 | `$FD memo ls [폴더]` · `$FD memo get <경로>` · `$FD memo set <경로> "<글>"` (`""` 이면 뗀다) | `{path, text, updated}` |
 | 폴더 이름 관례 | `$FD conv <폴더>` | `{convention{files, folders}, newFolder, deviations[{path, name, suggestion}]}` — 바꾸지 않는다 |
 | 이름 제안 | `$FD name <경로> [--to <폴더>] [--date YYYYMMDD]` | `{name, changes[], follows, byConvention}` — 바꾸지 않는다 |
-| 스킬 갱신 | `$FD skill install` | 앱을 새 판으로 올린 뒤 한 번 |
+| 스킬 갱신 | `$FD skill agents` · `$FD skill install [--agent <id>]` | 감지한 에이전트 · 설치된 판. `--agent` 가 없으면 감지한 에이전트 모두에 |
+
+## 파일 찾기 — 무엇으로 찾나
+
+| 찾는 것 | 쓰는 것 | 까닭 |
+| - | - | - |
+| 지금 작업하는 저장소 · 폴더 안의 코드 · 파일 이름 | 평소 도구 (Grep · Glob · `rg`) | 그 폴더 안에서는 비슷하게 빠르고, `.gitignore` · 정규식을 따르고 늘 최신이다 |
+| 위치를 모르는 파일 · 작업 폴더 밖 (「그 보고서 어디 있지」) | `$FD query "<말 · 조건>"` | 모든 고정 드라이브의 이름 색인을 본다. 드라이브를 `find` · `Get-ChildItem -Recurse` 로 훑으면 몇 분이 걸린다 |
+| 최근 받은 · 고친 파일 | `$FD query "수정:3일 종류:파일" --in <폴더>` | 조건 하나로 때 · 종류를 거른다 |
+| 문서 본문 안의 말 (hwpx · docx · xlsx · pptx · pdf · txt · md · csv) | `$FD query "<말>" --content --latest` | Grep 은 hwpx · docx · pdf 안을 못 읽는다. 본문 색인은 바로 답한다 |
+| 찾은 문서의 내용 | `$FD text <파일> --find "<말>"` → 모자라면 `$FD text <파일> --offset <offset>` | 문서를 통째로 읽지 않고 근거 단락만 받는다. 파일을 여는 다른 도구 없이 hwpx · docx · pdf 글을 읽는다 |
+
+- 결과는 `items[].path` 를 그대로 쓴다. 너무 많으면 조건(`확장자:` · `수정:` · `-뺄말`)이나 `--in` 으로 좁힌다. `truncated` 가 참이면 다 보이지 않은 것이다.
+- 색인은 `node_modules` · `.git` · `Windows` 같은 폴더와 NAS 를 담지 않는다. 그 안을 찾을 때는 `--in <폴더>` 를 주면 그 자리에서 훑는다.
+- 본문 찾기는 낱말이 이름이 아니라 내용에 들어 있는 것만 낸다 (`snippet` 에 그 줄). 정규식은 안 된다. 낱말 맞추기라 뜻이 같은 다른 말(「산불」 · 「화재」)은 따로 찾는다.
+- **문서를 근거로 답할 때는 `--latest` 를 붙인다.** 판이 여럿인 문서에서 지난 판을 근거로 쓰지 않게 한다. 사용자가 지난 판을 물으면 빼지 않는다.
+- 답에는 근거로 쓴 파일 경로를 적는다. `text` 의 `source` 가 `live` 면 색인에 아직 없거나 그 뒤 고친 파일이라 그 자리에서 뽑은 것이다 (결과는 같다).
 
 ## 찾기 조건 (앱 찾기 칸 · 스마트 폴더와 같다)
 
@@ -45,14 +65,14 @@ FD="{{FD}}"
 
 | 열쇠 (영어 별칭) | 값 | 뜻 |
 | - | - | - |
-| `고친` (`modified`) | `오늘` · `어제` · `3일` · `<7일` · `>30일` · `2주` · `6달` · `1년` · `2026-11-01` · `2026-11-01..2026-11-10` | 생긴 때 · 고친 때 중 늦은 것 (받은 파일도 잡는다) |
+| `수정` (`modified` · 옛 이름 `고친`) | `오늘` · `어제` · `3일` · `<7일` · `>30일` · `2주` · `6달` · `1년` · `2026-11-01` · `2026-11-01..2026-11-10` | 만든 날짜 · 수정한 날짜 중 늦은 것 (받은 파일도 잡는다) |
 | `크기` (`size`) | `>10MB` · `<1KB` · `1MB..1GB` | 파일 크기 |
 | `확장자` (`ext`) | `pdf` · `pdf,hwpx` | |
 | `종류` (`kind`) | `문서` · `표` · `발표` · `PDF` · `그림` · `폴더` · `파일` | 앱 기본 종류 |
 | `색` (`color`) | `빨강` (`red`) … `회색` · `있음` | 색 표시 |
 | `메모` (`memo`) | `있음` · `없음` | |
 
-예: `$FD query "보고 고친:7일 종류:문서 -초안" --in "D:\work"` · `$FD query "산림재난" --content` (본문 색인).
+예: `$FD query "보고 수정:7일 종류:문서 -초안" --in "D:\work"` · `$FD query "산림재난" --content` (본문 색인).
 「모든 드라이브」는 앱(빠른 색인 서비스)이 만든 색인을 쓴다 — 서비스가 없으면 그 자리에서 훑어 느리다. `sources` 에 `live` 가 있으면 사용자에게 「색인 없이 훑었다」고 전한다.
 
 ## 판 · 이름 규칙 (앱과 같다)
@@ -65,6 +85,12 @@ FD="{{FD}}"
 - 문서 이름에서 판 · 날짜 · 작성자 꼬리 · 상태 말(최종 · final · draft …) · 복사본 표시(`(1)` · `- 복사본` · `Copy of` …)를 떼고 남은 것이 같으면 같은 문서로 묶는다.
 
 ## 흐름 예
+
+**문서에서 답 찾기** 「작년 검토 보고서에서 대피시설 기준 어떻게 썼지」
+
+1. `$FD query "대피시설 수정:1년" --content --latest --limit 20` 으로 후보 문서와 `snippet` 을 본다.
+2. 맞는 문서마다 `$FD text <path> --find "대피시설 기준"` 으로 근거 단락을 받는다.
+3. 단락과 파일 경로를 함께 답한다. 앞뒤가 더 필요하면 `$FD text <path> --offset <offset>`.
 
 **폴더 정리** — 「이 폴더 판 정리해 줘」
 

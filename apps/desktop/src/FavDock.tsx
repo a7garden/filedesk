@@ -216,7 +216,7 @@ export default function FavDock(props: Props) {
             return (
               <Fragment key={p.path}>
               {/* 끼울 자리 — 파일을 끄는 동안만. 타일 위는 「그 폴더로 옮기기」라 사이를 따로 둔다 */}
-              {fileDrag && <li className="dock-gap" data-drop={`${PIN_DROP}@${i}`} aria-hidden="true" title="여기에 끼워 즐겨찾기에 더하기" />}
+              {fileDrag && <li className="dock-gap" data-drop={`${PIN_DROP}@${i}`} aria-hidden="true" title="여기에 끼워 즐겨찾기에 추가" />}
               <li
                 data-pin-index={i}
                 className={"dock-slot" + line + (drag?.on && drag.from === i ? " pin-lifted" : "")}
@@ -253,7 +253,7 @@ export default function FavDock(props: Props) {
                   </span>
                   <span className="dock-name">{p.name}</span>
                 </button>
-                <button className="dock-x" title="즐겨찾기에서 빼기" aria-label={`${p.name} 즐겨찾기에서 빼기`} onClick={() => onUnpin(p.path)}>
+                <button className="dock-x" title="즐겨찾기에서 제거" aria-label={`${p.name} 즐겨찾기에서 제거`} onClick={() => onUnpin(p.path)}>
                   ×
                 </button>
               </li>
@@ -265,7 +265,7 @@ export default function FavDock(props: Props) {
               폴더 · 파일을 여기로 끌어 놓거나 Ctrl+D
             </li>
           ) : (
-            fileDrag && <li className="dock-gap end" data-drop={PIN_DROP} aria-hidden="true" title="끝에 붙여 즐겨찾기에 더하기" />
+            fileDrag && <li className="dock-gap end" data-drop={PIN_DROP} aria-hidden="true" title="끝에 붙여 즐겨찾기에 추가" />
           )}
         </ul>
       </div>
@@ -295,7 +295,7 @@ export default function FavDock(props: Props) {
                 setMenu(null);
               }}
             >
-              즐겨찾기에서 빼기
+              즐겨찾기에서 제거
             </button>
           }
         />

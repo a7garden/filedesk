@@ -298,6 +298,21 @@ fn group_issues(files: &[DocFile]) -> Vec<String> {
     issues
 }
 
+/// 지난 판인가 — 찾기 결과에서 최신판만 남길 때 (`fd query --latest`).
+/// 지난 판 폴더 안에 있거나, 같은 폴더의 같은 문서에 더 새 판이 있으면(「옮길 판」) 참이다. 판 꼴이 아닌 파일은 늘 거짓.
+/// `seen` 은 폴더 → 그 폴더의 옮길 판(소문자 경로) — 결과 여럿이 한 폴더에 있으면 폴더를 한 번만 읽는다.
+/// 2026.11.13 : 에이전트가 「보고서_v2」와 「보고서_v3」를 똑같이 받아 옛 판을 근거로 쓰는 일을 막으려고.
+pub fn superseded(path: &Path, seen: &mut BTreeMap<PathBuf, Vec<String>>) -> bool {
+    let Some(dir) = path.parent() else { return false };
+    if dir.components().any(|c| is_history_name(&c.as_os_str().to_string_lossy())) {
+        return true;
+    }
+    let old = seen.entry(dir.to_path_buf()).or_insert_with(|| {
+        group_dir(dir, false).into_iter().flat_map(|g| g.files).filter(|f| f.retire).map(|f| f.path.to_lowercase()).collect()
+    });
+    old.contains(&path.to_string_lossy().to_lowercase())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -411,5 +426,20 @@ mod tests {
         let g = &group_files(vec![f("안내_v2_20261102.pptx", "가", false), f("안내_v1_20261101.pptx", "나", false)])[0];
         assert!(g.files.iter().all(|f| !f.retire));
         assert!(g.issues.is_empty(), "{:?}", g.issues);
+    }
+    #[test]
+    fn superseded_marks_older_editions_and_history() {
+        let d = std::env::temp_dir().join(format!("fd-sup-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join("이전판")).unwrap();
+        for n in ["보고서_v2_20261101.hwpx", "보고서_v3_20261110.hwpx", "메모.txt", "이전판/보고서_v1_20261001.hwpx"] {
+            std::fs::write(d.join(n), "x").unwrap();
+        }
+        let mut seen = BTreeMap::new();
+        assert!(superseded(&d.join("보고서_v2_20261101.hwpx"), &mut seen));
+        assert!(!superseded(&d.join("보고서_v3_20261110.hwpx"), &mut seen));
+        assert!(!superseded(&d.join("메모.txt"), &mut seen));
+        assert!(superseded(&d.join("이전판").join("보고서_v1_20261001.hwpx"), &mut seen));
+        let _ = std::fs::remove_dir_all(&d);
     }
 }

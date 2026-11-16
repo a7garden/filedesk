@@ -25,6 +25,9 @@
 //   2026.11.12 : 「연결」은 설정(보기 › 보일 것)에서 켜야 보인다 — NAS 를 쓰지 않는 사람에게는 늘 빈 구획이었다. 이미 연결을 둔 사람은 켠 채로 읽는다.
 //   2026.11.12 : 「최근 파일」 → 「스마트 폴더」. 최근 파일은 처음부터 있는 스마트 폴더 하나(다운로드 · 바탕화면 · 고친:3일)가 되어
 //                날 수 · 볼 곳을 고칠 수 있다. 다른 스마트 폴더는 이름과 맞는 개수 한 줄씩, 누르면 지금 칸에 모아 보인다. 맨 아래에 색인 상태 한 줄.
+//   2026.11.13 : 「연결」 주소 칸이 서버 주소를 알아듣는다 — `192.168.0.2` · `\nas` · `smb://nas/공유` 를 적으면 공유 목록을 보여 고르게 하고,
+//                로그인이 필요하면 Windows 로그인 창을 띄운다. 전에는 경로 확인만 해서 서버만 적으면 늘 「열 수 없다」였다.
+//                칸을 누르면 「이 PC 에서 쓰던 곳」(네트워크 드라이브 · 탐색기 네트워크 위치 · 탐색기 주소 기록)을 띄워 한 번 눌러 더한다.
 //   2026.11.12 : 「최근 파일」 밑에 파일 다섯 개를 이름 그대로 늘어놓던 것을 걷었다 — 스마트 폴더로 바꾼 뒤에도 파일이 왼쪽 열에 바로 올라와
 //                구획이 「폴더 목록」이 아니라 「파일 목록」으로 읽혔다. 이제 모든 스마트 폴더가 이름과 개수 한 줄이고, 파일은 누르면 칸에서 본다.
 // 항목마다 [data-drop] — 파일을 끌어다 놓으면 그 자리로 옮긴다.
@@ -134,24 +137,53 @@ export default function Sidebar(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [smartKey, view.recent, indexReady]);
 
-  // 연결 더하기 — 주소를 받아 열리는지 본 뒤 더한다. 꺼진 NAS 는 몇 초 걸릴 수 있어 「확인 중」을 보인다.
+  // 연결 더하기 — 주소를 풀어(서버 주소 · smb:// · \서버\공유) 서버면 공유를 고르게 하고, 공유면 열리는지 본 뒤 더한다.
+  // 꺼진 NAS · 로그인 창은 몇 초 걸릴 수 있어 「확인 중」을 보인다.
   const [addr, setAddr] = useState("");
   const [addState, setAddState] = useState<{ busy: boolean; err: string }>({ busy: false, err: "" });
-  const submitLink = () => {
-    const raw = addr.trim().replace(/^"(.*)"$/, "$1");
-    const path = raw.length > 3 ? raw.replace(/\\+$/, "") : raw;
-    if (!path) return;
+  /** 서버를 적었을 때 고를 공유들. */
+  const [pick, setPick] = useState<{ server: string; shares: string[] } | null>(null);
+  /** 주소 칸을 누르면 보이는 「이 PC 에서 쓰던 곳」. 칸을 누를 때마다 다시 읽는다 (탐색기에서 방금 붙였을 수 있다). */
+  const [known, setKnown] = useState<{ path: string; source: string }[] | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const linked = new Set(links.map((l) => norm(l.path)));
+  const closeForm = () => {
+    setAddr("");
+    setPick(null);
+    setFormOpen(false);
+    setAddState({ busy: false, err: "" });
+  };
+  const resolveLink = (input: string) => {
+    if (!input.trim()) return;
     setAddState({ busy: true, err: "" });
+    setPick(null);
     api
-      .dirsOf([path])
-      .then(([ok]) => {
-        if (!ok) return setAddState({ busy: false, err: "열 수 없다. 주소와 연결 상태를 확인한다" });
-        onAddLinks([path]);
-        setAddr("");
-        setAddState({ busy: false, err: "" });
+      .netResolve(input)
+      .then((t) => {
+        if (t.shares) {
+          setPick({ server: t.path, shares: t.shares });
+          setAddState({ busy: false, err: "" });
+          return;
+        }
+        onAddLinks([t.path]);
+        closeForm();
       })
       .catch((e) => setAddState({ busy: false, err: errText(e) }));
   };
+  const addShare = (path: string) => {
+    onAddLinks([path]);
+    // 공유를 여럿 고를 수 있게 목록은 남긴다. 다 더했으면 닫는다
+    if (pick && pick.shares.every((sh) => [norm(path), ...linked].includes(norm(shareAt(pick.server, sh))))) closeForm();
+  };
+  const openForm = () => {
+    if (formOpen) return;
+    setFormOpen(true);
+    api
+      .netKnown()
+      .then(setKnown)
+      .catch(() => setKnown([]));
+  };
+  const suggestions = (known ?? []).filter((k) => !linked.has(norm(k.path)));
 
   // 연결이 열리는가 — 열 때 · 연결이 바뀔 때 · 1분마다. 모르는 동안(null)은 열린 것처럼 그린다
   const [offline, setOffline] = useState<Set<string> | null>(null);
@@ -221,7 +253,7 @@ export default function Sidebar(props: Props) {
 
       {view.links && (
         <section>
-          <h2 className="side-head" data-drop={LINK_DROP} title="NAS · 공유 폴더처럼 드라이브 문자 없이 가는 자리: 폴더를 여기로 끌어다 놓아도 더한다">
+          <h2 className="side-head" data-drop={LINK_DROP} title="드라이브 문자 없이 여는 NAS · 공유 폴더: 폴더를 여기로 끌어다 놓아도 추가된다">
             연결
           </h2>
           {[...hosts].map(([host, ls]) => {
@@ -246,7 +278,7 @@ export default function Sidebar(props: Props) {
                           <span>{shareOf(l.path) ?? l.name}</span>
                           {off && !down && <span className="count">끊김</span>}
                         </button>
-                        <button className="side-x" title="연결에서 빼기" aria-label={`${l.name} 연결에서 빼기`} onClick={() => onUnlink(l.path)}>
+                        <button className="side-x" title="연결에서 제거" aria-label={`${l.name} 연결에서 제거`} onClick={() => onUnlink(l.path)}>
                           ×
                         </button>
                       </li>
@@ -256,38 +288,71 @@ export default function Sidebar(props: Props) {
               </div>
             );
           })}
-          {/* 늘 맨 아래 주소 칸 — 적고 Enter. 폴더를 끌어 놓아도 더한다 */}
+          {/* 늘 맨 아래 주소 칸 — 서버 주소를 적고 Enter 면 공유를 고른다. 누르면 이 PC 에서 쓰던 곳이 뜬다. 폴더를 끌어 놓아도 더한다 */}
           <form
             className="link-form"
             data-drop={LINK_DROP}
             onSubmit={(e) => {
               e.preventDefault();
-              submitLink();
+              resolveLink(addr);
+            }}
+            onBlur={(e) => {
+              if (!addState.busy && !e.currentTarget.contains(e.relatedTarget as Node | null)) closeForm();
             }}
           >
             <input
               value={addr}
-              placeholder={links.length ? "\\\\서버\\공유 더하기" : "\\\\서버\\공유 적기 · 폴더 끌어 놓기"}
-              aria-label="연결할 주소: Enter 로 더한다"
+              placeholder={links.length ? "서버 주소로 추가" : "NAS 주소 (예: 192.168.0.2)"}
+              aria-label="연결할 서버 주소: Enter 로 공유 폴더를 찾는다"
               spellCheck={false}
               disabled={addState.busy}
+              onFocus={openForm}
               onChange={(e) => {
                 setAddr(e.target.value);
+                setPick(null);
                 if (addState.err) setAddState({ busy: false, err: "" });
               }}
               onKeyDown={(e) => {
                 e.stopPropagation();
                 if (e.key === "Escape") {
-                  setAddr("");
-                  setAddState({ busy: false, err: "" });
+                  closeForm();
                   e.currentTarget.blur();
                 }
               }}
             />
-            {(addState.busy || addState.err || addr) && (
+            {(addState.busy || addState.err) && (
               <p className={"side-hint" + (addState.err ? " warn" : "")} role="status">
-                {addState.busy ? "확인 중" : addState.err || "Enter 로 더한다 · Esc 로 지운다"}
+                {addState.busy ? "확인 중 (로그인 창이 뜨면 사용자 이름과 암호를 넣는다)" : addState.err}
               </p>
+            )}
+            {pick && (
+              <div className="link-pick" role="group" aria-label={`${pick.server} 의 공유 폴더`}>
+                <p className="link-pick-head">{pick.server} 의 공유 폴더 · 눌러서 추가</p>
+                {pick.shares.map((sh) => {
+                  const path = shareAt(pick.server, sh);
+                  const have = linked.has(norm(path));
+                  return (
+                    <button key={sh} type="button" className="link-pick-row" disabled={have} onClick={() => addShare(path)}>
+                      <PlaceGlyph kind="net" size={14} />
+                      <span>{sh}</span>
+                      <em>{have ? "추가됨" : "+"}</em>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {formOpen && !pick && !addr && !addState.busy && !addState.err && (
+              <div className="link-pick" role="group" aria-label="이 PC 에서 쓰던 네트워크 위치">
+                {suggestions.length > 0 && <p className="link-pick-head">이 PC 에서 쓰던 곳 · 눌러서 추가</p>}
+                {suggestions.map((k) => (
+                  <button key={k.path} type="button" className="link-pick-row" title={k.path} onClick={() => resolveLink(k.path)}>
+                    <PlaceGlyph kind="net" size={14} />
+                    <span>{k.path.replace(/^[\\/]+/, "")}</span>
+                    <em>{k.source}</em>
+                  </button>
+                ))}
+                {known && !suggestions.length && <p className="link-pick-head">서버 주소를 적고 Enter (예: 192.168.0.2 · \\nas\공유)</p>}
+              </div>
             )}
           </form>
         </section>
@@ -331,7 +396,7 @@ export default function Sidebar(props: Props) {
                 <li key={f.id}>
                   <button
                     className="nav-item smart-item"
-                    title={`${f.q}\n${scopeLabel(f.scope)}\n누르면 지금 칸에 모아 보인다 · 오른쪽 단추로 고친다`}
+                    title={`${f.q}\n${scopeLabel(f.scope)}\n누르면 지금 칸에 모아 보인다 · 오른쪽 단추로 편집`}
                     onClick={() => onOpenSmart(f)}
                     onContextMenu={(e) => {
                       e.preventDefault();
@@ -399,6 +464,11 @@ function driveRow(d: Drive, current: string, onGo: (p: string) => void, onGoNewT
   );
 }
 
+/** `\\서버` 와 공유 이름을 이은 경로. */
+function shareAt(server: string, share: string): string {
+  return `${server.replace(/[\\/]+$/, "")}\\${share}`;
+}
+
 /** 연결을 묶는 이름 — \\서버\공유 면 서버 이름, 그 밖에는 드라이브 문자. */
 function hostOf(path: string): string {
   const unc = /^[\\/]{2}([^\\/]+)/.exec(path);
@@ -414,7 +484,7 @@ function shareOf(path: string): string | null {
 /** 색인 상태 한 줄 — 「색인 · 파일 128만 개 · 방금」 · 「색인을 만드는 중」. */
 function indexLine(h: HubStatus): string {
   const vs = h.index.volumes;
-  if (!vs.length) return "색인 없음: 그 자리에서 훑는다";
+  if (!vs.length) return "색인 없음: 폴더를 직접 읽는다";
   const files = vs.reduce((n, v) => n + v.files, 0);
   const building = vs.some((v) => v.state === "building" || v.state === "rebuild");
   const oldest = Math.min(...vs.map((v) => v.updated || Date.now()));
@@ -423,7 +493,7 @@ function indexLine(h: HubStatus): string {
 }
 
 function indexTitle(h: HubStatus): string {
-  const lines = h.index.volumes.map((v) => `${v.root} ${v.method === "ntfs" ? "MFT" : "훑기"} · ${v.files.toLocaleString("ko-KR")}개 · ${v.state === "ready" ? ago(v.updated) : "만드는 중"}${v.note ? ` · ${v.note}` : ""}`);
+  const lines = h.index.volumes.map((v) => `${v.root} ${v.method === "ntfs" ? "MFT" : "직접 읽기"} · ${v.files.toLocaleString("ko-KR")}개 · ${v.state === "ready" ? ago(v.updated) : "만드는 중"}${v.note ? ` · ${v.note}` : ""}`);
   lines.push(h.index.service ? "빠른 색인 서비스가 맡는다" : "앱이 색인한다. 설정 › 색인에서 빠른 색인 서비스를 설치할 수 있다");
   if (h.content) lines.push(`문서 본문 ${h.content.indexed.toLocaleString("ko-KR")}개${h.content.queued ? ` · 남은 것 ${h.content.queued.toLocaleString("ko-KR")}` : ""}`);
   return lines.join("\n");

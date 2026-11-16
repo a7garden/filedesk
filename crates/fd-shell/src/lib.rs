@@ -20,6 +20,8 @@ pub mod icon;
 #[cfg(windows)]
 pub mod menu;
 #[cfg(windows)]
+pub mod net;
+#[cfg(windows)]
 pub mod ops;
 #[cfg(windows)]
 pub mod places;

@@ -109,7 +109,7 @@ enum Key {
 
 fn key_of(k: &str) -> Option<Key> {
     Some(match k.to_lowercase().as_str() {
-        "고친" | "날짜" | "고친날" | "modified" | "date" => Key::When,
+        "수정" | "수정일" | "고친" | "고친날" | "날짜" | "modified" | "date" => Key::When,
         "크기" | "size" => Key::Size,
         "확장자" | "ext" => Key::Ext,
         "종류" | "kind" | "type" => Key::Kind,
@@ -190,7 +190,7 @@ impl QuerySpec {
     fn apply(&mut self, key: Key, v: &str, clock: Clock) -> Result<String, String> {
         match key {
             Key::When => {
-                let (after, before, label) = parse_when(v, clock).ok_or_else(|| format!("고친 날 「{v}」을 모른다. 오늘 · 3일 · <7일 · >30일 · 2026-11-01 · 2026-11-01..2026-11-10"))?;
+                let (after, before, label) = parse_when(v, clock).ok_or_else(|| format!("수정일 「{v}」을 모른다. 오늘 · 3일 · <7일 · >30일 · 2026-11-01 · 2026-11-01..2026-11-10"))?;
                 self.after = after;
                 self.before = before;
                 Ok(label)
@@ -403,18 +403,18 @@ fn parse_when(v: &str, c: Clock) -> Option<(Option<i64>, Option<i64>, String)> {
         if from.is_none() && to.is_none() {
             return None;
         }
-        return Some((from, to, format!("고친 날 {}~{}", a, b)));
+        return Some((from, to, format!("수정일 {}~{}", a, b)));
     }
     match v.as_str() {
-        "오늘" | "today" => return Some((Some(c.day_start(c.now)), None, "오늘 고침".into())),
+        "오늘" | "today" => return Some((Some(c.day_start(c.now)), None, "오늘 수정".into())),
         "어제" | "yesterday" => {
             let t = c.day_start(c.now);
-            return Some((Some(t - DAY_MS), Some(t), "어제 고침".into()));
+            return Some((Some(t - DAY_MS), Some(t), "어제 수정".into()));
         }
         _ => {}
     }
     if let Some(d) = parse_date(&v, c) {
-        return Some((Some(d), Some(d + DAY_MS), format!("{v} 고침")));
+        return Some((Some(d), Some(d + DAY_MS), format!("{v} 수정")));
     }
     let (older, rest) = if let Some(r) = v.strip_prefix('>') {
         (true, r)
@@ -424,7 +424,7 @@ fn parse_when(v: &str, c: Clock) -> Option<(Option<i64>, Option<i64>, String)> {
         (false, v.as_str())
     };
     let (ms, shown) = parse_span(rest.trim())?;
-    Some(if older { (None, Some(c.now - ms), format!("{shown} 넘게 안 고침")) } else { (Some(c.now - ms), None, format!("{shown} 안에 고침")) })
+    Some(if older { (None, Some(c.now - ms), format!("{shown} 넘게 수정 안 함")) } else { (Some(c.now - ms), None, format!("{shown} 안에 수정")) })
 }
 
 /// `2026-11-01` · `20261101` · `2026.11.01` → 그날 0시.
@@ -555,6 +555,8 @@ mod tests {
         let today = c.day_start(c.now);
         // 한국 0시 = 전날 15시 UTC
         assert_eq!(today, days_from_civil(2026, 11, 12) * DAY_MS - 9 * HOUR_MS);
+        assert_eq!(parse("수정:오늘", c).after, Some(today));
+        // 2026.11.13 : 열쇠를 「수정」으로 바꿨다. 저장해 둔 스마트 폴더의 「고친:」도 그대로 읽는다
         assert_eq!(parse("고친:오늘", c).after, Some(today));
         let y = parse("고친:어제", c);
         assert_eq!((y.after, y.before), (Some(today - DAY_MS), Some(today)));

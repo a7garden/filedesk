@@ -288,7 +288,9 @@ export default function Pane(p: Props) {
       const seq = ++loadSeq.current;
       try {
         const listP = api.listDir(path, p.showHidden);
-        const restP = Promise.all([api.docGroups(path).catch(() => [] as DocGroup[]), api.memosIn(path).catch(() => [])]);
+        // 판 관리를 끄면 문서 묶음을 읽지 않는다 — 묶음이 비면 판 줄 · 문제 줄 · 판 메뉴가 모두 빠지고 파일마다 한 줄이 된다.
+        const docsP = p.view.editions ? api.docGroups(path).catch(() => [] as DocGroup[]) : Promise.resolve([] as DocGroup[]);
+        const restP = Promise.all([docsP, api.memosIn(path).catch(() => [])]);
         const list = await listP;
         if (seq !== loadSeq.current) return;
         // 묶음이 곧 오면 한 번에 그린다 — 따로 그리면 줄이 한 번 접히며 움직인다. 늦으면 목록부터 (큰 폴더).
@@ -324,7 +326,7 @@ export default function Pane(p: Props) {
         setError(errText(e));
       }
     },
-    [path, p.showHidden, applyNotes],
+    [path, p.showHidden, p.view.editions, applyNotes],
   );
 
   useEffect(() => {
@@ -453,7 +455,7 @@ export default function Pane(p: Props) {
   const showSmart = useCallback(
     (folder: SmartFolder, scope: { all: boolean; roots: Root[] }) => {
       setDeep({ scope: "smart", q: folder.name, smart: folder, items: null, truncated: false, scanned: 0 });
-      if (/(^|\s)(고친|날짜|modified|date):/i.test(folder.q))
+      if (/(^|\s)(수정|수정일|고친|고친날|날짜|modified|date):/i.test(folder.q))
         setSort((s) => {
           if (!sortBefore.current) sortBefore.current = s;
           return { key: "modified", asc: false };
@@ -841,7 +843,7 @@ export default function Pane(p: Props) {
     if (paths.length === 0) return;
     api
       .shellVerb(paths, verb, path)
-      .then(() => say(`${paths.length}개를 ${verb === "copy" ? "복사했다" : "잘라 냈다"}`, "ok"))
+      .then(() => say(`${paths.length}개를 ${verb === "copy" ? "복사했다" : "잘라냈다"}`, "ok"))
       .catch(report);
   };
 
@@ -918,8 +920,8 @@ export default function Pane(p: Props) {
     if (one && e.isDir)
       items.push({ label: "새 탭에서 열기", run: () => p.onOpenTab(e.path) }, { label: p.split ? "옆 칸에서 열기" : "나눠서 옆에 열기", run: () => p.onOpenBeside(e.path) });
     items.push("sep", { colors: one ? colors.get(norm(e.path)) : null, pick: (c) => applyColor(paths, c) });
-    if (one) items.push({ label: memoOf(e.path) ? "메모 고치기…" : "메모 붙이기…", hint: "Ctrl+M", run: () => setMemoing(e.path) });
-    items.push({ label: "즐겨찾기에 더하기", hint: "Ctrl+D", run: () => p.onPin(list.map((x) => ({ path: x.path, isDir: x.isDir }))) });
+    if (one) items.push({ label: memoOf(e.path) ? "메모 편집…" : "메모 붙이기…", hint: "Ctrl+M", run: () => setMemoing(e.path) });
+    items.push({ label: "즐겨찾기에 추가", hint: "Ctrl+D", run: () => p.onPin(list.map((x) => ({ path: x.path, isDir: x.isDir }))) });
     if (one && (groupOf.get(norm(e.path))?.files.length ?? 0) > 1) items.push({ label: "판 목록 보기…", run: () => showEditions(e) });
     if (one && editionSource(e)) items.push({ label: "새 판 내기…", run: () => menuEdition(e) });
     items.push(
@@ -1126,7 +1128,7 @@ export default function Pane(p: Props) {
         setKind(null);
         setColorOnly(null);
       }
-      else if (ctrl && e.shiftKey && lk === "d") setFold((v) => !v);
+      else if (ctrl && e.shiftKey && lk === "d") p.view.editions && setFold((v) => !v);
       else if (ctrl && lk === "d")
         p.onPin(selectedEntries.length ? selectedEntries.map((x) => ({ path: x.path, isDir: x.isDir })) : [{ path, isDir: true }]);
       else if (e.altKey && !e.ctrlKey && /^Digit[0-7]$/.test(e.code) && selectedEntries.length) {
@@ -1226,7 +1228,7 @@ export default function Pane(p: Props) {
     window.addEventListener("mouseup", upH);
   };
   /** 보일 열 — 이름은 늘, 판 · 고친 날 · 크기는 설정(열 머리 오른쪽 단추)으로 숨긴다. */
-  const colOn = (c: ColKey) => !p.view.hiddenCols.includes(c);
+  const colOn = (c: ColKey) => (c !== "ver" || p.view.editions) && !p.view.hiddenCols.includes(c);
   // 2026.11.12 : 좁아질 때 판 열을 가장 먼저 지우던 것을 뒤집었다 — 나눠 보기(정본 · 자료 견주기)에서 두 칸 다 판이 사라졌다.
   //   이제 접는 순서는 크기 → 고친 날 → 판. 좁은 칸의 판 열은 눈금을 빼고 「v3 11-01」 글자만 남긴다.
   //   wide : 설정 너비 그대로 · narrow : 판은 글자 폭 · tight : 크기도 접는다 · least : 고친 날도 접는다 (styles.css 「좁은 칸」)
@@ -1329,7 +1331,7 @@ export default function Pane(p: Props) {
         title={
           "Ctrl+F: 이 폴더의 이름 · 메모에서 찾는다\nTab · Shift+Tab: 범위 돌리기 (이 폴더 → 하위 폴더까지 → 모든 드라이브)\n" +
           "Shift+Enter: 하위 폴더까지 · Alt+Enter: 모든 드라이브 · Ctrl+Enter: 문서 본문까지 켜고 끄기\n" +
-          "조건: 고친:오늘 · 고친:3일 · 고친:>30일 · 크기:>10MB · 확장자:pdf · 종류:문서 · 색:빨강 · 메모:있음 · -뺄말"
+          "조건: 수정:오늘 · 수정:3일 · 수정:>30일 · 크기:>10MB · 확장자:pdf · 종류:문서 · 색:빨강 · 메모:있음 · -뺄말"
         }
         spellCheck={false}
         onChange={(e) => setFilter(e.target.value)}
@@ -1385,7 +1387,7 @@ export default function Pane(p: Props) {
           className="icon-btn qb-btn"
           aria-label="찾기 조건 고르기"
           aria-expanded={qbFrom != null}
-          title="찾기 조건: 고친 날 · 크기 · 종류 · 색 · 메모를 골라 찾는다"
+          title="찾기 조건: 수정일 · 크기 · 종류 · 색 · 메모를 골라 찾는다"
           onClick={() => setQbFrom((v) => (v == null ? filter : null))}
         >
           <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
@@ -1443,7 +1445,7 @@ export default function Pane(p: Props) {
     // 판이 쌓인 문서 줄은 문서 이름으로 부른다 — 판 · 날짜는 「판」 열에 있으니 파일 이름에서 되풀이하지 않는다. 온전한 이름은 title · 펼친 줄에.
     const shown = isStack && g ? g.title : stem;
     const docDate = parsed?.date ? `${parsed.date.slice(4, 6)}-${parsed.date.slice(6, 8)}` : "";
-    const isHistDir = e.isDir && e.name === "이전판";
+    const isHistDir = p.view.editions && e.isDir && e.name === "이전판";
     const memo = memoOf(e.path);
     const color = colors.get(norm(e.path));
     const fresh = r.depth === 1 && !!g && justOpened?.key === g.key && Date.now() - justOpened.at < 400;
@@ -1588,7 +1590,7 @@ export default function Pane(p: Props) {
     const iconPx = TILE[p.view.size].icon;
     const px = Math.round(iconPx * (window.devicePixelRatio || 1));
     const thumb = p.view.thumbs && !e.isDir && canThumb(e.ext);
-    const hist = e.isDir && e.name === "이전판";
+    const hist = p.view.editions && e.isDir && e.name === "이전판";
     const issue = !!g && g.issues.length > 0 && issueLead.has(norm(e.path));
     return (
       <div
@@ -1818,7 +1820,7 @@ export default function Pane(p: Props) {
                 deep.smart ? (
                   <button
                     className="deep-name"
-                    title={`${deep.smart.q}\n누르면 이름 · 조건 · 볼 곳을 고친다`}
+                    title={`${deep.smart.q}\n누르면 이름 · 조건 · 찾을 위치를 편집한다`}
                     onClick={() => window.dispatchEvent(new CustomEvent("fd:smart-edit", { detail: deep.smart }))}
                   >
                     스마트 폴더: {deep.q}
@@ -1870,7 +1872,7 @@ export default function Pane(p: Props) {
           ))}
           {(!deep || isFind(deep.scope)) && (
             <span className="preset-wrap">
-              <button className="kind" aria-expanded={presetOpen} title="조건 더하기: 찾기 칸 끝에 붙는다" onClick={() => setPresetOpen((v) => !v)}>
+              <button className="kind" aria-expanded={presetOpen} title="조건 추가: 찾기 칸 끝에 붙는다" onClick={() => setPresetOpen((v) => !v)}>
                 ＋ 조건
               </button>
               {presetOpen && (
@@ -1933,9 +1935,9 @@ export default function Pane(p: Props) {
             setColMenu({ x: e.clientX, y: e.clientY });
           }}
         >
-          {header("name", "이름", 0, "", "오른쪽 단추: 보일 열 고르기")}
+          {header("name", "이름", 0, "", "오른쪽 단추: 표시할 열 고르기")}
           {colOn("ver") && header(null, "판", 1, "", "최신판의 판 번호 · 날짜(월-일) · 판 수 (「이전판」 폴더에 든 것까지)\n누르면 판 목록이 뜬다")}
-          {colOn("date") && header("modified", "고친 날", 2)}
+          {colOn("date") && header("modified", "수정일", 2)}
           {colOn("size") && header("size", "크기", 3, "right")}
         </div>
       )}
@@ -1943,7 +1945,7 @@ export default function Pane(p: Props) {
         <div className="grid-sort" role="toolbar" aria-label="정렬">
           {(["name", "modified", "size"] as SortKey[]).map((k) => (
             <button key={k} className={"col-btn" + (sort.key === k ? " sorted" : "")} onClick={() => setSort((s) => ({ key: k, asc: s.key === k ? !s.asc : true }))}>
-              {{ name: "이름", modified: "고친 날", size: "크기", kind: "종류" }[k]}
+              {{ name: "이름", modified: "수정일", size: "크기", kind: "종류" }[k]}
               {sort.key === k && <span className="sort-mark">{sort.asc ? "↑" : "↓"}</span>}
             </button>
           ))}
@@ -2014,7 +2016,7 @@ export default function Pane(p: Props) {
                       조건에 맞는 것이 없다
                       {deep.smart && (
                         <button className="act" onClick={() => window.dispatchEvent(new CustomEvent("fd:smart-edit", { detail: deep.smart }))}>
-                          조건 고치기
+                          조건 편집
                         </button>
                       )}
                     </>
@@ -2105,9 +2107,11 @@ export default function Pane(p: Props) {
           </span>
         )}
         <SizeLadder view={p.view} setView={p.setView} />
-        <button className="foot-toggle" aria-pressed={fold} onClick={() => setFold((v) => !v)} title="Ctrl+Shift+D">
-          {fold ? `판 접음${stacked > 0 ? ` ${stacked}` : ""}` : "판 펼침"}
-        </button>
+        {p.view.editions && (
+          <button className="foot-toggle" aria-pressed={fold} onClick={() => setFold((v) => !v)} title="Ctrl+Shift+D">
+            {fold ? `판 접음${stacked > 0 ? ` ${stacked}` : ""}` : "판 펼침"}
+          </button>
+        )}
       </footer>
       {memoing && memoAt && (
         <MemoEditor
@@ -2120,7 +2124,7 @@ export default function Pane(p: Props) {
       {memoCard && (
         <div className="memo-card" role="tooltip" style={{ left: memoCard.x, top: memoCard.y }}>
           <div className="memo-card-text">{memoCard.text}</div>
-          <div className="memo-card-foot muted">눌러서 고치기 · Ctrl+M</div>
+          <div className="memo-card-foot muted">눌러서 편집 · Ctrl+M</div>
         </div>
       )}
       {colMenu && (
@@ -2142,7 +2146,7 @@ export default function Pane(p: Props) {
         />
       )}
       {ctx && <ContextMenu menu={ctx} onClose={closeCtx} />}
-      {inbox && (
+      {inbox && p.view.editions && (
         <IssueInbox
           docs={issueDocs}
           dir={path}
@@ -2271,9 +2275,9 @@ function ColumnMenu({ at, shown, onToggle, onReset, onClose }: { at: { x: number
       window.removeEventListener("keydown", esc, true);
     };
   }, [onClose]);
-  const label: Record<ColKey, string> = { ver: "판", date: "고친 날", size: "크기" };
+  const label: Record<ColKey, string> = { ver: "판", date: "수정일", size: "크기" };
   return (
-    <div className="pop-menu" ref={box} role="menu" aria-label="보일 열" style={{ left: Math.min(at.x, window.innerWidth - 200), top: at.y }}>
+    <div className="pop-menu" ref={box} role="menu" aria-label="표시할 열" style={{ left: Math.min(at.x, window.innerWidth - 200), top: at.y }}>
       {(Object.keys(label) as ColKey[]).map((c) => (
         <button key={c} role="menuitemcheckbox" aria-checked={shown(c)} onClick={() => onToggle(c)}>
           <span className="pop-check">{shown(c) ? "✓" : ""}</span>

@@ -7,7 +7,7 @@
 //! 4. zip 문서 (hwpx · docx · pptx · xlsx) — XML 의 `<t>` 글자만
 //! 5. pdf — 패닉을 가둔다
 //! 6. 글 파일 (txt · md · csv) — UTF-8, 안 되면 CP949
-//! 7. 맞춤 · 스니펫
+//! 7. 맞춤 · 스니펫 · 단락 (`fd text --find` — 에이전트가 문서에서 근거 단락만 받는다)
 //!
 //! 정확한 서식은 버린다. 찾는 말이 들어 있는지와 그 앞뒤 몇 글자만 있으면 된다.
 //! 색인은 두지 않는다 — 디스크 색인은 낡는 것을 따로 챙겨야 하고, 찾기 한 번에 다시 보는 파일은 메모리 캐시로 충분하다.
@@ -273,6 +273,81 @@ pub fn snippet(text: &str, terms: &[String]) -> Option<String> {
     Some(format!("{}{}{}", if start > 0 { "…" } else { "" }, body, if stop < base.len() { "…" } else { "" }))
 }
 
+/// 문서에서 찾는 말이 든 곳 하나 — `fd text --find` 가 에이전트에게 주는 근거 단락.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Passage {
+    /// 본문 앞에서부터 센 글자 자리 — `fd text --offset` 으로 그 앞뒤를 더 읽는다.
+    pub offset: usize,
+    /// 이 단락에 든 찾는 말 (겹치지 않게).
+    pub terms: Vec<String>,
+    /// 맞은 횟수.
+    pub hits: usize,
+    pub text: String,
+}
+
+/// 찾는 말(낱말 하나라도)이 든 곳마다 앞뒤 `around` 글자를 잘라, 겹치면 하나로 잇고, 든 말 가짓수 · 맞은 횟수가 많은 차례로 `max` 개.
+/// 돌려주는 두 번째 값은 본문 전체에서 맞은 횟수.
+/// 2026.11.13 : 스니펫(첫 자리 한 줄)만으로는 에이전트가 근거를 확인하려고 문서를 통째로 읽어야 했다. 단락만 주면 맥락 창을 덜 쓴다.
+/// 글자 단위로 센다 — 바이트로 세면 한글 한 자를 가르고, 소문자로 바꾸며 길이가 달라지는 글자(İ 등)가 자리를 어긋나게 한다.
+pub fn passages(text: &str, terms: &[String], around: usize, max: usize) -> (Vec<Passage>, usize) {
+    let low = |c: char| c.to_lowercase().next().unwrap_or(c);
+    let chars: Vec<char> = text.chars().collect();
+    let lower: Vec<char> = chars.iter().map(|&c| low(c)).collect();
+    let needles: Vec<Vec<char>> = terms.iter().map(|t| t.chars().map(low).collect::<Vec<_>>()).filter(|t| !t.is_empty()).collect();
+    // (자리, 길이, 몇째 말)
+    let mut found: Vec<(usize, usize, usize)> = Vec::new();
+    for (k, n) in needles.iter().enumerate() {
+        let mut i = 0;
+        while i + n.len() <= lower.len() {
+            if lower[i..i + n.len()] == n[..] {
+                found.push((i, n.len(), k));
+                i += n.len();
+            } else {
+                i += 1;
+            }
+        }
+    }
+    found.sort();
+    let total = found.len();
+    // 앞뒤로 넓힌 창을 겹치면 잇는다: (시작, 끝, 든 말 표시, 횟수)
+    let mut wins: Vec<(usize, usize, Vec<bool>, usize)> = Vec::new();
+    for (pos, len, k) in found {
+        let (a, b) = (pos.saturating_sub(around), (pos + len + around).min(chars.len()));
+        match wins.last_mut() {
+            Some(w) if a <= w.1 => {
+                w.1 = w.1.max(b);
+                w.2[k] = true;
+                w.3 += 1;
+            }
+            _ => {
+                let mut has = vec![false; needles.len()];
+                has[k] = true;
+                wins.push((a, b, has, 1));
+            }
+        }
+    }
+    wins.sort_by(|x, y| {
+        let c = |w: &(usize, usize, Vec<bool>, usize)| w.2.iter().filter(|&&h| h).count();
+        c(y).cmp(&c(x)).then(y.3.cmp(&x.3)).then(x.0.cmp(&y.0))
+    });
+    let out = wins
+        .into_iter()
+        .take(max)
+        .map(|(a, b, has, hits)| {
+            let body: String = chars[a..b].iter().collect();
+            let body = body.split_whitespace().collect::<Vec<_>>().join(" ");
+            Passage {
+                offset: a,
+                terms: terms.iter().zip(&has).filter(|(_, h)| **h).map(|(t, _)| t.clone()).collect(),
+                hits,
+                text: format!("{}{}{}", if a > 0 { "…" } else { "" }, body, if b < chars.len() { "…" } else { "" }),
+            }
+        })
+        .collect();
+    (out, total)
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -323,5 +398,23 @@ pub(crate) mod tests {
         assert!(s.contains("산림재난 대응 계획"));
         assert_eq!(snippet(&text, &["없는말".into()]), None);
         assert_eq!(snippet("Forest FIRE", &["fire".into()]).unwrap(), "Forest FIRE");
+    }
+    #[test]
+    fn passages_merge_and_rank_by_terms() {
+        let text = "가나다 산림재난 예방 계획을 세운다. 중간 글자 아주 길게 이어진다 이어진다 이어진다. 산림재난 대응 절차와 예방 활동을 함께 본다.";
+        let t = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let (p, total) = passages(text, &t(&["산림재난", "대응"]), 3, 10);
+        assert_eq!(total, 3);
+        // 두 말이 다 든 단락이 앞
+        assert_eq!(p[0].terms, ["산림재난", "대응"]);
+        assert!(p[0].text.contains("산림재난 대응"));
+        assert_eq!(p.len(), 2);
+        // 넓게 잡으면 하나로 잇는다
+        let (p, _) = passages(text, &t(&["산림재난"]), 100, 10);
+        assert_eq!(p.len(), 1);
+        assert_eq!(p[0].offset, 0);
+        // 대소문자를 가리지 않고, 자리는 글자 단위
+        let (p, _) = passages("ab Report 끝", &t(&["report"]), 0, 1);
+        assert_eq!((p[0].offset, p[0].text.as_str()), (3, "…Report…"));
     }
 }

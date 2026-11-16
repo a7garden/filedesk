@@ -116,7 +116,7 @@ export default function SmartEditor(p: Props) {
   const WHERE: [SmartScope["kind"], string, string][] = [
     ["all", "모든 드라이브", "고정 드라이브 전체를 색인에서 찾는다. NAS 는 빠진다"],
     ["inbox", "다운로드 · 바탕화면", "두 폴더 바로 아래만. 받은 파일이 쌓이는 곳"],
-    ["roots", "고른 폴더", "NAS · 공유 폴더는 누를 때 그 자리에서 훑는다"],
+    ["roots", "고른 폴더", "NAS · 공유 폴더는 찾을 때 폴더를 직접 읽는다"],
   ];
   const count = busy
     ? "세는 중…"
@@ -128,7 +128,7 @@ export default function SmartEditor(p: Props) {
 
   return (
     <div className="set-backdrop sheet" onMouseDown={(e) => e.target === e.currentTarget && cancel()}>
-      <div className="smart-editor se" role="dialog" aria-modal="true" aria-label={p.isNew ? "새 스마트 폴더" : "스마트 폴더 고치기"}>
+      <div className="smart-editor se" role="dialog" aria-modal="true" aria-label={p.isNew ? "새 스마트 폴더" : "스마트 폴더 편집"}>
         {/* 이름이 머리 — 이 판의 제목이 곧 스마트 폴더 이름이다. 그 밑에 맞는 개수 */}
         <input
           ref={nameRef}
@@ -145,9 +145,9 @@ export default function SmartEditor(p: Props) {
           {err && <span className="warn-text"> {err}</span>}
         </p>
 
-        <section className="se-part" aria-label="볼 곳">
-          <h4>볼 곳</h4>
-          <span className="cs-seg se-where" role="radiogroup" aria-label="볼 곳">
+        <section className="se-part" aria-label="찾을 위치">
+          <h4>찾을 위치</h4>
+          <span className="cs-seg se-where" role="radiogroup" aria-label="찾을 위치">
             {WHERE.map(([k, l]) => (
               <button key={k} role="radio" aria-checked={kind === k} aria-pressed={kind === k} onClick={() => setKind(k)}>
                 {l}
@@ -170,15 +170,15 @@ export default function SmartEditor(p: Props) {
                   >
                     하위까지
                   </button>
-                  <button className="cs-x" aria-label={`${r.path} 빼기`} title="빼기" onClick={() => setRoots((rs) => rs.filter((_, j) => j !== i))}>
+                  <button className="cs-x" aria-label={`${r.path} 제거`} title="제거" onClick={() => setRoots((rs) => rs.filter((_, j) => j !== i))}>
                     ×
                   </button>
                 </li>
               ))}
               <li className="se-root add">
-                <input value={adding} placeholder="폴더 경로 (D:\work · \\NAS\공유)" spellCheck={false} aria-label="더할 폴더 경로" onChange={(e) => setAdding(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addRoot(adding)} />
+                <input value={adding} placeholder="폴더 경로 (D:\work · \\NAS\공유)" spellCheck={false} aria-label="추가할 폴더 경로" onChange={(e) => setAdding(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addRoot(adding)} />
                 <button className="act" onClick={() => addRoot(adding)} disabled={!adding.trim()}>
-                  더하기
+                  추가
                 </button>
                 <button className="act" onClick={() => addRoot(p.current)} title={p.current}>
                   지금 폴더
@@ -207,9 +207,9 @@ export default function SmartEditor(p: Props) {
             <button
               className="act danger"
               onClick={() => p.onDelete(p.folder.id)}
-              title={p.folder.id === RECENT_ID ? "처음부터 있던 「최근 파일」도 뺄 수 있다. 다시 만들려면 조건 「고친:3일 종류:파일」 · 다운로드 · 바탕화면" : "왼쪽에서 뺀다 (파일은 그대로)"}
+              title={p.folder.id === RECENT_ID ? "처음부터 있던 「최근 파일」도 삭제할 수 있다. 다시 만들려면 조건 「수정:3일 종류:파일」 · 다운로드 · 바탕화면" : "왼쪽에서 삭제한다 (파일은 그대로)"}
             >
-              빼기
+              삭제
             </button>
           )}
           <span className="grow" />

@@ -67,7 +67,7 @@ function dateText(f: DocFile): string {
     return `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}${t.length >= 4 ? ` ${t.slice(0, 2)}:${t.slice(2, 4)}` : ""}`;
   }
   const m = new Date(f.modified);
-  return `날짜 없음 · 고친 날 ${m.getFullYear()}-${pad(m.getMonth() + 1)}-${pad(m.getDate())}`;
+  return `날짜 없음 · 수정일 ${m.getFullYear()}-${pad(m.getMonth() + 1)}-${pad(m.getDate())}`;
 }
 
 const extOf = (f: DocFile) => f.parsed.ext || f.name.split(".").pop() || "";

@@ -88,7 +88,7 @@ function tokens(text: string): string[] {
 }
 
 const KEY: Record<string, "when" | "size" | "ext" | "kind" | "color" | "memo"> = {
-  고친: "when", 날짜: "when", 고친날: "when", modified: "when", date: "when",
+  수정: "when", 수정일: "when", 고친: "when", 날짜: "when", 고친날: "when", modified: "when", date: "when",
   크기: "size", size: "size",
   확장자: "ext", ext: "ext",
   종류: "kind", kind: "kind", type: "kind",
@@ -193,10 +193,10 @@ const num = (s: string) => /^\d+(\.\d+)?$/.test(s.trim());
 function write(f: Form): string {
   const out: string[] = [];
   if (f.terms.trim()) out.push(f.terms.trim());
-  if (f.when === "today") out.push("고친:오늘");
-  else if (f.when === "yesterday") out.push("고친:어제");
-  else if ((f.when === "within" || f.when === "older") && /^\d+$/.test(f.span.trim())) out.push(`고친:${f.when === "older" ? ">" : ""}${f.span.trim()}${f.spanUnit}`);
-  else if (f.when === "range" && (f.from || f.to)) out.push(f.from && f.from === f.to ? `고친:${f.from}` : `고친:${f.from}..${f.to}`);
+  if (f.when === "today") out.push("수정:오늘");
+  else if (f.when === "yesterday") out.push("수정:어제");
+  else if ((f.when === "within" || f.when === "older") && /^\d+$/.test(f.span.trim())) out.push(`수정:${f.when === "older" ? ">" : ""}${f.span.trim()}${f.spanUnit}`);
+  else if (f.when === "range" && (f.from || f.to)) out.push(f.from && f.from === f.to ? `수정:${f.from}` : `수정:${f.from}..${f.to}`);
   if (f.size === "gt" && num(f.sizeA)) out.push(`크기:>${f.sizeA.trim()}${f.unitA}`);
   else if (f.size === "lt" && num(f.sizeA)) out.push(`크기:<${f.sizeA.trim()}${f.unitA}`);
   else if (f.size === "between" && num(f.sizeA) && num(f.sizeB)) out.push(`크기:${f.sizeA.trim()}${f.unitA}..${f.sizeB.trim()}${f.unitB}`);
@@ -215,7 +215,7 @@ function write(f: Form): string {
 /** 조건 한 갈래 — 켠 것만 줄로 보인다. */
 type Sec = "when" | "size" | "target" | "kinds" | "exts" | "color" | "memo";
 const SECS: { id: Sec; label: string }[] = [
-  { id: "when", label: "고친 날" },
+  { id: "when", label: "수정일" },
   { id: "size", label: "크기" },
   { id: "kinds", label: "종류" },
   { id: "target", label: "파일 · 폴더" },
@@ -321,16 +321,16 @@ export function ConditionForm({ initial, kinds, onText, autoFocus = false, outLa
                 ["today", "오늘"],
                 ["yesterday", "어제"],
                 ["within", "최근"],
-                ["older", "오래 안 고침"],
+                ["older", "오래 수정 안 함"],
                 ["range", "날짜로"],
               ],
-              "고친 날",
+              "수정일",
             )}
             {(f.when === "within" || f.when === "older") && (
               <span className="cs-sub">
                 <input className="cs-num" inputMode="numeric" value={f.span} aria-label="기간" onChange={(e) => set({ span: e.target.value })} />
                 {unitPick(f.spanUnit, SPAN_UNITS, (u) => set({ spanUnit: u }), "기간 단위")}
-                <span className="muted">{f.when === "within" ? "안에 고친 것" : "넘게 안 고친 것"}</span>
+                <span className="muted">{f.when === "within" ? "안에 수정한 것" : "넘게 수정 안 한 것"}</span>
               </span>
             )}
             {f.when === "range" && (
@@ -443,7 +443,7 @@ export function ConditionForm({ initial, kinds, onText, autoFocus = false, outLa
         <input ref={first} className="cs-terms" value={f.terms} spellCheck={false} placeholder="찾는 말 (이름 · 메모)" aria-label="찾는 말" onChange={(e) => set({ terms: e.target.value })} />
         <label className="cs-nots">
           <span aria-hidden="true">−</span>
-          <input value={f.nots} spellCheck={false} placeholder="뺄 말 (빈칸으로 여럿)" aria-label="뺄 말" onChange={(e) => set({ nots: e.target.value })} />
+          <input value={f.nots} spellCheck={false} placeholder="제외할 말 (빈칸으로 여럿)" aria-label="제외할 말" onChange={(e) => set({ nots: e.target.value })} />
         </label>
       </div>
 
@@ -452,7 +452,7 @@ export function ConditionForm({ initial, kinds, onText, autoFocus = false, outLa
           <div key={s} className="cs-row" data-sec={s}>
             <span className="cs-label">{label(s)}</span>
             <div className="cs-ctl">{control(s)}</div>
-            <button className="cs-x" aria-label={`${label(s)} 조건 빼기`} title="이 조건 빼기" onClick={() => drop(s)}>
+            <button className="cs-x" aria-label={`${label(s)} 조건 제거`} title="이 조건 제거" onClick={() => drop(s)}>
               ×
             </button>
           </div>
@@ -475,7 +475,7 @@ export function ConditionForm({ initial, kinds, onText, autoFocus = false, outLa
       </div>
 
       {more.length > 0 && (
-        <div className="cs-add" role="group" aria-label="조건 더하기">
+        <div className="cs-add" role="group" aria-label="조건 추가">
           {more.map((s) => (
             <button key={s.id} onClick={() => add(s.id)}>
               ＋ {s.label}

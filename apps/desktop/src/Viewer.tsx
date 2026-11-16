@@ -69,7 +69,7 @@ export default function Viewer(p: Props) {
   );
 
   const close = () =>
-    void flush.current().then((ok) => (ok ? p.onClose() : setNote("다른 곳에서 고친 것과 겹친다. 아래에서 다시 읽을지 덮어쓸지 먼저 고른다")));
+    void flush.current().then((ok) => (ok ? p.onClose() : setNote("다른 곳에서 수정한 내용과 겹친다. 아래에서 다시 읽을지 덮어쓸지 먼저 고른다")));
   const external = () => void flush.current().then(() => api.openItem(p.target.path).catch(fail));
 
   /** 마크다운 속 링크 — 웹 주소는 브라우저로, 앱 안에서 볼 파일은 여기서, 나머지는 기본 앱으로. */
@@ -81,7 +81,7 @@ export default function Viewer(p: Props) {
     if (runnable(path)) return setNote(`실행 파일 링크는 열지 않는다. 필요하면 목록에서 직접 연다: ${path}`);
     if (foreignShare(path, p.target.path)) return setNote(`다른 서버의 경로는 링크로 열지 않는다. 필요하면 주소 줄에 넣어 연다: ${path}`);
     if (viewKind(path.split(".").pop() ?? ""))
-      void flush.current().then((ok) => (ok ? p.onPick(targetOf(path)) : setNote("다른 곳에서 고친 것과 겹친다. 먼저 다시 읽을지 덮어쓸지 고른다")));
+      void flush.current().then((ok) => (ok ? p.onPick(targetOf(path)) : setNote("다른 곳에서 수정한 내용과 겹친다. 먼저 다시 읽을지 덮어쓸지 고른다")));
     else api.openItem(path).catch(fail);
   };
 
@@ -262,7 +262,7 @@ function TextView(p: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p.liveModified]);
 
-  const statusText: Record<Status, string> = { loading: "여는 중", saved: "저장됨", dirty: "고치는 중", saving: "저장하는 중", conflict: "", error: "" };
+  const statusText: Record<Status, string> = { loading: "여는 중", saved: "저장됨", dirty: "수정 중", saving: "저장하는 중", conflict: "", error: "" };
   useEffect(() => {
     p.setInfo(
       file && (
@@ -289,12 +289,12 @@ function TextView(p: {
     <>
       {status === "conflict" && (
         <div className="viewer-bar warn" role="alertdialog">
-          <span>연 뒤에 다른 곳에서 이 파일을 고쳤다. 여기서 고친 것은 아직 저장하지 않았다.</span>
+          <span>연 뒤에 다른 곳에서 이 파일을 수정했다. 여기서 수정한 내용은 아직 저장하지 않았다.</span>
           <button className="act" onClick={() => void load()}>
             저장된 파일 다시 읽기
           </button>
           <button className="act primary" onClick={() => void save(true)}>
-            고친 내용으로 덮어쓰기
+            수정한 내용으로 덮어쓰기
           </button>
         </div>
       )}

@@ -1898,6 +1898,51 @@ body.resizing-y * {
 .link-form .side-hint {
   margin: 4px 6px 0;
 }
+/* 주소 칸 밑 고르기 — 서버의 공유 폴더 · 이 PC 에서 쓰던 곳 (2026.11.13).
+   공유 줄과 같은 들여쓰기 · 높이라 더하면 그 자리 그대로 위 목록에 올라간 것처럼 읽힌다. 오른쪽 글은 어디서 찾았는지 */
+.link-pick {
+  display: grid;
+  margin: 4px 0 2px;
+}
+.link-pick-head {
+  margin: 2px 8px 2px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.link-pick-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: var(--ink);
+  text-align: left;
+}
+.link-pick-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.link-pick-row em {
+  margin-left: auto;
+  flex: none;
+  font-size: 11px;
+  font-style: normal;
+  color: var(--muted);
+}
+.link-pick-row:hover:not(:disabled) {
+  background: var(--hover);
+}
+.link-pick-row:hover:not(:disabled) em {
+  color: var(--accent);
+}
+.link-pick-row:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
 .side-hint.warn {
   color: var(--warn);
 }

@@ -3,6 +3,7 @@
 //! 목차
 //!   [1] 공통 — 주 스레드에서 돌리기 · 창 손잡이
 //!   [2] 목록 · 위치 · 주소
+//!   [2-1] 연결 — NAS · 공유 폴더 주소 풀기 · 공유 목록 · 로그인 · 이 PC 가 쓰던 곳 (`fd-shell::net`)
 //!   [3] 열기 · 바로가기 대상 · 오른쪽 메뉴 · 셸 동사
 //!   [3-1] 앱 안 보기 — 글 파일(md · txt) 읽기 · 쓰기 (`fd-core::textfile`) · 그림은 [9] 아이콘 프로토콜의 `raw:`
 //!   [4] 파일 작업 — 이름 바꾸기 · 휴지통 · 복사/이동 · 새 폴더
@@ -10,7 +11,7 @@
 //!   [6] 폴더 변경 감시
 //!   [7] 문서 — 판 묶기 · 새 판 내기 · 지난 판 옮기기
 //!   [7-1] 메모 — 파일 · 폴더에 붙인 글 · 색 표시 (filedesk 가 관리 · `fd-core::memo`) · 하위 폴더까지 찾기
-//!   [7-2] Claude 스킬 설치 (설정 창)
+//!   [7-2] 에이전트 스킬 감지 · 설치 · 빼기 (설정 창)
 //!   [8] 설정 (즐겨찾기 · 열어 둔 탭 · 분할 · 열 너비)
 //!   [8-1] 새 파일 (다운로드 · 바탕화면)
 //!   [8-2] 업데이트 — GitHub 릴리즈의 latest.json (tauri-plugin-updater · 화면 쪽 `updater.ts`)
@@ -135,6 +136,68 @@ async fn resolve_input(input: String, cwd: String) -> CmdResult<String> {
         }
     }
     Err(format!("찾을 수 없는 경로: {expanded}"))
+}
+
+// ───────────────────────────── [2-1] 연결 ─────────────────────────────
+// 2026.11.13 : 「연결」 칸이 경로 확인(is_dir)만 해서 `192.168.0.2` · `\서버` 처럼 서버만 적으면 늘 실패했다.
+//              서버면 공유 목록을 돌려주고, 로그인이 필요하면 Windows 로그인 창을 띄운 뒤 한 번 더 본다.
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NetTarget {
+    /// 푼 주소 — `\서버` 또는 `\서버\공유…` (네트워크 주소가 아니면 적은 그대로).
+    path: String,
+    /// 서버만 적었으면 그 공유 이름들. 공유 · 폴더면 None.
+    shares: Option<Vec<String>>,
+}
+
+/// 적은 주소를 풀어 연결할 곳을 준다. 서버면 공유 목록, 공유 · 폴더면 열리는지 확인한 경로.
+/// 로그인이 필요하면 Windows 로그인 창을 띄운다 (받은 자격 증명은 탐색기와 함께 쓴다).
+#[tauri::command]
+async fn net_resolve(window: WebviewWindow, input: String) -> CmdResult<NetTarget> {
+    let hwnd = owner(&window)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        use fd_shell::net::{self, NetError};
+        let path = net::normalize(&input);
+        let Some(server) = net::server_of(&path).map(str::to_string) else {
+            return if Path::new(&path).is_dir() { Ok(NetTarget { path, shares: None }) } else { Err("열 수 없다. 주소를 확인한다".into()) };
+        };
+        if net::is_server_only(&path) {
+            let shares = match net::shares(&server) {
+                Err(NetError::Denied) => net::login(hwnd, &path).and_then(|_| net::shares(&server)),
+                r => r,
+            }
+            .map_err(|e| e.message())?;
+            if shares.is_empty() {
+                return Err("이 서버에 열 수 있는 공유 폴더가 없다".into());
+            }
+            return Ok(NetTarget { path, shares: Some(shares) });
+        }
+        if Path::new(&path).is_dir() {
+            return Ok(NetTarget { path, shares: None });
+        }
+        // 열리지 않으면 로그인이 필요한지 본다 — 서버가 꺼졌으면 창 없이 곧바로 실패한다.
+        net::login(hwnd, &path).map_err(|e| e.message())?;
+        if Path::new(&path).is_dir() { Ok(NetTarget { path, shares: None }) } else { Err("열 수 없다. 공유 이름과 권한을 확인한다".into()) }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[derive(Serialize)]
+struct NetKnown {
+    path: String,
+    source: String,
+}
+
+/// 이 PC 가 이미 쓰는 네트워크 위치 — 연결된 네트워크 드라이브 · 탐색기 「네트워크 위치」 · 탐색기 주소 기록.
+#[tauri::command]
+async fn net_known() -> CmdResult<Vec<NetKnown>> {
+    tauri::async_runtime::spawn_blocking(|| {
+        fd_shell::run_sta(|| fd_shell::net::known().into_iter().map(|k| NetKnown { path: k.path, source: k.source }).collect())
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 // ───────────────────────────── [3] 열기 · 오른쪽 메뉴 · 셸 동사 ─────────────────────────────
@@ -607,15 +670,14 @@ fn dirs_of(paths: Vec<String>) -> Vec<bool> {
     paths.iter().map(|p| Path::new(p).is_dir()).collect()
 }
 
-// ───────────────────────────── [7-2] Claude 스킬 ─────────────────────────────
+// ───────────────────────────── [7-2] 에이전트 스킬 ─────────────────────────────
+// 2026.11.13 : Claude Code 한 곳 → 감지한 에이전트마다 골라 설치 · 빼기 (fd-core skill::AGENTS).
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SkillStatus {
-    /// 설치 자리 (`~/.claude/skills/filedesk/SKILL.md`).
-    file: Option<String>,
-    /// 설치된 스킬의 판. 없으면 설치 안 됨.
-    installed: Option<String>,
+    /// 에이전트마다 감지 여부 · 자리 · 설치된 판.
+    agents: Vec<fd_core::skill::Target>,
     /// 이 앱의 판 — 다르면 다시 설치를 권한다.
     current: String,
     /// 설치 폴더에 fd.exe 가 있는가 (배포 설치본). 없으면 스킬이 부를 명령이 없다.
@@ -630,34 +692,35 @@ fn fd_exe() -> Option<PathBuf> {
 
 #[tauri::command]
 fn skill_status() -> SkillStatus {
-    let file = fd_core::skill::default_file();
-    SkillStatus {
-        installed: file.as_deref().and_then(fd_core::skill::installed_version),
-        file: file.map(|f| f.to_string_lossy().into_owned()),
-        current: env!("CARGO_PKG_VERSION").to_string(),
-        has_cli: fd_exe().is_some(),
-    }
+    SkillStatus { agents: fd_core::skill::targets(), current: env!("CARGO_PKG_VERSION").to_string(), has_cli: fd_exe().is_some() }
 }
 
 #[tauri::command]
-fn install_skill() -> CmdResult<SkillStatus> {
+fn install_skill(agent: String) -> CmdResult<SkillStatus> {
     let fd = fd_exe().ok_or("앱 폴더에 fd.exe 가 없다. 설치 파일(릴리스의 setup.exe)로 깔아야 함께 깔린다")?;
-    let file = fd_core::skill::default_file().ok_or("USERPROFILE 이 없다")?;
-    fd_core::skill::install(&file, &fd)?;
+    fd_core::skill::install(&fd_core::skill::find(&agent)?.file, &fd)?;
     Ok(skill_status())
 }
 
-/// 켤 때 — 이미 깐 스킬이 이 판 · 이 fd.exe 자리와 다르면 다시 쓴다. 깔지 않은 사람에게는 새로 깔지 않는다.
+#[tauri::command]
+fn remove_skill(agent: String) -> CmdResult<SkillStatus> {
+    fd_core::skill::uninstall(&fd_core::skill::find(&agent)?.file)?;
+    Ok(skill_status())
+}
+
+/// 켤 때 — 이미 깐 스킬이 이 판 · 이 fd.exe 자리와 다르면 다시 쓴다. 깔지 않은 에이전트에는 새로 깔지 않는다.
 /// 2026.11.11 : 앱만 새 판으로 올리고 스킬을 잊으면 에이전트가 옛 명령 · 옛 경로를 불렀다. 판이 같아도 설치 자리가 바뀌면 경로가 어긋나서 본문째 견준다.
 /// 2026.11.11 리뷰 : 판 · 경로가 같으면 손대지 않는다 (사람이 고친 스킬을 지키려고). 저장소의 빌드(`target\…`)로 켰을 때는 쓰지 않는다 —
 ///              개발판을 한 번 켜기만 해도 설치된 스킬이 `target\debug\fd.exe` 를 가리켰다.
 fn refresh_skill() {
-    let (Some(fd), Some(file)) = (fd_exe(), fd_core::skill::default_file()) else { return };
+    let Some(fd) = fd_exe() else { return };
     if fd.components().any(|c| c.as_os_str().eq_ignore_ascii_case("target")) {
         return;
     }
-    if fd_core::skill::needs_refresh(&file, &fd) {
-        let _ = fd_core::skill::install(&file, &fd);
+    for t in fd_core::skill::targets() {
+        if fd_core::skill::needs_refresh(&t.file, &fd) {
+            let _ = fd_core::skill::install(&t.file, &fd);
+        }
     }
 }
 
@@ -814,10 +877,13 @@ pub fn run() {
             memos_of,
             search_dir,
             dirs_of,
+            net_resolve,
+            net_known,
             tagged,
             icon_pack,
             skill_status,
             install_skill,
+            remove_skill,
             update_installable,
             open_url,
             load_settings,

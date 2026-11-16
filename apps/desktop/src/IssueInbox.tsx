@@ -226,7 +226,7 @@ export default function IssueInbox({ docs, dir, onRetire, onRetireAll, onShow, o
                   </button>
                 ) : (
                   <button className="act primary" onClick={() => onShow(sel)}>
-                    목록에서 고치기
+                    목록에서 수정
                   </button>
                 )}
                 {selStale > 0 && (

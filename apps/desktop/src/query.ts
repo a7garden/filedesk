@@ -65,11 +65,11 @@ export function removeToken(text: string, raw: string): string {
 
 /** 「＋ 조건」 메뉴 — 누르면 찾기 칸 끝에 붙는다. */
 export const PRESETS: { group: string; label: string; token: string }[] = [
-  { group: "고친 날", label: "오늘", token: "고친:오늘" },
-  { group: "고친 날", label: "3일 안", token: "고친:3일" },
-  { group: "고친 날", label: "7일 안", token: "고친:7일" },
-  { group: "고친 날", label: "30일 안", token: "고친:30일" },
-  { group: "고친 날", label: "1년 넘게 안 고침", token: "고친:>1년" },
+  { group: "수정일", label: "오늘", token: "수정:오늘" },
+  { group: "수정일", label: "3일 안", token: "수정:3일" },
+  { group: "수정일", label: "7일 안", token: "수정:7일" },
+  { group: "수정일", label: "30일 안", token: "수정:30일" },
+  { group: "수정일", label: "1년 넘게 수정 안 함", token: "수정:>1년" },
   { group: "크기", label: "10MB 이상", token: "크기:>10MB" },
   { group: "크기", label: "100MB 이상", token: "크기:>100MB" },
   { group: "크기", label: "1KB 미만", token: "크기:<1KB" },
@@ -102,7 +102,7 @@ export const remoteOnly = (scope: SmartScope) => scope.kind === "roots" && scope
 export const RECENT_ID = "recent";
 
 /** 처음부터 있는 스마트 폴더 — 지난 판의 왼쪽 「최근 파일」(다운로드 · 바탕화면 · 최근 3일 · 바로 아래 파일만)과 같은 뜻. */
-export const defaultSmart = (): SmartFolder => ({ id: RECENT_ID, name: "최근 파일", q: "고친:3일 종류:파일", scope: { kind: "inbox" } });
+export const defaultSmart = (): SmartFolder => ({ id: RECENT_ID, name: "최근 파일", q: "수정:3일 종류:파일", scope: { kind: "inbox" } });
 
 export const newSmartId = () => `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
@@ -134,7 +134,7 @@ export function sourceLabel(r: { sources: string[]; indexedAt: number; partial: 
   const s = r.sources;
   const parts: string[] = [];
   if (s.includes("service") || s.includes("local")) parts.push(`색인${r.indexedAt ? ` · ${ago(r.indexedAt)} 맞춤` : ""}`);
-  if (s.includes("live")) parts.push("그 자리에서 훑음");
+  if (s.includes("live")) parts.push("폴더를 직접 읽음");
   if (s.includes("content")) parts.push("본문 색인");
   if (s.includes("notes")) parts.push("메모 · 색 표시");
   if (r.partial) parts.push("일부: 색인을 만드는 중");

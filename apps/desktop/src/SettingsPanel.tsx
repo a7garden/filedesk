@@ -2,13 +2,13 @@
 //
 // 목차 (한 장으로 이어진다 · 왼쪽 목차는 지금 읽는 자리를 따라간다)
 //   보기       크기 사다리 · 보일 열 · 숨김 파일 · 격자 미리보기
-//   목록       기본 정렬 · 폴더를 위에 · 판 접어 시작 · 고친 날 · 크기 꼴
+//   목록       기본 정렬 · 폴더를 위에 · 판 접어 시작 · 판 관리(2026.11.16 · 기본 끔) · 고친 날 · 크기 꼴
 //   열기       폴더 열기(두 번 · 한 번 누르기) · 시작 폴더
 //   화면 색     시스템 · 밝게 · 어둡게 — 작은 창 그림으로 고른다
 //   아이콘      Windows · filedesk · 아이콘 팩 — 같은 파일 몇 개가 셋에서 어떻게 보이는지 나란히
 //   종류       목록 위 종류 · 아이콘 색의 묶음. 확장자 칩을 다른 종류로 끌어 옮긴다
 //   색인       빠른 색인 서비스 설치 · 드라이브마다 상태 · 문서 본문 색인 진행 · 빼는 폴더 (IndexSettings) — 2026.11.12
-//   Claude 스킬 앱 옆 fd.exe 를 부르는 안내서를 `~/.claude/skills/filedesk` 에 쓴다
+//   에이전트 스킬 앱 옆 fd.exe 를 부르는 안내서를 감지한 에이전트(Claude Code · Codex …)마다 골라 쓴다 — 2026.11.13
 //
 //   2026.11.11 : 칸을 넘기는 대화 창(왼쪽 목차 · 오른쪽 입력 칸)을 한 장으로 바꿨다. 칸을 넘기면 다른 설정이 보이지 않아
 //   「어디 있었지」를 찾아 목차를 눌러 봐야 했고, 입력 칸만으로는 바꾼 결과를 알 수 없었다. 이제 설정마다 그 결과를 그 자리에 그린다.
@@ -19,7 +19,7 @@
 //                일반 파일 탐색기에 한 과업에만 맞는 설정이었다 — 상태어는 고정 목록, 작성자 꼬리는 이름 꼴로 추정한다 (fd-core docname).
 import { useEffect, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import { api, iconUrl, type ColKey, type Entry, type SkillStatus, type Theme, type ViewPrefs } from "./api";
+import { api, iconUrl, type ColKey, type Entry, type SkillAgent, type SkillStatus, type Theme, type ViewPrefs } from "./api";
 import { FileGlyph, FolderGlyph } from "./glyphs";
 import IndexSettings from "./IndexSettings";
 import SizeLadder from "./SizeLadder";
@@ -50,7 +50,7 @@ const SECTIONS = [
   { id: "icons", label: "아이콘" },
   { id: "kinds", label: "종류" },
   { id: "index", label: "색인" },
-  { id: "skill", label: "Claude 스킬" },
+  { id: "skill", label: "에이전트 스킬" },
   { id: "update", label: "업데이트" },
 ] as const;
 type SectionId = (typeof SECTIONS)[number]["id"];
@@ -131,13 +131,12 @@ export default function SettingsPanel(props: Props) {
       });
   }, [view.iconPack]);
 
-  const installSkill = () => {
+  const skillAct = (a: SkillAgent, remove: boolean) => {
     setSkillMsg("");
-    api
-      .installSkill()
+    (remove ? api.removeSkill(a.id) : api.installSkill(a.id))
       .then((s) => {
         setSkill(s);
-        setSkillMsg("설치했다. Claude Code 를 새로 열면 「filedesk」 스킬이 보인다");
+        setSkillMsg(remove ? `${a.name} 에서 뺐다` : `설치했다. ${a.name} 를 새로 열면 「filedesk」 스킬이 보인다`);
       })
       .catch((e) => setSkillMsg(errText(e)));
   };
@@ -169,7 +168,9 @@ export default function SettingsPanel(props: Props) {
 
   const colOn = (c: ColKey) => !view.hiddenCols.includes(c);
   const toggleCol = (c: ColKey) => setView((v) => ({ ...v, hiddenCols: v.hiddenCols.includes(c) ? v.hiddenCols.filter((x) => x !== c) : [...v.hiddenCols, c] }));
-  const skillOld = skill?.installed && skill.installed !== skill.current;
+  /** 보일 에이전트 — 감지했거나 이미 깐 것. 나머지는 이름만 한 줄로. */
+  const skillShown = skill?.agents.filter((a) => a.detected || a.installed) ?? [];
+  const skillMissing = skill?.agents.filter((a) => !a.detected && !a.installed) ?? [];
 
   /** 아이콘 방식 하나의 견본 — 표본을 그 방식으로. 팩에 없는 것은 filedesk 그림 (목록과 같은 규칙). */
   const iconSample = (mode: ViewPrefs["icons"]) =>
@@ -221,15 +222,18 @@ export default function SettingsPanel(props: Props) {
               <span className="set-label">목록 열</span>
               <div>
                 {/* 목록 머리 모양 그대로 — 열 이름을 눌러 켜고 끈다. 이름 열은 늘 있다 */}
-                <div className="col-preview" role="group" aria-label="목록에 보일 열">
+                <div className="col-preview" role="group" aria-label="목록에 표시할 열">
                   <span className="col-chip fixed">이름</span>
                   {(
                     [
                       ["ver", "판"],
-                      ["date", "고친 날"],
+                      ["date", "수정일"],
                       ["size", "크기"],
                     ] as [ColKey, string][]
-                  ).map(([c, l]) => (
+                  )
+                    // 판 열은 판 관리를 켰을 때만 있다
+                    .filter(([c]) => c !== "ver" || view.editions)
+                    .map(([c, l]) => (
                     <button key={c} className="col-chip" aria-pressed={colOn(c)} onClick={() => toggleCol(c)} title={colOn(c) ? `${l} 열 숨기기` : `${l} 열 보이기`}>
                       {l}
                     </button>
@@ -244,7 +248,7 @@ export default function SettingsPanel(props: Props) {
               </div>
             </div>
             <div className="set-line">
-              <span className="set-label">보일 것</span>
+              <span className="set-label">표시할 항목</span>
               <div>
                 {check("숨김 · 시스템 파일", showHidden, setShowHidden, "Ctrl+H")}
                 {check("격자에서 그림 · PDF · 영상의 내용 미리보기", view.thumbs, (thumbs) => setView((v) => ({ ...v, thumbs })))}
@@ -263,7 +267,7 @@ export default function SettingsPanel(props: Props) {
                   "기본 정렬",
                   [
                     ["name", "이름"],
-                    ["modified", "고친 날"],
+                    ["modified", "수정일"],
                     ["kind", "종류"],
                     ["size", "크기"],
                   ],
@@ -273,27 +277,36 @@ export default function SettingsPanel(props: Props) {
                 {choice<"asc" | "desc">(
                   "정렬 방향",
                   [
-                    ["asc", view.sort.key === "modified" ? "옛것부터" : view.sort.key === "size" ? "작은 것부터" : "가나다순"],
-                    ["desc", view.sort.key === "modified" ? "최근 것부터" : view.sort.key === "size" ? "큰 것부터" : "거꾸로"],
+                    ["asc", view.sort.key === "modified" ? "오래된 순" : view.sort.key === "size" ? "작은 순" : "가나다순"],
+                    ["desc", view.sort.key === "modified" ? "최신순" : view.sort.key === "size" ? "큰 순" : "가나다 역순"],
                   ],
                   view.sort.asc ? "asc" : "desc",
                   (d) => setView((v) => ({ ...v, sort: { ...v.sort, asc: d === "asc" } })),
                 )}
-                <p className="muted set-hint">새 탭 · 다시 켤 때 이 정렬로 시작한다 · 열 머리를 눌러 바꾼 정렬은 그 탭에서만</p>
+                <p className="muted set-hint">새 탭 · 앱을 다시 시작할 때 이 정렬로 시작한다 · 열 머리를 눌러 바꾼 정렬은 그 탭에서만</p>
               </div>
             </div>
             <div className="set-line">
               <span className="set-label">늘어놓기</span>
               <div>
-                {check("폴더를 파일 위에 모으기", view.dirsFirst, (dirsFirst) => setView((v) => ({ ...v, dirsFirst })), "끄면 고친 날 순서에 폴더가 섞인다")}
-                {check("판을 접은 채 시작", view.foldStart, (foldStart) => setView((v) => ({ ...v, foldStart })), "Ctrl+Shift+D 는 그 탭에서만")}
+                {check("폴더를 파일 위에 모으기", view.dirsFirst, (dirsFirst) => setView((v) => ({ ...v, dirsFirst })), "끄면 수정일 순서에 폴더가 섞인다")}
+                {view.editions && check("판을 접은 채 시작", view.foldStart, (foldStart) => setView((v) => ({ ...v, foldStart })), "Ctrl+Shift+D 는 그 탭에서만")}
               </div>
             </div>
             <div className="set-line">
-              <span className="set-label">고친 날</span>
+              <span className="set-label">판 관리</span>
+              <div>
+                {check("문서의 판을 한 줄로 묶어 관리", view.editions, (editions) => setView((v) => ({ ...v, editions })))}
+                <p className="muted set-hint">
+                  「문서명_v판_날짜」 이름의 파일을 판으로 묶는다. 판 열 · 판 목록 · 새 판 내기 · 문제 문서 처리함이 함께 켜진다. 끄면 파일마다 한 줄이다
+                </p>
+              </div>
+            </div>
+            <div className="set-line">
+              <span className="set-label">수정일</span>
               <div>
                 {choice(
-                  "고친 날 표시",
+                  "수정일 표시",
                   [
                     ["relative", "오늘 · 어제", relDate(sample, "relative")],
                     ["absolute", "날짜", relDate(sample, "absolute")],
@@ -339,7 +352,7 @@ export default function SettingsPanel(props: Props) {
               <span className="set-label">시작 폴더</span>
               <div>
                 {choice(
-                  "켤 때",
+                  "시작할 때",
                   [
                     ["last", "지난 탭 그대로", "지난번에 열어 둔 탭 · 나눠 보기 그대로 연다"],
                     ["folder", "정한 폴더", start || "고르면 지금 폴더로 정한다"],
@@ -429,32 +442,58 @@ export default function SettingsPanel(props: Props) {
           </section>
 
           <section id="set-skill" aria-labelledby="h-skill">
-            <h3 id="h-skill">Claude 스킬</h3>
+            <h3 id="h-skill">에이전트 스킬</h3>
             <p className="muted set-note">
-              Claude Code 가 filedesk 명령줄(fd)로 판 정리 · 새 판 · 메모 · 색 표시 · 찾기 · 휴지통을 다루게 한다. 파일을 바꾸기 전에는 늘 계획을 먼저 보인다.
+              이 PC 의 코딩 에이전트가 filedesk 명령줄(fd)로 파일을 찾고(색인 · 문서 본문) 판 정리 · 새 판 · 메모 · 색 표시 · 휴지통을 다루게 한다.
+              파일을 바꾸기 전에는 늘 계획을 먼저 보인다.
             </p>
-            <div className="set-acts">
-              <span className="set-path">
-                {skill == null
-                  ? "확인 중…"
-                  : skill.installed
-                    ? skillOld
-                      ? `설치됨 (${skill.installed}): 앱은 ${skill.current}. 다시 설치하면 새 명령이 들어간다`
-                      : `설치됨 (${skill.installed})`
-                    : "설치 안 됨"}
-              </span>
-              <button
-                className={"act" + (!skill?.installed || skillOld ? " primary" : "")}
-                disabled={!skill?.hasCli}
-                title={skill?.hasCli ? (skill.file ?? "") : "설치 파일(릴리스의 setup.exe)로 설치해야 fd.exe 가 함께 설치된다"}
-                onClick={installSkill}
-              >
-                {skill?.installed ? "다시 설치" : "설치"}
-              </button>
-              {!skill?.hasCli && skill && <span className="muted">설치 파일로 설치한 앱에서만 된다</span>}
-            </div>
+            {skill == null ? (
+              <p className="set-path">확인 중…</p>
+            ) : skillShown.length > 0 ? (
+              <table className="index-table">
+                <thead>
+                  <tr>
+                    <th>에이전트</th>
+                    <th>상태</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {skillShown.map((a) => {
+                    const old = a.installed && a.installed !== skill.current;
+                    return (
+                      <tr key={a.id} title={a.file}>
+                        <td>{a.name}</td>
+                        <td>
+                          {a.installed ? (old ? `설치됨 (${a.installed}): 앱은 ${skill.current}` : `설치됨 (${a.installed})`) : "설치 안 됨"}
+                          {!a.detected && <span className="muted"> · 에이전트를 찾지 못함</span>}
+                        </td>
+                        <td>
+                          <span className="set-acts">
+                            <button className={"act" + (!a.installed || old ? " primary" : "")} disabled={!skill.hasCli} onClick={() => skillAct(a, false)}>
+                              {a.installed ? "다시 설치" : "설치"}
+                            </button>
+                            {a.installed && (
+                              <button className="act" onClick={() => skillAct(a, true)}>
+                                제거
+                              </button>
+                            )}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            ) : (
+              <p className="set-path">감지한 에이전트가 없다</p>
+            )}
+            {skill && !skill.hasCli && <p className="muted set-note">설치 파일(릴리스의 setup.exe)로 설치한 앱에서만 된다. 그래야 fd.exe 가 함께 설치된다</p>}
             {skillMsg && <p className="set-note">{skillMsg}</p>}
-            {skill?.file && <p className="muted set-note">자리: {skill.file}</p>}
+            {skillMissing.length > 0 && <p className="muted set-note">감지 못 함: {skillMissing.map((a) => a.name).join(" · ")}</p>}
+            <p className="muted set-note">
+              목록에 없는 에이전트는 명령줄 <code>fd skill install --dir &lt;스킬 폴더&gt;</code> 로 설치하거나, <code>fd skill show</code> 가 내는 본문을 그 에이전트의 지침 파일에 붙인다.
+            </p>
           </section>
 
           {/* 2026.11.13 : 확인만 하던 설정에서 바로 설치까지 — 제목 줄 알림과 같은 업데이트 카드 */}
@@ -586,7 +625,7 @@ function KindsEditor({ kinds, set }: { kinds: KindDef[]; set: (k: KindDef[]) => 
                     }}
                   >
                     {x}
-                    <button aria-label={`${x} 빼기`} onClick={() => put(i, { exts: k.exts.filter((y) => y !== x) })}>
+                    <button aria-label={`${x} 제거`} onClick={() => put(i, { exts: k.exts.filter((y) => y !== x) })}>
                       ×
                     </button>
                   </span>
@@ -597,7 +636,7 @@ function KindsEditor({ kinds, set }: { kinds: KindDef[]; set: (k: KindDef[]) => 
                 spellCheck={false}
                 value={adding[k.id] ?? ""}
                 placeholder="+ 확장자"
-                aria-label={`${k.label}에 확장자 더하기`}
+                aria-label={`${k.label}에 확장자 추가`}
                 onChange={(e) => setAdding((a) => ({ ...a, [k.id]: e.target.value }))}
                 onBlur={() => addExts(i, k.id)}
                 onKeyDown={(e) => {
@@ -616,7 +655,7 @@ function KindsEditor({ kinds, set }: { kinds: KindDef[]; set: (k: KindDef[]) => 
               <button className="icon-btn" aria-label="아래로" title="아래로" disabled={i === kinds.length - 1} onClick={() => move(i, 1)}>
                 ↓
               </button>
-              <button className="icon-btn" aria-label={`${k.label} 빼기`} title="종류 빼기: 이 확장자들은 「기타」가 된다" onClick={() => set(kinds.filter((_, j) => j !== i))}>
+              <button className="icon-btn" aria-label={`${k.label} 삭제`} title="종류 삭제: 이 확장자들은 「기타」가 된다" onClick={() => set(kinds.filter((_, j) => j !== i))}>
                 ×
               </button>
             </span>
@@ -630,7 +669,7 @@ function KindsEditor({ kinds, set }: { kinds: KindDef[]; set: (k: KindDef[]) => 
       )}
       <div className="set-acts">
         <button className="act primary" onClick={addKind}>
-          종류 더하기
+          종류 추가
         </button>
         <button className="act" onClick={() => set(DEFAULT_KINDS)} title="문서 · 표 · 발표 · PDF · 그림 · 영상 · 소리 · 압축 · 코드">
           처음대로

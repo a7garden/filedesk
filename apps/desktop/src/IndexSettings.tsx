@@ -53,15 +53,15 @@ export default function IndexSettings({ current }: { current: string }) {
   return (
     <>
       <p className="muted set-note">
-        「모든 드라이브」 찾기 · 스마트 폴더가 쓴다. 파일 이름 · 크기 · 고친 날을 담고, 문서(hwpx · docx · pptx · xlsx · pdf · txt · md)는 본문도 담는다.
-        색인은 이 PC 안에만 있고 지워도 다시 만든다. NAS · 네트워크 드라이브는 담지 않는다. 누를 때 그 자리에서 훑는다.
+        「모든 드라이브」 찾기 · 스마트 폴더가 쓴다. 파일 이름 · 크기 · 수정일을 담고, 문서(hwpx · docx · pptx · xlsx · pdf · txt · md)는 본문도 담는다.
+        색인은 이 PC 안에만 있고 지워도 다시 만든다. NAS · 네트워크 드라이브는 담지 않는다. 찾을 때 폴더를 직접 읽는다.
       </p>
       <div className="set-line">
         <span className="set-label">빠른 색인</span>
         <div>
           <div className="set-acts">
             <span className="set-path">
-              {hub == null ? "확인 중…" : svc ? `서비스가 맡는다${old ? " (앱과 버전이 다르다)" : ""}` : "앱이 드라이브를 훑어 색인한다"}
+              {hub == null ? "확인 중…" : svc ? `서비스가 맡는다${old ? " (앱과 버전이 다르다)" : ""}` : "앱이 드라이브를 읽어 색인한다"}
             </span>
             {hub && !svc && (
               <button
@@ -107,7 +107,7 @@ export default function IndexSettings({ current }: { current: string }) {
                 {hub.index.volumes.map((v) => (
                   <tr key={v.root}>
                     <td>{v.root}</td>
-                    <td>{v.method === "ntfs" ? (v.usn ? "MFT · USN" : "MFT") : "훑기 · 감시"}</td>
+                    <td>{v.method === "ntfs" ? (v.usn ? "MFT · USN" : "MFT") : "직접 읽기 · 감시"}</td>
                     <td className="num">{v.files.toLocaleString("ko-KR")}</td>
                     <td>
                       {v.state === "ready" ? ago(v.updated) || "준비됨" : v.state === "error" ? "오류" : "만드는 중"}
@@ -140,7 +140,7 @@ export default function IndexSettings({ current }: { current: string }) {
               )}
               <div className="set-acts">
                 <button className="act" onClick={() => run("pause", () => api.contentPause(!content.paused).then(() => api.indexStatus()))}>
-                  {content.paused ? "다시 담기" : "잠시 멈춤"}
+                  {content.paused ? "다시 시작" : "잠시 멈춤"}
                 </button>
               </div>
               <p className="muted set-hint">
@@ -148,12 +148,12 @@ export default function IndexSettings({ current }: { current: string }) {
               </p>
             </>
           ) : (
-            <p className="muted set-hint">본문 색인을 열지 못했다. 「문서 본문까지」는 그 자리에서 읽는다</p>
+            <p className="muted set-hint">본문 색인을 열지 못했다. 「문서 본문까지」는 파일을 직접 읽는다</p>
           )}
         </div>
       </div>
       <div className="set-line">
-        <span className="set-label">빼는 폴더</span>
+        <span className="set-label">제외 폴더</span>
         <div>
           <textarea
             className="index-exclude"
@@ -164,11 +164,11 @@ export default function IndexSettings({ current }: { current: string }) {
             onChange={(e) => setExclude(e.target.value)}
           />
           <div className="set-acts">
-            <button className="act" onClick={() => run("exclude", () => api.indexExclude(exclude.split("\n")), "빼는 폴더를 바꿨다. 찾기 결과에서 바로 빠진다")}>
+            <button className="act" onClick={() => run("exclude", () => api.indexExclude(exclude.split("\n")), "제외 폴더를 바꿨다. 찾기 결과에서 바로 빠진다")}>
               저장
             </button>
             <button className="link-btn" onClick={() => setExclude((x) => (x.trim() ? `${x.trim()}\n${current}` : current))} title={current}>
-              지금 폴더 더하기
+              지금 폴더 추가
             </button>
           </div>
         </div>

@@ -136,16 +136,30 @@ impl ContentIndex {
         Ok(())
     }
 
-    /// 담긴 문서의 (고친 때, 크기). 없으면 None.
-    pub fn lookup(&self, path: &str) -> Option<(i64, u64)> {
+    fn doc_of(&self, path: &str) -> Option<TantivyDocument> {
         let searcher = self.reader.searcher();
         let q = TermQuery::new(Term::from_field_text(self.f.key, &Self::key(path)), IndexRecordOption::Basic);
         let top = searcher.search(&q, &TopDocs::with_limit(1)).ok()?;
         let (_, addr) = top.first()?;
-        let d: TantivyDocument = searcher.doc(*addr).ok()?;
+        searcher.doc(*addr).ok()
+    }
+
+    /// 담긴 문서의 (고친 때, 크기). 없으면 None.
+    pub fn lookup(&self, path: &str) -> Option<(i64, u64)> {
+        let d = self.doc_of(path)?;
         let m = d.get_first(self.f.modified).and_then(|v| v.as_i64())?;
         let s = d.get_first(self.f.size).and_then(|v| v.as_u64())?;
         Some((m, s))
+    }
+
+    /// 담긴 문서의 (고친 때, 크기, 본문). 없으면 None — `fd text` 가 파일을 다시 열지 않고 본문을 낸다.
+    /// 고친 때 · 크기가 지금 파일과 다르면 낡은 본문이니, 부르는 쪽이 견주고 그 자리에서 뽑는다.
+    pub fn body(&self, path: &str) -> Option<(i64, u64, String)> {
+        let d = self.doc_of(path)?;
+        let m = d.get_first(self.f.modified).and_then(|v| v.as_i64())?;
+        let s = d.get_first(self.f.size).and_then(|v| v.as_u64())?;
+        let b = d.get_first(self.f.body).and_then(|v| v.as_str())?.to_string();
+        Some((m, s, b))
     }
 
     /// 담긴 문서 수.
@@ -231,6 +245,7 @@ mod tests {
         // 한 글자는 색인으로 좁히지 못한다
         assert!(ix.search(&["가".to_string()], 10).is_none());
         assert_eq!(ix.lookup(r"c:\가\계획.HWPX"), Some((20, 200)));
+        assert_eq!(ix.body(r"C:\가\계획.hwpx").map(|b| b.2), Some("산림재난 대응 계획".into()));
         // 바꾸면 하나만 남는다
         ix.upsert(r"C:\가\계획.hwpx", 21, 201, "다른 내용").unwrap();
         ix.remove(r"C:\가\보고.docx");

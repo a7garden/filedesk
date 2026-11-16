@@ -1,6 +1,8 @@
 //! `fd` — filedesk 명령줄. 출력은 JSON 이다 (에이전트가 그대로 읽게).
 //! 2026.11.11 : 목록 · 문서 묶기 · 메모. 사본 조회(`fd dupes` · `fd status`)는 2단계 색인과 함께 붙는다.
 //! 2026.11.11 : 에이전트 창구로 키웠다 — 새 판 · 이전판 정리 · 휴지통 · Claude 스킬 설치.
+//! 2026.11.13 : `fd text` (본문 · 근거 단락) · `fd query --latest` (지난 판 빼기) — 찾은 문서를 에이전트가 바로 읽게.
+//! 2026.11.13 : 스킬을 감지한 에이전트마다 (`fd skill agents` · `install --agent` · `remove`).
 //! 2026.11.11 : `fd projects` · `fd where` · `fd rules` 를 뺐다 — 일반 탐색기라 「프로젝트」 · 과업 이름 규칙을 두지 않는다.
 //! 2026.11.11 : `fd conv` · `fd name` — 규칙을 정하지 않고 그 폴더가 쓰는 이름 꼴을 읽어 권한다 (fd-core `convention`).
 //!
@@ -104,6 +106,26 @@ enum Cmd {
         /// 최대 개수
         #[arg(long, default_value_t = 500)]
         limit: usize,
+        /// 지난 판을 뺀다 — 지난 판 폴더 안 · 같은 폴더에 더 새 판이 있는 파일
+        #[arg(long)]
+        latest: bool,
+    },
+    /// 문서 본문 글 (hwpx · docx · pptx · xlsx · pdf · txt · md · csv). 본문 색인에 있으면 파일을 열지 않는다.
+    /// `--find` 를 주면 그 말이 든 단락만 (든 말 가짓수 · 맞은 횟수 차례)
+    Text {
+        path: PathBuf,
+        /// 찾는 말 (띄어 쓰면 낱말마다 — 하나라도 든 곳)
+        #[arg(long)]
+        find: Option<String>,
+        /// 단락에서 맞은 말 앞뒤로 둘 글자 수
+        #[arg(long, default_value_t = 300)]
+        around: usize,
+        /// 단락 수 (`--find`) · 글자 수 (본문 전체) 상한
+        #[arg(long)]
+        limit: Option<usize>,
+        /// 본문 전체를 낼 때 여기(글자 자리)부터 — 단락의 `offset` · 앞 결과의 `next`
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
     },
     /// 색인 — 상태 · 다시 만들기 (색인 서비스에 묻는다)
     #[command(subcommand)]
@@ -140,11 +162,22 @@ enum IndexCmd {
 
 #[derive(Subcommand)]
 enum SkillCmd {
-    /// `~/.claude/skills/filedesk/SKILL.md` 에 스킬을 쓴다 (이 fd.exe 경로를 넣어서). 있으면 이 판으로 바꾼다
+    /// 이 PC 의 에이전트마다 감지 여부 · 스킬 자리 · 설치된 판
+    Agents,
+    /// 에이전트 스킬 자리에 스킬을 쓴다 (이 fd.exe 경로를 넣어서). 있으면 이 판으로 바꾼다.
+    /// `--agent` 도 `--dir` 도 없으면 감지한 에이전트 모두에
     Install {
-        /// 스킬 폴더들의 자리 (기본: `~/.claude/skills`)
+        /// 에이전트 id (`fd skill agents` 의 id). 여러 번 줄 수 있다
+        #[arg(long)]
+        agent: Vec<String>,
+        /// 그 밖의 에이전트 — 스킬 폴더들의 자리를 직접 준다
         #[arg(long)]
         dir: Option<PathBuf>,
+    },
+    /// 에이전트 스킬 자리에서 filedesk 스킬을 뺀다
+    Remove {
+        #[arg(long, required = true)]
+        agent: Vec<String>,
     },
     /// 설치할 스킬 본문을 그대로 찍는다
     Show,
@@ -204,7 +237,10 @@ fn main() -> ExitCode {
         Cmd::Edition { file, today, apply } => done(edition(&abs(file), today, apply)),
         Cmd::Retire { dir, doc, apply } => done(retire(&abs(dir), doc.as_deref(), apply)),
         Cmd::Find { dir, query, all, limit, content } => done(find(&abs(dir), &query, all, limit, content)),
-        Cmd::Query { text, dirs, no_recurse, content, live, all, limit } => done(query(&text, dirs.into_iter().map(abs).collect(), !no_recurse, content, live, all, limit)),
+        Cmd::Query { text, dirs, no_recurse, content, live, all, limit, latest } => {
+            done(query(&text, dirs.into_iter().map(abs).collect(), !no_recurse, content, live, all, limit, latest))
+        }
+        Cmd::Text { path, find, around, limit, offset } => done(text(&abs(path), find.as_deref(), around, limit, offset)),
         Cmd::Index(c) => done(index(c)),
         Cmd::Conv { dir } => done(conv(&abs(dir))),
         Cmd::Name { path, to, date } => done(name(&abs(path), to.map(abs), date)),
@@ -340,7 +376,8 @@ fn find(dir: &Path, query: &str, all: bool, limit: usize, content: bool) -> Out 
 
 /// 조건으로 찾기. 화면(`apps/desktop/src-tauri/src/index.rs` `run_query`)과 같은 차례를 줄여서 따른다 —
 /// 메모 · 색 조건이면 메모 파일에서, 아니면 색인 서비스(없거나 `--live` 면 그 자리 훑기), 본문은 본문 색인(읽기만).
-fn query(text: &str, dirs: Vec<PathBuf>, recursive: bool, content: bool, live: bool, all: bool, limit: usize) -> Out {
+#[allow(clippy::too_many_arguments)]
+fn query(text: &str, dirs: Vec<PathBuf>, recursive: bool, content: bool, live: bool, all: bool, limit: usize, latest: bool) -> Out {
     use fd_index::proto::{Request, Response};
     for d in &dirs {
         if !d.is_dir() {
@@ -404,11 +441,50 @@ fn query(text: &str, dirs: Vec<PathBuf>, recursive: bool, content: bool, live: b
             }
         }
     }
+    // 지난 판 빼기 — 결과를 다 모은 뒤에 거른다 (색인 · 훑기 · 본문 어느 쪽에서 왔든 같게).
+    let mut superseded = 0;
+    if latest {
+        let mut seen = std::collections::BTreeMap::new();
+        let before = items.len();
+        items.retain(|f| f.entry.is_dir || !fd_core::docs::superseded(Path::new(&f.entry.path), &mut seen));
+        superseded = before - items.len();
+    }
     if items.len() > limit {
         items.truncate(limit);
         truncated = true;
     }
-    Ok(serde_json::json!({ "spec": spec, "sources": sources, "truncated": truncated, "items": items }))
+    Ok(serde_json::json!({ "spec": spec, "sources": sources, "truncated": truncated, "superseded": superseded, "items": items }))
+}
+
+/// 문서 본문. 본문 색인의 것이 지금 파일과 같으면(고친 때 · 크기) 그것을, 아니면 그 자리에서 뽑는다.
+fn text(path: &Path, find: Option<&str>, around: usize, limit: Option<usize>, offset: usize) -> Out {
+    let e = fd_core::list::entry_at(path).filter(|e| !e.is_dir).ok_or_else(|| format!("{}: 파일이 아니다", path.display()))?;
+    let p = path.to_string_lossy();
+    let indexed = fd_content::default_dir()
+        .filter(|d| d.is_dir())
+        .and_then(|d| fd_content::ContentIndex::open(&d, false).ok())
+        .and_then(|ix| ix.body(&p))
+        .filter(|(m, s, _)| *m == e.modified && *s == e.size);
+    let (body, source) = match indexed {
+        Some((_, _, b)) => (b, "index"),
+        None => (
+            fd_core::text::extract(path).ok_or_else(|| format!("{}: 본문을 뽑지 못했다 (다루는 꼴: {}. 옛 hwp · 그림뿐인 pdf · 암호 문서는 안 된다)", path.display(), fd_core::text::EXTS.join(" · ")))?,
+            "live",
+        ),
+    };
+    let chars = body.chars().count();
+    if let Some(q) = find {
+        let terms: Vec<String> = q.split_whitespace().map(str::to_lowercase).collect();
+        if terms.is_empty() {
+            return Err("찾을 말이 없다".into());
+        }
+        let (passages, hits) = fd_core::text::passages(&body, &terms, around, limit.unwrap_or(10));
+        return Ok(serde_json::json!({ "path": e.path, "source": source, "chars": chars, "hits": hits, "passages": passages }));
+    }
+    let take = limit.unwrap_or(20_000);
+    let text: String = body.chars().skip(offset).take(take).collect();
+    let next = (offset + take < chars).then_some(offset + take);
+    Ok(serde_json::json!({ "path": e.path, "source": source, "chars": chars, "offset": offset, "next": next, "text": text }))
 }
 
 fn index(c: IndexCmd) -> Out {
@@ -450,15 +526,38 @@ fn fd_exe() -> PathBuf {
 }
 
 fn skill(k: SkillCmd) -> Out {
+    use fd_core::skill;
     match k {
-        SkillCmd::Show => Ok(serde_json::Value::String(fd_core::skill::render(&fd_exe()))),
-        SkillCmd::Install { dir } => {
-            let file = match dir {
-                Some(d) => d.join("filedesk").join("SKILL.md"),
-                None => fd_core::skill::default_file().ok_or("USERPROFILE 이 없다")?,
-            };
-            let replaced = fd_core::skill::install(&file, &fd_exe())?;
-            Ok(serde_json::json!({ "installed": file, "replaced": replaced, "version": env!("CARGO_PKG_VERSION") }))
+        SkillCmd::Show => Ok(serde_json::Value::String(skill::render(&fd_exe()))),
+        SkillCmd::Agents => Ok(serde_json::json!({ "version": env!("CARGO_PKG_VERSION"), "agents": skill::targets() })),
+        SkillCmd::Install { agent, dir } => {
+            let mut files: Vec<(String, PathBuf)> = Vec::new();
+            if let Some(d) = dir {
+                files.push(("dir".into(), d.join("filedesk").join("SKILL.md")));
+            }
+            for id in &agent {
+                files.push((id.clone(), skill::find(id)?.file));
+            }
+            if files.is_empty() {
+                files = skill::targets().into_iter().filter(|t| t.detected).map(|t| (t.id, t.file)).collect();
+                if files.is_empty() {
+                    return Err("감지한 에이전트가 없다. --agent 나 --dir 로 자리를 준다".into());
+                }
+            }
+            let mut done = Vec::new();
+            for (id, file) in files {
+                let replaced = skill::install(&file, &fd_exe())?;
+                done.push(serde_json::json!({ "agent": id, "installed": file, "replaced": replaced }));
+            }
+            Ok(serde_json::json!({ "version": env!("CARGO_PKG_VERSION"), "done": done }))
+        }
+        SkillCmd::Remove { agent } => {
+            let mut done = Vec::new();
+            for id in &agent {
+                let t = skill::find(id)?;
+                done.push(serde_json::json!({ "agent": id, "file": t.file, "removed": skill::uninstall(&t.file)? }));
+            }
+            Ok(serde_json::json!({ "done": done }))
         }
     }
 }
