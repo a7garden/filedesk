@@ -255,7 +255,9 @@ export default function Sidebar(props: Props) {
   });
 
   return (
-    <nav className="side" aria-label="위치" data-tauri-drag-region>
+    <nav className="side" aria-label="위치">
+      {/* 창 끌기는 제목 줄 옆 띠에서만. 2026.11.18 : 사용자 지적 — 왼쪽 열 전체가 끌기 자리여서 항목 사이 빈 곳 · 목록 아래를 누르고 끌어도 창이 움직였다 */}
+      <div className="side-drag" data-tauri-drag-region aria-hidden="true" />
       {places && (
         <section>
           <h2>이 PC</h2>
