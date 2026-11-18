@@ -31,6 +31,8 @@ type Props = {
   current: string;
   view: ViewPrefs;
   setView: (f: (v: ViewPrefs) => ViewPrefs) => void;
+  /** 크기 — 모든 칸에 한꺼번에 (나눈 칸마다 둔 크기를 지운다). */
+  zoomAll: (f: (v: ViewPrefs) => ViewPrefs) => void;
   showHidden: boolean;
   setShowHidden: (v: boolean) => void;
   theme: Theme;
@@ -70,7 +72,7 @@ const SAMPLES: { name: string; ext: string; isDir: boolean }[] = [
 ];
 
 export default function SettingsPanel(props: Props) {
-  const { current, view, setView, showHidden, setShowHidden, theme, setTheme, resetCols, start, setStart, onClose } = props;
+  const { current, view, setView, zoomAll, showHidden, setShowHidden, theme, setTheme, resetCols, start, setStart, onClose } = props;
   const body = useRef<HTMLDivElement>(null);
   const [at, setAt] = useState<SectionId>("view");
   const [skill, setSkill] = useState<SkillStatus | null>(null);
@@ -214,8 +216,8 @@ export default function SettingsPanel(props: Props) {
             <div className="set-line">
               <span className="set-label">크기</span>
               <div>
-                <SizeLadder view={view} setView={setView} />
-                <p className="muted set-hint">목록 아래 줄에 같은 눈금이 있다 · Ctrl+휠 · Ctrl+= / −</p>
+                <SizeLadder view={view} setView={zoomAll} />
+                <p className="muted set-hint">모든 칸에 한꺼번에 · 나눈 칸마다 따로는 그 칸 아래 줄 눈금 · Ctrl+휠 · Ctrl+= / −</p>
               </div>
             </div>
             <div className="set-line">
@@ -228,6 +230,7 @@ export default function SettingsPanel(props: Props) {
                     [
                       ["ver", "판"],
                       ["date", "수정일"],
+                      ["kind", "종류"],
                       ["size", "크기"],
                     ] as [ColKey, string][]
                   )
@@ -252,6 +255,8 @@ export default function SettingsPanel(props: Props) {
               <div>
                 {check("숨김 · 시스템 파일", showHidden, setShowHidden, "Ctrl+H")}
                 {check("격자에서 그림 · PDF · 영상의 내용 미리보기", view.thumbs, (thumbs) => setView((v) => ({ ...v, thumbs })))}
+                {check("격자에서 잘린 이름을 마우스를 올리면 바로 펼치기", view.namePeek, (namePeek) => setView((v) => ({ ...v, namePeek })))}
+                {check("아이콘에 SVN · OneDrive 상태 표시", view.overlays, (overlays) => setView((v) => ({ ...v, overlays })))}
                 {check("왼쪽 열의 스마트 폴더 (최근 파일 · 저장한 조건)", view.recent, (recent) => setView((v) => ({ ...v, recent })))}
                 {check("왼쪽 열의 연결 (NAS · 공유 폴더)", view.links, (links) => setView((v) => ({ ...v, links })))}
               </div>

@@ -115,8 +115,16 @@ export type SkillStatus = { agents: SkillAgent[]; current: string; hasCli: boole
 export type DocGroup = { key: string; title: string; files: DocFile[]; issues: string[] };
 export type EditionPlan = { newName: string; newPath: string; retire: string[]; history: string };
 
-/** 저장하는 칸 배치 한 마디 — 칸이면 탭 수 · 보이는 탭(칸 안 순번), 나눔이면 방향 · 앞쪽 몫 · 두 쪽 (`Settings.layout`). */
-export type SavedNode = { tabs: number; cur: number } | { dir: "row" | "col"; ratio: number; a: SavedNode; b: SavedNode };
+/** 설치된 앱. icon 은 셸이 그림을 뽑을 이름 (`appIconUrl`). */
+export type AppInfo = { name: string; id: string; icon: string };
+/** 왼쪽 열 「앱」에 고정한 앱. 2026.11.18 더했다. */
+export type AppPin = { name: string; id: string; icon: string };
+/** 앱 그림 — 격자 아이콘과 같은 `i:<크기>:` 길에 셸 이름을 넘긴다. */
+export const appIconUrl = (icon: string, px: number) =>
+  `http://fdicon.localhost/${encodeURIComponent(`i:${Math.round(px * (window.devicePixelRatio || 1))}:${icon}`)}`;
+
+/** 저장하는 칸 배치 한 마디 — 칸이면 탭 수 · 보이는 탭(칸 안 순번) · 그 칸만의 보기 크기, 나눔이면 방향 · 앞쪽 몫 · 두 쪽 (`Settings.layout`). */
+export type SavedNode = { tabs: number; cur: number; step?: number } | { dir: "row" | "col"; ratio: number; a: SavedNode; b: SavedNode };
 
 /** 설정 파일 꼴. 빠진 칸은 기본값으로 채운다 (App.tsx `withDefaults`). */
 export type Settings = {
@@ -142,9 +150,14 @@ export type Settings = {
   start: string;
   /** 스마트 폴더 — 왼쪽 열 「스마트 폴더」. 없으면(지난 판 설정) 「최근 파일」 하나로 시작한다. 2026.11.12 더했다. */
   smart?: SmartFolder[];
+  /** 왼쪽 열 「앱」 — 팔레트에서 Shift+Enter · 「＋」로 고정한 앱. 2026.11.18 더했다. */
+  apps?: AppPin[];
+  /** 왼쪽 열 너비(px). 오른쪽 가장자리를 끌어 바꾼다 · 두 번 누르면 기본. 2026.11.18 더했다. */
+  sideW?: number;
 };
 
-/** 보기 설정. 모든 탭이 같은 것을 쓴다 — 탭마다 다르면 「왜 여기만 격자지」가 된다. */
+/** 보기 설정. 모든 탭이 같은 것을 쓴다 — 탭마다 다르면 「왜 여기만 격자지」가 된다.
+ *  2026.11.18 : 다만 크기(mode · dense · size)는 나눈 칸마다 따로 둘 수 있다 (App `Leaf.step`) — 칸은 눈에 보이게 갈려 있어 헷갈리지 않는다. */
 export type ViewPrefs = {
   mode: "list" | "grid";
   /** 촘촘한 목록 — 줄 높이를 줄여 한 화면에 더 많이. 크기 사다리의 첫 칸. */
@@ -157,6 +170,11 @@ export type ViewPrefs = {
   iconPack: string;
   /** 격자에서 그림 · pdf · 영상은 내용을 미리 보인다. */
   thumbs: boolean;
+  /** 격자에서 이름이 잘린 칸에 마우스를 올리면 그 자리에서 이름 전체를 바로 펼친다.
+   *  2026.11.17 : 사용자 요청. 끄면 브라우저 말풍선(title)으로 보여 1초쯤 기다려야 한다. */
+  namePeek: boolean;
+  /** 아이콘에 상태 표시(TortoiseSVN 고침 · 충돌, OneDrive 동기화)를 겹친다. 2026.11.17 더했다 — 표시 처리기가 느린 PC 면 끈다. */
+  overlays: boolean;
   /** 목록에서 숨긴 열 (판 · 고친 날 · 크기). 이름 열은 숨기지 않는다. */
   hiddenCols: ColKey[];
   /** 파일 종류 묶음 — 이름 · 확장자 · 색. 「폴더」 · 「기타」는 고정이라 없다 (util.ts DEFAULT_KINDS). */
@@ -184,8 +202,8 @@ export type ViewPrefs = {
   /** 크기 — `kb` 탐색기처럼 늘 KB / `auto` 알맞은 단위 (MB · GB). */
   sizeUnit: "kb" | "auto";
 };
-export type ColKey = "ver" | "date" | "size";
-export const DEFAULT_VIEW: ViewPrefs = { mode: "list", dense: false, size: 1, icons: "shell", iconPack: "", thumbs: true, hiddenCols: [], kinds: DEFAULT_KINDS, folderClick: "double",
+export type ColKey = "ver" | "date" | "size" | "kind";
+export const DEFAULT_VIEW: ViewPrefs = { mode: "list", dense: false, size: 1, icons: "shell", iconPack: "", thumbs: true, namePeek: true, overlays: true, hiddenCols: ["kind"], kinds: DEFAULT_KINDS, folderClick: "double",
   sort: { key: "name", asc: true }, dirsFirst: true, editions: false, foldStart: true, dateStyle: "relative", sizeUnit: "kb", recent: true, links: false };
 
 export type Theme = "system" | "light" | "dark";
@@ -196,6 +214,8 @@ export type Outcome = "done" | "aborted" | "skipped";
 
 export const api = {
   listDir: (path: string, showHidden: boolean) => invoke<Entry[]>("list_dir", { path, showHidden }),
+  /** 없어진 폴더에서 가장 가까운, 아직 있는 위 폴더 (없으면 null). */
+  nearestDir: (path: string) => invoke<string | null>("nearest_dir", { path }),
   places: () => invoke<Places>("places"),
   resolveInput: (input: string, cwd: string) => invoke<string>("resolve_input", { input, cwd }),
   /** 폴더면 열지 않고 이동할 경로를 돌려준다. */
@@ -203,8 +223,16 @@ export const api = {
   /** 셸 메뉴 (filedesk 메뉴의 「더 보기」). 돌려주는 값: `none` · `rename` · `invoked:<동사>`. */
   contextMenu: (paths: string[], dir: string) => invoke<string>("context_menu", { paths, dir }),
   backgroundMenu: (dir: string) => invoke<string>("background_menu", { dir }),
-  shellVerb: (paths: string[], verb: "copy" | "cut" | "paste" | "properties", dir: string) =>
+  shellVerb: (paths: string[], verb: "copy" | "cut" | "properties" | "openas", dir: string) =>
     invoke<void>("shell_verb", { paths, verb, dir }),
+  /** 클립보드의 파일을 `dest` 로 복사 · 옮기기 (잘라낸 것이면 옮긴다). 실행 취소에 쌓인다. */
+  pasteFiles: (dest: string) => invoke<Outcome>("paste_files", { dest }),
+  /** 다음 Ctrl+Z 가 되돌릴 작업 이름 (「이름 바꾸기」). 없으면 null. */
+  undoPeek: () => invoke<string | null>("undo_peek"),
+  /** 마지막 파일 작업을 되돌린다. 돌려주는 값은 알릴 한 줄 · 되돌릴 것이 없으면 null. */
+  undoLast: () => invoke<string | null>("undo_last"),
+  /** 상태 표시(SVN · OneDrive) 그림 번호 — `names` 순서대로, 없으면 -1. 그림은 `overlayUrl`. */
+  overlays: (dir: string, names: string[]) => invoke<number[]>("overlays", { dir, names }),
   rename: (path: string, newName: string) => invoke<Outcome>("rename", { path, newName }),
   recycle: (paths: string[]) => invoke<Outcome>("recycle", { paths }),
   newFolder: (dir: string) => invoke<string>("new_folder", { dir }),
@@ -239,6 +267,10 @@ export const api = {
   dirsOf: (paths: string[]) => invoke<boolean[]>("dirs_of", { paths }),
   /** 「연결」 칸에 적은 주소를 푼다 — 서버면 공유 목록, 공유 · 폴더면 열리는지 확인한 경로. 로그인이 필요하면 Windows 로그인 창이 뜬다. */
   netResolve: (input: string) => invoke<{ path: string; shares: string[] | null }>("net_resolve", { input }),
+  /** 설치된 앱 — 시작 메뉴 「모든 앱」 (팔레트 · 왼쪽 열 「앱」). */
+  appsList: () => invoke<AppInfo[]>("apps_list"),
+  /** 앱을 연다 — AppsFolder 의 앱 이름이나 실행 파일 · 바로가기 경로. */
+  launchApp: (id: string) => invoke<void>("launch_app", { id }),
   /** 이 PC 가 이미 쓰는 네트워크 위치 (네트워크 드라이브 · 탐색기 네트워크 위치 · 탐색기 주소 기록). */
   netKnown: () => invoke<{ path: string; source: string }[]>("net_known"),
   skillStatus: () => invoke<SkillStatus>("skill_status"),
@@ -266,6 +298,9 @@ export function today(): string {
 export const PER_FILE_EXTS = new Set(["exe", "lnk", "ico", "url", "msc", "cpl", "scr"]);
 
 /** 경로 그대로의 셸 아이콘 — 드라이브 · 바탕화면처럼 자리마다 그림이 다른 것. */
+/** 상태 표시 그림 — 투명 바탕에 귀퉁이 표시만 있는 아이콘 크기 그림이라 아이콘 위에 그대로 겹친다. */
+export const overlayUrl = (index: number, px: number) =>
+  `http://fdicon.localhost/${encodeURIComponent(`o:${Math.round(px * (window.devicePixelRatio || 1))}:${index}`)}`;
 export const pathIconUrl = (path: string) => `http://fdicon.localhost/${encodeURIComponent(`f:${path}`)}`;
 
 /** 셸 아이콘 주소. 키 꼴은 fd-shell icon_png 와 같다. */

@@ -27,7 +27,7 @@
 //                범위에 「모든 드라이브」(색인)를 더했다. 조건은 「스마트 폴더로 저장」하고, 왼쪽 스마트 폴더를 누르면 여기에 모아 보인다.
 import { type CSSProperties, type ReactNode, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { api, iconUrl, TAG_COLORS, TAG_LABEL, today, type ColKey, type DocFile, type DocGroup, type EditionPlan, type Entry, type Found, type QueryResult, type QuerySpec, type Root, type SmartFolder, type SmartScope, type TagColor, type ViewPrefs } from "./api";
+import { api, iconUrl, overlayUrl, TAG_COLORS, TAG_LABEL, today, type ColKey, type DocFile, type DocGroup, type EditionPlan, type Entry, type Found, type QueryResult, type QuerySpec, type Root, type SmartFolder, type SmartScope, type TagColor, type ViewPrefs } from "./api";
 import { kindTable, looksLikeQuery, matches, PRESETS, removeToken, sourceLabel, tzOffset } from "./query";
 import AddressBar, { type AddressHandle } from "./AddressBar";
 import type { Tab } from "./App";
@@ -37,7 +37,7 @@ import QueryBuilder from "./QueryBuilder";
 import { Chevron, FolderGlyph } from "./glyphs";
 import ContextMenu, { type CtxEntry, type CtxMenuState } from "./ContextMenu";
 import GridView, { TILE } from "./GridView";
-import SizeLadder, { atStep, LAST_STEP, STEPS, stepOf } from "./SizeLadder";
+import SizeLadder, { LAST_STEP, STEPS, stepOf } from "./SizeLadder";
 import { useMarquee } from "./marquee";
 import { DocGlyph, ShortcutMark } from "./shortcut";
 import TagMenu, { TagDot } from "./TagMenu";
@@ -86,6 +86,8 @@ type Props = {
   onPin: (items: { path: string; isDir: boolean }[]) => void;
   view: ViewPrefs;
   setView: (f: (v: ViewPrefs) => ViewPrefs) => void;
+  /** 이 칸의 보기 크기 눈금을 바꾼다 — 나눈 칸마다 따로 (App `zoomPane`). `view` 에는 이미 이 칸의 크기가 입혀 온다. */
+  zoom: (f: (step: number) => number) => void;
   /** 나눠 보는 중인가 — 오른쪽 메뉴 글이 「옆 칸에서 열기」 / 「나눠서 옆에 열기」로 갈린다. */
   split: boolean;
   onOpenBeside: (path: string) => void;
@@ -133,6 +135,14 @@ const ROW_H = 30;
 const ROW_H_DENSE = 24;
 const DRAG_PX = 5;
 
+type LoadError = { kind: "missing" | "denied" | "offline" | "other"; text: string; near?: string };
+
+/** Rust `list_err` 의 머리표를 떼어 갈래를 고른다. 머리표가 없으면 OS 문장을 그대로 보인다 (other). */
+function loadError(text: string): LoadError {
+  const m = /^\[(missing|denied|offline)\] /.exec(text);
+  return m ? { kind: m[1] as LoadError["kind"], text: text.slice(m[0].length) } : { kind: "other", text };
+}
+
 const joinPath = (dir: string, name: string) => (dir.endsWith("\\") ? dir + name : `${dir}\\${name}`);
 const verLabel = (v: number[]) => (v.length ? `v${v.join(".")}` : "");
 /** 판 수 — 꼴만 다른 파일(pptx · pdf)은 한 판으로 센다 (판 목록 창과 같은 셈). */
@@ -142,7 +152,10 @@ export default function Pane(p: Props) {
   const path = p.tab.path;
   const [entries, setEntries] = useState<Entry[] | null>(null);
   const [groups, setGroups] = useState<DocGroup[]>([]);
-  const [error, setError] = useState("");
+  /** 목록을 못 읽은 까닭 — kind 는 Rust `list_err` 의 머리표. near: 없어진 폴더에서 가장 가까운, 아직 있는 위 폴더. */
+  const [error, setError] = useState<LoadError | null>(null);
+  const errorRef = useRef(error);
+  errorRef.current = error;
   const [sort, setSort] = useState<Sort>(p.view.sort);
   // 설정에서 기본 정렬을 바꾸면 열린 탭도 따라간다 — 설정 창에서 고른 결과를 바로 보게.
   useEffect(() => setSort(p.view.sort), [p.view.sort.key, p.view.sort.asc]);
@@ -167,6 +180,8 @@ export default function Pane(p: Props) {
   useEffect(() => leaveViewer(), [path, leaveViewer]);
   /** 경로(norm) → 메모 글. */
   const [memos, setMemos] = useState<Map<string, string>>(new Map());
+  /** 상태 표시(SVN · OneDrive) 그림 번호 — 정규화한 경로 → 번호. 표시가 없는 항목은 없다. */
+  const [overlays, setOverlays] = useState<Map<string, number>>(new Map());
   /** 메모를 고치는 중인 항목과 떠 있는 칸의 자리. */
   const [memoing, setMemoingState] = useState<string | null>(null);
   const [memoAt, setMemoAt] = useState<{ x: number; y: number; w: number } | null>(null);
@@ -256,6 +271,13 @@ export default function Pane(p: Props) {
       setMemoCard({ text, x: Math.min(r.left, window.innerWidth - 380), y: r.bottom + 6 });
     }, 350);
   };
+  // 격자 칸 이름 펼치기 — 두 줄에서 잘린 칸에만 `peek` 를 단다. 잘리지 않은 칸까지 펼치면 그림자만 깜박인다.
+  //   상태 대신 DOM 클래스로 한다 — 마우스가 지날 때마다 Pane 전체를 다시 그리지 않게.
+  const namePeekOn = (ev: React.MouseEvent<HTMLElement>) => {
+    const label = ev.currentTarget.querySelector<HTMLElement>(".tile-label");
+    if (label && label.scrollHeight > label.clientHeight + 1) ev.currentTarget.classList.add("peek");
+  };
+  const namePeekOff = (ev: React.MouseEvent<HTMLElement>) => ev.currentTarget.classList.remove("peek");
   const memoLeave = () => {
     window.clearTimeout(memoTimer.current);
     setMemoCard(null);
@@ -306,7 +328,7 @@ export default function Pane(p: Props) {
             setGroups(docs);
             applyNotes(notes);
           });
-        setError("");
+        setError(null);
         const pf = pendingFocus.current;
         const hit = pf && list.find((e) => samePath(e.path, pf.path));
         if (hit) {
@@ -323,11 +345,73 @@ export default function Pane(p: Props) {
         if (seq !== loadSeq.current) return;
         setEntries([]);
         setGroups([]);
-        setError(errText(e));
+        const err = loadError(errText(e));
+        setError(err);
+        // 폴더가 없어졌으면 갈 곳을 찾아 둔다 — 「바탕화면으로 가기」처럼 이름을 단추에 적는다.
+        if (err.kind === "missing")
+          api
+            .nearestDir(path)
+            .then((near) => seq === loadSeq.current && near && setError({ ...err, near }))
+            .catch(() => {});
       }
     },
     [path, p.showHidden, p.view.editions, applyNotes],
   );
+
+  // 상태 표시는 목록을 그린 뒤 따로 묻는다 — 표시 처리기(TortoiseSVN 등)가 느려도 목록은 바로 뜨게.
+  //   바로가기(.lnk · .url)는 뺀다 — 셸이 화살표 표시를 함께 주는데 ShortcutMark 가 이미 그린다.
+  //   아주 큰 폴더는 묻지 않는다 — 파일마다 처리기를 부르므로 수만 개면 몇 초씩 걸린다.
+  //   2026.11.18 리뷰 지적 : 파일이 자꾸 바뀌는 폴더(빌드 중인 작업 사본)에서 다시 읽을 때마다 새로 물어, 처리기 호출이 여럿 겹쳤다.
+  //   그래서 잠깐 모았다가 묻고, 앞의 물음이 끝나지 않았으면 가장 마지막 것 하나만 줄 세운다.
+  const ovBusy = useRef(false);
+  const ovNext = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    if (!p.view.overlays || !entries || entries.length === 0 || entries.length > 5000) {
+      setOverlays((m) => (m.size ? new Map() : m));
+      return;
+    }
+    const list = entries.filter((e) => e.ext !== "lnk" && e.ext !== "url");
+    let live = true;
+    const ask = () => {
+      ovBusy.current = true;
+      api
+        .overlays(
+          path,
+          list.map((e) => e.name),
+        )
+        .then((idx) => {
+          if (!live) return;
+          const m = new Map<string, number>();
+          idx.forEach((v, i) => v > 0 && m.set(norm(list[i].path), v));
+          setOverlays(m);
+        })
+        .catch(() => {})
+        .finally(() => {
+          ovBusy.current = false;
+          const next = ovNext.current;
+          ovNext.current = null;
+          next?.();
+        });
+    };
+    const t = window.setTimeout(() => (ovBusy.current ? (ovNext.current = ask) : ask()), 200);
+    return () => {
+      live = false;
+      window.clearTimeout(t);
+      if (ovNext.current === ask) ovNext.current = null;
+    };
+  }, [entries, path, p.view.overlays]);
+
+  /** 아이콘 위에 상태 표시를 겹친다. 표시가 없으면 아이콘 그대로. */
+  const withOverlay = (e: Entry, px: number, icon: ReactNode) => {
+    const ov = overlays.get(norm(e.path));
+    if (!ov) return icon;
+    return (
+      <span className="ovl-wrap" style={{ width: px, height: px }}>
+        {icon}
+        <img className="ovl" src={overlayUrl(ov, px)} width={px} height={px} alt="" draggable={false} />
+      </span>
+    );
+  };
 
   useEffect(() => {
     const prev = prevPath.current;
@@ -357,7 +441,10 @@ export default function Pane(p: Props) {
     const on = (e: Event) => {
       const changed = (e as CustomEvent<string>).detail;
       // 이 폴더 · 그 이전판이 바뀌면 다시 읽는다 (판 수가 바뀐다).
-      if (!samePath(changed, path) && !samePath(parentOf(changed) ?? "", path)) return;
+      // 못 읽은 채면 위 폴더가 바뀔 때도 다시 본다 — 탐색기에서 이름을 되돌리면 그 자리에서 살아난다.
+      //   감시는 살아 있는 가장 가까운 위 폴더에 걸려 있다 (App · watch_dirs) — 그 사이 어느 위 폴더가 바뀌어도 본다.
+      const back = errorRef.current != null && norm(path).startsWith(norm(changed).replace(/\\+$/, "") + "\\");
+      if (!back && !samePath(changed, path) && !samePath(parentOf(changed) ?? "", path)) return;
       window.clearTimeout(timer);
       timer = window.setTimeout(() => load(true), 150);
     };
@@ -371,6 +458,23 @@ export default function Pane(p: Props) {
       window.clearTimeout(timer);
     };
   }, [path, load, applyNotes]);
+
+  // 못 읽게 되거나 되살아나면 감시 자리를 다시 건다 — 없는 폴더는 위 폴더를 봐야 되살아나는 것을 안다 (App 「폴더 감시」).
+  const hadError = useRef(false);
+  useEffect(() => {
+    const now = error != null;
+    if (now === hadError.current) return;
+    hadError.current = now;
+    window.dispatchEvent(new Event("fd:rewatch"));
+  }, [error]);
+
+  // 못 읽은 채로 창에 돌아오면 다시 본다 — 탐색기에서 고치거나 NAS 를 다시 이은 뒤 단추를 누르지 않아도 되게.
+  useEffect(() => {
+    if (!error) return;
+    const again = () => load(false);
+    window.addEventListener("focus", again);
+    return () => window.removeEventListener("focus", again);
+  }, [error, load]);
 
   // ───────── [1-1] 찾기 ─────────
 
@@ -847,7 +951,21 @@ export default function Pane(p: Props) {
       .catch(report);
   };
 
-  const paste = () => api.shellVerb([path], "paste", parentOf(path) ?? path).catch(report);
+  const paste = () =>
+    api
+      .pasteFiles(path)
+      .then((r) => r === "aborted" && say("붙여넣기를 중간에 취소했다", "warn"))
+      .catch(report);
+
+  /** 실행 취소 — 이 앱에서 한 마지막 파일 작업을 거꾸로 (src-tauri `undo.rs`). 2026.11.17 더했다. */
+  const undo = () =>
+    api
+      .undoLast()
+      .then((m) => {
+        say(m ?? "되돌릴 작업이 없다", m ? "ok" : undefined);
+        if (m) load(true);
+      })
+      .catch(report);
 
   /** 새 판을 낼 수 있는 파일인가 — 이름이 「문서명_v판_날짜」 꼴이고 이 폴더(이전판 밖)에 있다. */
   const editionSource = (e: Entry): DocGroup | null => {
@@ -924,8 +1042,10 @@ export default function Pane(p: Props) {
     items.push({ label: "즐겨찾기에 추가", hint: "Ctrl+D", run: () => p.onPin(list.map((x) => ({ path: x.path, isDir: x.isDir }))) });
     if (one && (groupOf.get(norm(e.path))?.files.length ?? 0) > 1) items.push({ label: "판 목록 보기…", run: () => showEditions(e) });
     if (one && editionSource(e)) items.push({ label: "새 판 내기…", run: () => menuEdition(e) });
+    items.push("sep");
+    // 2026.11.17 : 탐색기 첫 메뉴에 있는 「연결 프로그램」을 「더 보기」 밖으로 꺼냈다 — 매번 한 단계 더 들어가야 했다
+    if (one && !e.isDir) items.push({ label: "연결 프로그램…", run: () => api.shellVerb(paths, "openas", dir).catch(report) });
     items.push(
-      "sep",
       { label: "경로 복사", hint: "Ctrl+Shift+C", run: () => copyPaths(paths) },
       { label: "속성", hint: "Alt+Enter", run: () => api.shellVerb(paths, "properties", dir).catch(report) },
       "sep",
@@ -934,14 +1054,17 @@ export default function Pane(p: Props) {
     setCtx({ ...at, label: one ? e.name : `${list.length}개`, items });
   };
 
-  const backgroundMenu = (at: { x: number; y: number }, shell = false) => {
+  const backgroundMenu = async (at: { x: number; y: number }, shell = false) => {
     setSel(new Set());
     if (shell) return void shellBackgroundMenu();
+    // 탐색기처럼 무엇을 되돌릴지 글자로 보인다 — 「실행 취소: 이름 바꾸기」
+    const undoLabel = await api.undoPeek().catch(() => null);
     const items: CtxEntry[] = [
+      ...(undoLabel ? [{ label: `실행 취소: ${undoLabel}`, hint: "Ctrl+Z", run: undo }, "sep" as const] : []),
       { label: "새 폴더", hint: "Ctrl+Shift+N", run: newFolder },
       { label: "붙여넣기", hint: "Ctrl+V", run: paste },
       "sep",
-      { label: "보기", children: STEPS.map((l, i) => ({ label: l, checked: stepOf(p.view) === i, run: () => p.setView((v) => atStep(v, i)) })) },
+      { label: "보기", children: STEPS.map((l, i) => ({ label: l, checked: stepOf(p.view) === i, run: () => p.zoom(() => i) })) },
       { label: p.split ? "나눠 보기 끄기" : "나눠 보기", hint: "Ctrl+\\", run: p.onToggleSplit },
       { label: "새로 고침", hint: "F5", run: () => load(true) },
       "sep",
@@ -1121,7 +1244,7 @@ export default function Pane(p: Props) {
       else if (k === "Tab" && !e.ctrlKey && !e.altKey && canCycle()) cycleScope(e.shiftKey ? -1 : 1);
       else if (ctrl && (k === "=" || k === "+" || k === "-" || k === "0")) {
         // 크기 사다리 — 브라우저 확대 대신. 0 은 보통 목록으로
-        p.setView((v) => (k === "0" ? atStep(v, 1) : atStep(v, Math.min(LAST_STEP, stepOf(v) + (k === "-" ? -1 : 1)))));
+        p.zoom((s) => (k === "0" ? 1 : Math.min(LAST_STEP, s + (k === "-" ? -1 : 1))));
       }
       else if (k === "Escape" && (deep || kind || colorOnly) && !msg) {
         setDeep(null);
@@ -1169,6 +1292,7 @@ export default function Pane(p: Props) {
       else if (ctrl && lk === "c") clip("copy");
       else if (ctrl && lk === "x") clip("cut");
       else if (ctrl && lk === "v") paste();
+      else if (ctrl && lk === "z") undo();
       // 메뉴 키는 filedesk 메뉴 · Shift+F10 은 셸 메뉴 (Windows 11 과 같다)
       else if ((k === "F10" && e.shiftKey) || k === "ContextMenu") {
         const shell = k === "F10";
@@ -1182,6 +1306,9 @@ export default function Pane(p: Props) {
     return () => window.removeEventListener("keydown", onKey);
   });
 
+  // 휠 처리기는 한 번만 건다 — 탭이 다른 칸으로 옮겨 가면 zoom 이 바뀌므로 늘 지금 것을 부른다.
+  const zoomRef = useRef(p.zoom);
+  zoomRef.current = p.zoom;
   // Ctrl+휠 — 크기 사다리를 한 칸씩 (목록 촘촘 · 목록 · 격자 넷). 칸이 바뀌어도 보던 항목은 화면 안에 붙든다 (아래 [5-1]).
   useEffect(() => {
     const el = scrollRef.current;
@@ -1194,7 +1321,7 @@ export default function Pane(p: Props) {
       if (now - last < 140) return; // 휠 한 칸에 이벤트가 여럿 온다 (정밀 터치패드)
       last = now;
       const up = ev.deltaY < 0;
-      p.setView((v) => atStep(v, stepOf(v) + (up ? 1 : -1)));
+      zoomRef.current((s) => s + (up ? 1 : -1));
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
@@ -1227,7 +1354,7 @@ export default function Pane(p: Props) {
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", upH);
   };
-  /** 보일 열 — 이름은 늘, 판 · 고친 날 · 크기는 설정(열 머리 오른쪽 단추)으로 숨긴다. */
+  /** 보일 열 — 이름은 늘, 판 · 고친 날 · 종류 · 크기는 설정(열 머리 오른쪽 단추)으로 숨긴다. */
   const colOn = (c: ColKey) => (c !== "ver" || p.view.editions) && !p.view.hiddenCols.includes(c);
   // 2026.11.12 : 좁아질 때 판 열을 가장 먼저 지우던 것을 뒤집었다 — 나눠 보기(정본 · 자료 견주기)에서 두 칸 다 판이 사라졌다.
   //   이제 접는 순서는 크기 → 고친 날 → 판. 좁은 칸의 판 열은 눈금을 빼고 「v3 11-01」 글자만 남긴다.
@@ -1237,6 +1364,8 @@ export default function Pane(p: Props) {
       w === "wide" ? `minmax(${p.cols[0]}px, 1fr)` : "minmax(120px, 1fr)",
       colOn("ver") ? (w === "wide" ? `${p.cols[1]}px` : "84px") : "",
       colOn("date") && w !== "least" ? `${w === "wide" ? p.cols[2] : Math.min(p.cols[2], 96)}px` : "",
+      // 종류는 좁아지면 가장 먼저 접는다 — 확장자가 이름 끝에 남아 있어 잃는 것이 가장 적다
+      colOn("kind") && w === "wide" ? `${p.cols[4]}px` : "",
       colOn("size") && (w === "wide" || w === "narrow") ? `${p.cols[3]}px` : "",
     ]
       .filter(Boolean)
@@ -1482,16 +1611,20 @@ export default function Pane(p: Props) {
           ) : (
             <span className="twisty-space" />
           )}
-          {p.view.icons === "pack" && !isHistDir && packIconUrl(e) ? (
-            <img src={packIconUrl(e)!} width={16} height={16} alt="" draggable={false} />
-          ) : e.isDir ? (
-            <FolderGlyph faint={isHistDir} />
-          ) : p.view.icons !== "shell" ? (
-            <DocGlyph ext={e.ext} path={e.path} />
-          ) : (
-            <ShortcutMark ext={e.ext} size={16}>
-              <img src={iconUrl(e)} width={16} height={16} alt="" draggable={false} loading="lazy" />
-            </ShortcutMark>
+          {withOverlay(
+            e,
+            16,
+            p.view.icons === "pack" && !isHistDir && packIconUrl(e) ? (
+              <img src={packIconUrl(e)!} width={16} height={16} alt="" draggable={false} />
+            ) : e.isDir ? (
+              <FolderGlyph faint={isHistDir} />
+            ) : p.view.icons !== "shell" ? (
+              <DocGlyph ext={e.ext} path={e.path} />
+            ) : (
+              <ShortcutMark ext={e.ext} size={16}>
+                <img src={iconUrl(e)} width={16} height={16} alt="" draggable={false} loading="lazy" />
+              </ShortcutMark>
+            ),
           )}
           {renaming === e.path ? (
             <RenameInput entry={e} onCommit={(v) => commitRename(e, v)} onCancel={() => setRenaming(null)} />
@@ -1563,6 +1696,11 @@ export default function Pane(p: Props) {
             {relDate(e.modified, p.view.dateStyle)}
           </span>
         )}
+        {colOn("kind") && (
+          <span className="cell kind" role="gridcell" title={e.kind}>
+            {kindLabel(kindOf(e))}
+          </span>
+        )}
         {colOn("size") && (
           <span className="cell size" role="gridcell">
             {formatSize(e, p.view.sizeUnit)}
@@ -1601,7 +1739,10 @@ export default function Pane(p: Props) {
         style={style}
         data-path={e.path}
         data-drop={e.isDir ? e.path : undefined}
-        title={e.name}
+        // 2026.11.17 : 이름 펼치기를 켜면 title 말풍선을 떼어 같은 이름이 두 번 뜨지 않게 한다
+        title={p.view.namePeek ? undefined : e.name}
+        onMouseEnter={p.view.namePeek ? namePeekOn : undefined}
+        onMouseLeave={p.view.namePeek ? namePeekOff : undefined}
         onMouseDown={(ev) => onRowDown(ev, e)}
         onDoubleClick={(ev) => onRowDouble(ev, e)}
         onContextMenu={(ev) => {
@@ -1636,6 +1777,9 @@ export default function Pane(p: Props) {
             <ShortcutMark ext={e.ext} size={iconPx}>
               <img src={bigIconUrl(e, px, false)} alt="" draggable={false} loading="lazy" style={{ maxWidth: iconPx, maxHeight: iconPx }} />
             </ShortcutMark>
+          )}
+          {overlays.has(norm(e.path)) && (
+            <img className="ovl" src={overlayUrl(overlays.get(norm(e.path))!, iconPx)} width={iconPx} height={iconPx} alt="" draggable={false} />
           )}
         </div>
         <div className="tile-name">
@@ -1918,11 +2062,12 @@ export default function Pane(p: Props) {
       )}
       {/* 열 머리와 목록을 함께 덮는 열 경계선 — 줄마다 그리지 않고 한 번만 (styles.css 「열 경계선」) */}
       <div className="list-area">
-      {!isGrid && (
+      {!isGrid && !error && (
         <div className="col-guides" aria-hidden="true">
           <span className="guide col-0" />
           {colOn("ver") && <span className="guide col-1" />}
           {colOn("date") && <span className="guide col-2" />}
+          {colOn("kind") && <span className="guide col-4" />}
           {colOn("size") && <span className="guide col-3" />}
         </div>
       )}
@@ -1938,12 +2083,13 @@ export default function Pane(p: Props) {
           {header("name", "이름", 0, "", "오른쪽 단추: 표시할 열 고르기")}
           {colOn("ver") && header(null, "판", 1, "", "최신판의 판 번호 · 날짜(월-일) · 판 수 (「이전판」 폴더에 든 것까지)\n누르면 판 목록이 뜬다")}
           {colOn("date") && header("modified", "수정일", 2)}
+          {colOn("kind") && header("kind", "종류", 4)}
           {colOn("size") && header("size", "크기", 3, "right")}
         </div>
       )}
       {isGrid && (
         <div className="grid-sort" role="toolbar" aria-label="정렬">
-          {(["name", "modified", "size"] as SortKey[]).map((k) => (
+          {(["name", "modified", "kind", "size"] as SortKey[]).map((k) => (
             <button key={k} className={"col-btn" + (sort.key === k ? " sorted" : "")} onClick={() => setSort((s) => ({ key: k, asc: s.key === k ? !s.asc : true }))}>
               {{ name: "이름", modified: "수정일", size: "크기", kind: "종류" }[k]}
               {sort.key === k && <span className="sort-mark">{sort.asc ? "↑" : "↓"}</span>}
@@ -1972,7 +2118,7 @@ export default function Pane(p: Props) {
         }}
       >
         {error ? (
-          <div className="empty error">{error}</div>
+          <LoadFailed error={error} path={path} onGo={p.onGo} onRetry={() => load(false)} />
         ) : deep && deep.items == null ? (
           <div className="empty">
             {deep.scope === "recent"
@@ -2106,7 +2252,7 @@ export default function Pane(p: Props) {
             {sel.size.toLocaleString("ko-KR")}개 고름{selBytes > 0 ? ` · ${formatBytes(selBytes)}` : ""}
           </span>
         )}
-        <SizeLadder view={p.view} setView={p.setView} />
+        <SizeLadder view={p.view} setView={(f) => p.zoom(() => stepOf(f(p.view)))} />
         {p.view.editions && (
           <button className="foot-toggle" aria-pressed={fold} onClick={() => setFold((v) => !v)} title="Ctrl+Shift+D">
             {fold ? `판 접음${stacked > 0 ? ` ${stacked}` : ""}` : "판 펼침"}
@@ -2200,6 +2346,38 @@ export default function Pane(p: Props) {
 
 /** 격자 칸의 미리보기 — 셸에 미리보기가 없으면(404) 아이콘 설정대로 그린 그림으로 바꾼다.
  *  2026.11.11 : 예전에는 셸이 미리보기 대신 아이콘을 줘서, filedesk 아이콘을 골라도 pdf · 영상은 Windows 아이콘이었다. */
+/** 목록을 못 읽었을 때의 안내 — 무슨 일인지 · 왜 그럴 수 있는지 · 어디로 갈지. OS 문장은 맨 아래 작게 (복사해 묻기 좋게). */
+function LoadFailed({ error, path, onGo, onRetry }: { error: LoadError; path: string; onGo: (p: string) => void; onRetry: () => void }) {
+  const up = error.kind === "missing" ? error.near : error.kind === "denied" ? parentOf(path) : null;
+  const [title, why] =
+    error.kind === "missing"
+      ? ["이 폴더를 찾을 수 없다", "이름이 바뀌었거나 다른 곳으로 옮겨졌거나 지워졌을 수 있다."]
+      : error.kind === "denied"
+        ? ["이 폴더를 열 권한이 없다", "관리자 권한이 필요한 폴더이거나 다른 사용자의 폴더다."]
+        : error.kind === "offline"
+          ? ["이 위치에 닿지 않는다", "드라이브가 빠졌거나 NAS · 공유 폴더 연결이 끊겼을 수 있다."]
+          : ["이 폴더를 읽지 못했다", ""];
+  return (
+    <div className="load-failed" role="alert">
+      <FolderGlyph faint size={40} />
+      <strong>{title}</strong>
+      {why && <p>{why}</p>}
+      <code className="lf-path">{path}</code>
+      <div className="lf-acts">
+        {up && (
+          <button className="act primary" onClick={() => onGo(up)}>
+            「{baseName(up)}」 열기
+          </button>
+        )}
+        <button className="act" onClick={onRetry}>
+          다시 읽기
+        </button>
+      </div>
+      {error.kind === "other" && <small className="lf-os">{error.text}</small>}
+    </div>
+  );
+}
+
 function TileThumb({ src, px, fallback }: { src: string; px: number; fallback: React.ReactNode }) {
   const [failed, setFailed] = useState(false);
   if (failed) return <>{fallback}</>;
@@ -2275,7 +2453,7 @@ function ColumnMenu({ at, shown, onToggle, onReset, onClose }: { at: { x: number
       window.removeEventListener("keydown", esc, true);
     };
   }, [onClose]);
-  const label: Record<ColKey, string> = { ver: "판", date: "수정일", size: "크기" };
+  const label: Record<ColKey, string> = { ver: "판", date: "수정일", kind: "종류", size: "크기" };
   return (
     <div className="pop-menu" ref={box} role="menu" aria-label="표시할 열" style={{ left: Math.min(at.x, window.innerWidth - 200), top: at.y }}>
       {(Object.keys(label) as ColKey[]).map((c) => (

@@ -19,7 +19,7 @@
 //                바닥 줄 단추(크기 사다리 · 판 접기) 위에서는 열지 않고, 선반은 바닥 줄 위에 서서 그 단추를 가리지 않는다.
 //   파일을 끌고 오면(앱 밖 · 칸에서) CSS :hover 가 오지 않는다 — App 이 끌기 위치를 보고 drag 로 알려 준다.
 import { type CSSProperties, Fragment, useCallback, useEffect, useRef, useState } from "react";
-import { api, iconUrl, type Place, type TagColor, type ViewPrefs } from "./api";
+import { api, type Place, type TagColor, type ViewPrefs } from "./api";
 import { PIN_DROP } from "./App";
 import { FolderGlyph } from "./glyphs";
 import { DocGlyph } from "./shortcut";
@@ -304,13 +304,17 @@ export default function FavDock(props: Props) {
   );
 }
 
+/** 타일 그림 크기. 2026.11.18 : 20 → 32. 사용자 요청 — 독은 띄워 보는 선반이라 목록보다 커도 된다. */
+const DOCK_ICON = 32;
+
 /** 타일 그림 — 목록과 같은 아이콘 설정을 따른다.
- *  셸 아이콘은 16px 비트맵이라 제 크기로 둔다 — 20px 로 키우면 흐려져 촌스러워 보였다 (2026.11.11). */
+ *  셸 아이콘은 그 크기로 뽑은 그림을 받는다 (격자와 같은 `i:<크기>:` 길) — 16px 비트맵을 늘리면 흐려진다 (2026.11.11). */
 function placeIcon(p: Place, ext: string, view: ViewPrefs) {
   const e = { isDir: !p.file, ext, path: p.path };
   const pack = view.icons === "pack" ? packIconUrl(e) : null;
-  if (pack) return <img src={pack} width={20} height={20} alt="" draggable={false} />;
-  if (!p.file) return <FolderGlyph size={20} />;
-  if (view.icons !== "shell") return <DocGlyph ext={ext} path={p.path} size={22} />;
-  return <img src={iconUrl(e)} width={16} height={16} alt="" draggable={false} />;
+  if (pack) return <img src={pack} width={DOCK_ICON} height={DOCK_ICON} alt="" draggable={false} />;
+  if (!p.file) return <FolderGlyph size={DOCK_ICON} />;
+  if (view.icons !== "shell") return <DocGlyph ext={ext} path={p.path} size={DOCK_ICON} />;
+  const px = Math.round(DOCK_ICON * (window.devicePixelRatio || 1));
+  return <img src={`http://fdicon.localhost/${encodeURIComponent(`i:${px}:${p.path}`)}`} width={DOCK_ICON} height={DOCK_ICON} alt="" draggable={false} />;
 }

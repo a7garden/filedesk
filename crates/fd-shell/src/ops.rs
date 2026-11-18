@@ -148,3 +148,77 @@ pub fn resolve_link(path: &str) -> Option<String> {
         (len > 0).then(|| String::from_utf16_lossy(&buf[..len]))
     }
 }
+
+/// 클립보드의 파일 목록과 잘라내기 여부 — 탐색기 · 이 앱이 복사 · 잘라내기로 올린 것 (CF_HDROP + 「Preferred DropEffect」).
+/// 파일이 아니면 None. 2026.11.17 : 붙여넣기를 셸 동사에서 IFileOperation 으로 바꾸며 더했다 —
+/// 셸 「붙여넣기」 동사는 무엇이 어디로 갔는지 돌려주지 않아 실행 취소를 쌓을 수 없었다.
+pub fn clipboard_files() -> Option<(Vec<String>, bool)> {
+    use windows::Win32::Foundation::{HANDLE, HGLOBAL};
+    use windows::Win32::System::DataExchange::{
+        CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard, RegisterClipboardFormatW,
+    };
+    use windows::Win32::System::Memory::{GlobalLock, GlobalUnlock};
+    use windows::Win32::System::Ole::CF_HDROP;
+    use windows::Win32::UI::Shell::{DragQueryFileW, HDROP};
+    use windows::core::w;
+
+    // 다른 프로그램이 잠깐 열고 있으면 실패한다 — 몇 번 다시 해 본다
+    let mut opened = false;
+    for _ in 0..5 {
+        if unsafe { OpenClipboard(None) }.is_ok() {
+            opened = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(30));
+    }
+    if !opened {
+        return None;
+    }
+    let read = || -> Option<(Vec<String>, bool)> {
+        unsafe { IsClipboardFormatAvailable(CF_HDROP.0 as u32) }.ok()?;
+        let h: HANDLE = unsafe { GetClipboardData(CF_HDROP.0 as u32) }.ok()?;
+        let drop = HDROP(h.0);
+        let n = unsafe { DragQueryFileW(drop, u32::MAX, None) };
+        let mut files = Vec::with_capacity(n as usize);
+        for i in 0..n {
+            let len = unsafe { DragQueryFileW(drop, i, None) } as usize;
+            let mut buf = vec![0u16; len + 1];
+            let got = unsafe { DragQueryFileW(drop, i, Some(&mut buf)) } as usize;
+            files.push(String::from_utf16_lossy(&buf[..got]));
+        }
+        let fmt = unsafe { RegisterClipboardFormatW(w!("Preferred DropEffect")) };
+        let mv = (|| {
+            unsafe { IsClipboardFormatAvailable(fmt) }.ok()?;
+            let h: HANDLE = unsafe { GetClipboardData(fmt) }.ok()?;
+            let g = HGLOBAL(h.0);
+            let p = unsafe { GlobalLock(g) } as *const u32;
+            if p.is_null() {
+                return None;
+            }
+            let v = unsafe { *p };
+            unsafe {
+                let _ = GlobalUnlock(g);
+            }
+            // DROPEFFECT_MOVE
+            Some(v & 2 != 0)
+        })()
+        .unwrap_or(false);
+        (!files.is_empty()).then_some((files, mv))
+    };
+    let out = read();
+    unsafe {
+        let _ = CloseClipboard();
+    }
+    out
+}
+
+/// 잘라낸 것을 붙여넣은 뒤 클립보드를 비운다 — 탐색기와 같게. 옮긴 자리에는 원본이 없어 다시 붙여넣을 것이 없다.
+pub fn clear_clipboard() {
+    use windows::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, OpenClipboard};
+    unsafe {
+        if OpenClipboard(None).is_ok() {
+            let _ = EmptyClipboard();
+            let _ = CloseClipboard();
+        }
+    }
+}

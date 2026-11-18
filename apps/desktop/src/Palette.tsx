@@ -5,6 +5,9 @@
 //
 // 결과 순서: 맞는 정도(앞부분이 맞으면 위) → 묶음 차례(자리 · 스마트 폴더 · 명령 · 색). 찾는 말이 있으면 맨 아래에 「찾기」 세 줄
 // (하위 폴더까지 · 모든 드라이브 · 문서 본문까지)이 늘 붙는다. 찾는 말에 조건(`고친:3일` …)을 섞어도 된다.
+//
+// 2026.11.18 : 설치된 앱도 찾는다 (사용자 요청 · macOS Spotlight 처럼). 앱은 수백 개라 찾는 말이 있을 때만 보인다.
+//   Enter 는 열기, Shift+Enter 는 왼쪽 열 「앱」에 고정. 왼쪽 열 「앱」의 ＋ 로 열면 앱만 보이고 Enter 가 고정이다 (pinApps).
 import { useEffect, useMemo, useRef, useState } from "react";
 import { TAG_COLORS, TAG_LABEL, type TagColor } from "./api";
 import { TagDot } from "./TagMenu";
@@ -14,12 +17,16 @@ export type FindScope = "below" | "content" | "all" | "allContent";
 
 export type PaletteItem = {
   id: string;
-  group: "위치" | "스마트 폴더" | "명령" | "색 표시" | "찾기";
+  group: "위치" | "앱" | "스마트 폴더" | "명령" | "색 표시" | "찾기";
   label: string;
   /** 오른쪽에 흐리게 — 경로 · 단축키. */
   hint?: string;
   color?: TagColor;
+  /** 줄 앞 그림 (앱). */
+  icon?: string;
   run: () => void;
+  /** Shift+Enter 로 하는 다른 일 — 앱을 왼쪽 열에 고정. */
+  alt?: { label: string; run: () => void };
 };
 
 const CHO = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ";
@@ -53,9 +60,19 @@ function score(label: string, hint: string, q: string): number {
   return total;
 }
 
-const GROUP_ORDER: PaletteItem["group"][] = ["위치", "스마트 폴더", "명령", "색 표시", "찾기"];
+const GROUP_ORDER: PaletteItem["group"][] = ["위치", "앱", "스마트 폴더", "명령", "색 표시", "찾기"];
 
-export default function Palette({ items, onSearch, onClose }: { items: PaletteItem[]; onSearch: (q: string, scope: FindScope) => void; onClose: () => void }) {
+export default function Palette({
+  items,
+  pinApps = false,
+  onSearch,
+  onClose,
+}: {
+  items: PaletteItem[];
+  pinApps?: boolean;
+  onSearch: (q: string, scope: FindScope) => void;
+  onClose: () => void;
+}) {
   const [q, setQ] = useState("");
   const [at, setAt] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -71,14 +88,17 @@ export default function Palette({ items, onSearch, onClose }: { items: PaletteIt
       color: c,
       run: () => window.dispatchEvent(new CustomEvent("fd:tagged", { detail: c })),
     }));
-    const scored = [...items, ...colorItems]
+    const query0 = q.trim();
+    const scored = [...items, ...(pinApps ? [] : colorItems)]
+      // 앱은 찾는 말이 있을 때만 (고정 모드는 늘) — 빈 칸에 수백 줄이 쏟아지면 자리 · 명령이 묻힌다
+      .filter((it) => it.group !== "앱" || pinApps || query0)
       .map((it) => ({ it, s: score(it.label, it.hint ?? "", q) }))
       .filter((x) => x.s > 0)
       .sort((a, b) => b.s - a.s || GROUP_ORDER.indexOf(a.it.group) - GROUP_ORDER.indexOf(b.it.group))
-      .slice(0, 40)
+      .slice(0, pinApps ? 200 : 40)
       .map((x) => x.it);
-    const query = q.trim();
-    if (query) {
+    const query = query0;
+    if (query && !pinApps) {
       scored.push(
         { id: "find:below", group: "찾기", label: `하위 폴더까지 「${query}」`, hint: "이름 · 메모", run: () => onSearch(query, "below") },
         { id: "find:all", group: "찾기", label: `모든 드라이브 「${query}」`, hint: "색인 · 이름 · 메모", run: () => onSearch(query, "all") },
@@ -86,17 +106,19 @@ export default function Palette({ items, onSearch, onClose }: { items: PaletteIt
       );
     }
     return scored;
-  }, [items, q, onSearch]);
+  }, [items, q, onSearch, pinApps]);
 
   useEffect(() => setAt(0), [q]);
   useEffect(() => {
     listRef.current?.querySelector<HTMLElement>(`[data-i="${at}"]`)?.scrollIntoView({ block: "nearest" });
   }, [at]);
 
-  const run = (it: PaletteItem | undefined) => {
+  const run = (it: PaletteItem | undefined, alt = false) => {
     if (!it) return;
+    if (alt && !it.alt) return;
     onClose();
-    it.run();
+    if (alt) it.alt?.run();
+    else it.run();
   };
 
   return (
@@ -106,7 +128,7 @@ export default function Palette({ items, onSearch, onClose }: { items: PaletteIt
           ref={inputRef}
           className="pal-input"
           value={q}
-          placeholder="위치 · 명령 · 색 표시: 초성으로도 찾는다 (ㅅㄹ → 산림)"
+          placeholder={pinApps ? "왼쪽 열에 고정할 앱: 초성으로도 찾는다 (ㄱㅅㄱ → 계산기)" : "위치 · 앱 · 명령 · 색 표시: 초성으로도 찾는다 (ㅅㄹ → 산림)"}
           aria-label="찾을 말"
           aria-controls="pal-list"
           aria-activedescendant={shown[at] ? `pal-${shown[at].id}` : undefined}
@@ -123,7 +145,7 @@ export default function Palette({ items, onSearch, onClose }: { items: PaletteIt
               setAt((i) => Math.max(0, i - 1));
             } else if (e.key === "Enter") {
               e.preventDefault();
-              run(shown[at]);
+              run(shown[at], e.shiftKey);
             }
           }}
         />
@@ -139,18 +161,21 @@ export default function Palette({ items, onSearch, onClose }: { items: PaletteIt
               onMouseMove={() => setAt(i)}
               onMouseDown={(e) => {
                 e.preventDefault();
-                run(it);
+                run(it, e.shiftKey);
               }}
             >
               <span className="pal-group">{i === 0 || shown[i - 1].group !== it.group ? it.group : ""}</span>
               {it.color && <TagDot color={it.color} />}
+              {it.icon && <img className="pal-icon" src={it.icon} width={16} height={16} alt="" loading="lazy" />}
               <span className="pal-label">{it.label}</span>
               {it.hint && <span className="pal-hint">{it.hint}</span>}
             </li>
           ))}
           {shown.length === 0 && <li className="pal-empty">맞는 것이 없다</li>}
         </ul>
-        <div className="pal-foot">↑↓ 고르기 · Enter 하기 · Esc 닫기</div>
+        <div className="pal-foot">
+          {pinApps ? "↑↓ 고르기 · Enter 왼쪽 열에 고정 · Esc 닫기" : `↑↓ 고르기 · Enter ${shown[at]?.group === "앱" ? "열기" : "하기"}${shown[at]?.alt ? ` · Shift+Enter ${shown[at].alt!.label}` : ""} · Esc 닫기`}
+        </div>
       </div>
     </div>
   );

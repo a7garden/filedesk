@@ -7,29 +7,32 @@
      값마다 light-dark(밝게, 어둡게) 한 줄로 둔다 — 밝은 표 · 어두운 표를 따로 두면 한쪽만 고치는 일이 생긴다. */
   color-scheme: light dark;
   /* 2026.11.11 : 밝게의 아이보리(누런 종이색 #f6f5f1 계열)를 빼고 무채색 회색으로 다시 잡았다 — 사용자 요청.
-     흐린 글자(--muted)는 바탕 · 왼쪽 열 모두에서 4.5:1 을 넘게 한 단 진하게 (예전 3.2:1). 어둡게는 그대로. */
-  --paper:      light-dark(#f8f9fa, #1b1b1a);
-  --side:       light-dark(#eff1f3, #161615);
-  --raise:      light-dark(#ffffff, #232322);
-  --ink:        light-dark(#1a1d21, #ecebe7);
-  --ink-2:      light-dark(#474c54, #bdbab2);
-  --muted:      light-dark(#676d75, #8a867e);
-  --faint:      light-dark(#b2b7be, #5e5b55);
-  --hover:      light-dark(rgba(26, 29, 33, 0.05), rgba(255, 255, 255, 0.045));
+     흐린 글자(--muted)는 바탕 · 왼쪽 열 모두에서 4.5:1 을 넘게 한 단 진하게 (예전 3.2:1).
+     2026.11.17 : 어둡게를 다시 잡았다 — 사용자 요청 「너무 시커매서 구분이 안 된다」. 예전 바탕 #1b1b1a · 왼쪽 열 #161615 · 뜬 면 #232322 는
+     밝기 차가 1~2% 라 면이 한 덩어리로 보였고, 선(흰 7%) · 올린 줄(흰 4.5%)은 거의 보이지 않았다.
+     바탕을 한 단 올리고(#212327) 면 사이 차를 넓혔다. 누런 기를 빼고 강조색(쪽빛)과 맞는 푸른 회색으로. */
+  --paper:      light-dark(#f8f9fa, #212327);
+  --side:       light-dark(#eff1f3, #191b1e);
+  --raise:      light-dark(#ffffff, #2d3035);
+  --ink:        light-dark(#1a1d21, #e9ebee);
+  --ink-2:      light-dark(#474c54, #c3c7cd);
+  --muted:      light-dark(#676d75, #989ea7);
+  --faint:      light-dark(#b2b7be, #666c75);
+  --hover:      light-dark(rgba(26, 29, 33, 0.05), rgba(255, 255, 255, 0.075));
   /* 2026.11.12 : 강조색을 짙은 초록에서 쪽빛 파랑으로 바꿨다 — 사용자 요청. 앱 아이콘과 같은 색.
      --ok(완료 표시)는 초록으로 남겨 강조색과 뗀다 — 「다 됐다」는 뜻이 파랑에 묻히지 않게. */
-  --sel:        light-dark(rgba(43, 95, 217, 0.11), rgba(134, 168, 255, 0.16));
+  --sel:        light-dark(rgba(43, 95, 217, 0.11), rgba(134, 168, 255, 0.24));
   --accent:     light-dark(#2b5fd9, #86a8ff);
   --accent-ink: light-dark(#ffffff, #0f1a33);
   --warn:       light-dark(#a83a1e, #f0a07f);
   --warn-bg:    light-dark(rgba(168, 58, 30, 0.08), rgba(240, 160, 127, 0.1));
   --ok:         light-dark(#1f6f5c, #63b59c);
-  --line:       light-dark(rgba(26, 29, 33, 0.08), rgba(255, 255, 255, 0.07));
+  --line:       light-dark(rgba(26, 29, 33, 0.08), rgba(255, 255, 255, 0.12));
   --focus:      light-dark(rgba(43, 95, 217, 0.55), rgba(134, 168, 255, 0.6));
   /* 2026.11.11 : 채운 폴더 · 파일 종이 (glyphs.tsx). 폴더는 무채색 바탕에서 튀지 않는 푸른 회색 두 겹 — 뒤판이 한 단 진하다. */
-  --folder-back:  light-dark(#7f8b99, #6c7785);
-  --folder-front: light-dark(#a3aebb, #8994a2);
-  --icon-paper:   light-dark(#ffffff, #2b2b2a);
+  --folder-back:  light-dark(#7f8b99, #76828f);
+  --folder-front: light-dark(#a3aebb, #9aa6b3);
+  --icon-paper:   light-dark(#ffffff, #383b40);
 }
 :root[data-theme="light"] {
   color-scheme: light;
@@ -82,7 +85,8 @@ button:disabled {
 /* 뼈대: 왼쪽 열이 위아래를 다 차지하고, 탭은 화면 위에만 — 탭이 왼쪽까지 덮어 과업 줄을 밀어내지 않게 */
 .app {
   display: grid;
-  grid-template-columns: 228px 1fr;
+  /* 왼쪽 열 너비는 끌어서 바꾼다 (App sideW → --side-w · 2026.11.18) */
+  grid-template-columns: var(--side-w, 228px) 1fr;
   /* minmax(0, …) — 칸 안이 넘쳐도 줄 높이가 창보다 커지지 않게 (기본 최소 높이는 내용 높이다) */
   grid-template-rows: auto minmax(0, 1fr);
   height: 100%;
@@ -325,12 +329,15 @@ button:disabled {
   overflow-x: auto;
   scrollbar-width: none;
 }
+/* 2026.11.18 : 글자 길이를 따르던 너비를 한 너비로 고정했다 (사용자 요청). 탭마다 너비가 달라 닫기 단추 · 다음 탭 자리가
+   이름에 따라 흔들렸다. 긴 이름은 말줄임 · 전체는 마우스를 올리면 나온다. 넘치면 탭 줄이 옆으로 밀린다 (.tabs overflow). */
 .tab {
   position: relative;
   display: flex;
+  flex: none;
   align-items: center;
   gap: 4px;
-  max-width: 200px;
+  width: 168px;
   padding: 0 4px 0 10px;
   color: var(--muted);
   cursor: pointer;
@@ -353,6 +360,8 @@ button:disabled {
   background: var(--accent);
 }
 .tab-name {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -386,6 +395,30 @@ button:disabled {
 }
 
 /* ── 왼쪽: 즐겨찾기 · 색 표시 · 내 폴더 · 드라이브 ── */
+/* 왼쪽 열 오른쪽 가장자리 — 끌어서 너비. 칸 사이 손잡이(.divider)처럼 올리면 선이 밝아진다 */
+.side-resize {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--side-w, 228px) - 3px);
+  z-index: 20;
+  width: 6px;
+  cursor: col-resize;
+}
+.side-resize::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+.side-resize:hover::after,
+.side-resize:active::after {
+  background: var(--focus);
+}
 .side {
   grid-column: 1;
   grid-row: 1 / 3;
@@ -813,9 +846,11 @@ body.col-resizing * {
 .pane:has(.cols .col-1 > .resizer:hover) .guide.col-1::before,
 .pane:has(.cols .col-2 > .resizer:hover) .guide.col-2::before,
 .pane:has(.cols .col-3 > .resizer:hover) .guide.col-3::before,
+.pane:has(.cols .col-4 > .resizer:hover) .guide.col-4::before,
 .pane[data-resizing="1"] .guide.col-1::before,
 .pane[data-resizing="2"] .guide.col-2::before,
-.pane[data-resizing="3"] .guide.col-3::before {
+.pane[data-resizing="3"] .guide.col-3::before,
+.pane[data-resizing="4"] .guide.col-4::before {
   left: -1px;
   width: 2px;
   background: var(--accent);
@@ -857,7 +892,48 @@ body.col-resizing * {
 .empty .key {
   font-size: 11.5px;
 }
-.empty.error {
+/* 목록을 못 읽었을 때 (Pane LoadFailed) — 2026.11.18 : OS 문장 한 줄 대신 무슨 일 · 까닭 · 갈 곳을 보인다.
+   경고색은 맨 아래 OS 문장에만 — 폴더가 옮겨진 것은 잘못이 아니라 안내할 일이다. */
+.load-failed {
+  position: absolute;
+  inset: 64px 24px auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+  color: var(--muted);
+}
+.load-failed .folder-glyph {
+  margin-bottom: 6px;
+  opacity: 0.55;
+}
+.load-failed strong {
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+}
+.load-failed p {
+  margin: 0;
+}
+.lf-path {
+  max-width: min(560px, 100%);
+  margin-top: 4px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: var(--hover);
+  color: var(--ink-2);
+  font: 12px/1.5 var(--mono, ui-monospace, Consolas, monospace);
+  overflow-wrap: anywhere; /* 잘라 줄이지 않는다 — 없어진 것은 대개 맨 끝 이름이라 거기가 보여야 한다 */
+  user-select: text;
+}
+.lf-acts {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.lf-os {
+  margin-top: 8px;
   color: var(--warn);
   user-select: text;
 }
@@ -1212,6 +1288,12 @@ body.col-resizing * {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+.cell.kind {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .cell.size {
   text-align: right;
   color: var(--muted);
@@ -1323,6 +1405,10 @@ body.col-resizing * {
   .app {
     grid-template-columns: 184px 1fr;
   }
+  /* 좁은 창에서는 너비를 정해 둔다 — 끌 손잡이도 감춘다 */
+  .side-resize {
+    display: none;
+  }
   .filter {
     width: 120px;
   }
@@ -1368,9 +1454,12 @@ button.side-empty:hover {
 .tabs.dim .tab.active::after {
   background: var(--faint);
 }
+/* 2026.11.18 : 칸 사이를 1px 선에서 왼쪽 열 바탕색 띠(칸 사이 5px 전부)로 바꿨다. 열 경계선과 같은 선이라
+   「여기가 칸 경계인지 열 경계인지」 갈리지 않았다 (사용자 지적). 띠는 왼쪽 열과 같은 면이라 칸들이 그 위에 놓인 판으로 읽힌다. */
 .divider {
   cursor: col-resize;
   z-index: 3;
+  background: var(--side);
 }
 .divider.across {
   cursor: row-resize;
@@ -1382,7 +1471,7 @@ button.side-empty:hover {
   bottom: 0;
   left: 2px;
   width: 1px;
-  background: var(--line);
+  background: transparent;
   transition: background 0.15s ease, width 0.15s ease, left 0.15s ease, height 0.15s ease, top 0.15s ease;
 }
 .divider.across::after {
@@ -1943,6 +2032,73 @@ body.resizing-y * {
   opacity: 0.55;
   cursor: default;
 }
+/* 연결할 곳 고르는 판 (Sidebar Browse) — 2026.11.18 : 공유 안 폴더까지 내려가 고르고 「추가」로 더한다 */
+.link-pick-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 2px 0 2px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.link-pick-nav span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.link-pick-head.warn {
+  color: var(--warn);
+}
+.link-up,
+.link-in {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+}
+.link-up:hover:not(:disabled),
+.link-in:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.link-up:disabled {
+  opacity: 0.35;
+}
+.link-pick-list {
+  display: grid;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.link-pick-row {
+  cursor: default;
+  user-select: none;
+}
+.link-pick-row .link-in {
+  margin-left: auto;
+}
+.link-pick-row em + .link-in {
+  margin-left: 0;
+}
+.link-pick-row.sel,
+.link-pick-row.sel:hover {
+  background: var(--sel);
+}
+.link-pick-foot {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.link-pick-foot .act.primary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .side-hint.warn {
   color: var(--warn);
 }
@@ -2081,8 +2237,8 @@ body.resizing-y * {
   justify-items: center;
   align-content: start;
   gap: 4px;
-  width: 84px;
-  height: 76px;
+  width: 92px;
+  height: 90px;
   padding: 9px 6px 6px;
   border-radius: 8px;
   color: var(--ink-2);
@@ -2095,8 +2251,8 @@ body.resizing-y * {
   position: relative;
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  width: 32px;
+  height: 32px;
   color: var(--muted);
 }
 .dock-icon .tag-dot {
@@ -2142,7 +2298,7 @@ body.resizing-y * {
 .dock-empty {
   display: grid;
   place-items: center;
-  height: 76px;
+  height: 90px;
   padding: 0 20px;
   border-radius: 8px;
   box-shadow: inset 0 0 0 1px var(--line);
@@ -2636,6 +2792,24 @@ body.resizing-y * {
 .tile-pic img {
   object-fit: contain;
 }
+/* 상태 표시(SVN · OneDrive) — 아이콘 크기의 투명 그림이라 아이콘 자리에 그대로 포갠다 (Pane withOverlay) */
+.ovl-wrap {
+  position: relative;
+  display: inline-grid;
+  flex: none;
+}
+.ovl-wrap > * {
+  grid-area: 1 / 1;
+}
+.ovl {
+  pointer-events: none;
+}
+.tile-pic > .ovl {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
 .tile-pic img.thumb {
   border-radius: 4px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.14);
@@ -2652,6 +2826,21 @@ body.resizing-y * {
   -webkit-line-clamp: 2;
   overflow: hidden;
   overflow-wrap: anywhere;
+}
+/* 이름 펼치기 (설정 「격자에서 잘린 이름을 … 바로 펼치기」) — 칸 높이를 풀어 아래 줄 위로 덮어 그린다.
+   inline height 를 이기려 !important. 바탕을 불투명하게 해야 아래 칸 글자가 비치지 않는다. */
+.tile.peek {
+  height: auto !important;
+  min-height: calc(var(--tile-icon) + 68px);
+  z-index: 3;
+  background: var(--raise);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18), inset 0 0 0 1px var(--line);
+}
+.tile.peek.selected {
+  background: linear-gradient(var(--sel), var(--sel)), var(--raise);
+}
+.tile.peek .tile-label {
+  -webkit-line-clamp: unset;
 }
 .tile-label.dir {
   font-weight: 600;
@@ -3045,6 +3234,11 @@ body.resizing-y * {
   .row .cell.ver {
     font-size: 12px;
   }
+  .cols > .col-4,
+  .col-guides > .col-4,
+  .row .cell.kind {
+    display: none;
+  }
   .row.selected:not(:hover) .memo-add,
   .row.selected:not(:hover) .tag-add {
     display: none;
@@ -3134,7 +3328,7 @@ body.resizing-y * {
   color: var(--ink-2);
   cursor: default;
 }
-.pal-item:not(:has(.tag-dot)) {
+.pal-item:not(:has(.tag-dot, .pal-icon)) {
   grid-template-columns: 44px minmax(0, 1fr) auto;
 }
 .pal-item.gap {
@@ -3148,6 +3342,9 @@ body.resizing-y * {
   font-size: 11px;
   color: var(--muted);
   text-align: right;
+}
+.pal-icon {
+  display: block;
 }
 .pal-label {
   overflow: hidden;

@@ -2,6 +2,7 @@
 
 use windows::Win32::Storage::FileSystem::{GetDiskFreeSpaceExW, GetDriveTypeW, GetLogicalDrives, GetVolumeInformationW};
 use windows::Win32::System::Com::CoTaskMemFree;
+use windows::Win32::System::Diagnostics::Debug::{SEM_FAILCRITICALERRORS, SetThreadErrorMode, THREAD_ERROR_MODE};
 use windows::Win32::System::Environment::ExpandEnvironmentStringsW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_CONTROL, VK_SHIFT};
 use windows::Win32::UI::Shell::{
@@ -53,13 +54,31 @@ pub fn drives() -> Vec<Place> {
 
 /// 드라이브 목록과 용량.
 pub fn drive_details() -> Vec<Drive> {
+    // 빈 이동식 · CD 칸을 건드리면 Windows 가 「드라이브에 디스크가 없습니다」 창을 띄울 수 있다 — 화면이 몇 초마다 다시 읽으므로(App [1])
+    //   그때마다 창이 뜬다. 이 스레드에서만 끄고 끝나면 돌려 둔다. 2026.11.18 리뷰 지적.
+    let mut old = THREAD_ERROR_MODE(0);
+    let quiet = unsafe { SetThreadErrorMode(SEM_FAILCRITICALERRORS, Some(&mut old)) }.is_ok();
+    let out = drives_now();
+    if quiet {
+        let _ = unsafe { SetThreadErrorMode(old, None) };
+    }
+    out
+}
+
+fn drives_now() -> Vec<Drive> {
     let mask = unsafe { GetLogicalDrives() };
     (0..26u8)
         .filter(|i| mask & (1 << i) != 0)
-        .map(|i| {
+        .filter_map(|i| {
             let root = format!("{}:\\", (b'A' + i) as char);
-            let label = volume_label(&root);
             let kind = unsafe { GetDriveTypeW(&HSTRING::from(root.as_str())) };
+            // 매체가 없는 이동식 · CD 칸(빈 카드 리더 · 빈 광학 드라이브)은 뺀다 — 눌러도 「장치가 준비되지 않았다」뿐이다.
+            // 2026.11.18 : 사용자 지적. 용량을 못 읽으면 매체가 없는 것이다 (넣으면 화면이 몇 초 안에 다시 읽는다 · App [1]).
+            let (total, free) = if kind == 4 { (0, 0) } else { space(&root) };
+            if (kind == 2 || kind == 5) && total == 0 {
+                return None;
+            }
+            let label = volume_label(&root);
             // 2 이동식 · 3 고정 · 4 네트워크 · 5 CD
             let fallback = match kind {
                 2 => "이동식 디스크",
@@ -74,8 +93,7 @@ pub fn drive_details() -> Vec<Drive> {
                 5 => "cd",
                 _ => "fixed",
             };
-            let (total, free) = if kind == "fixed" || kind == "removable" { space(&root) } else { (0, 0) };
-            Drive { path: root, label: shown, kind, total, free }
+            Some(Drive { path: root, label: shown, kind, total, free })
         })
         .collect()
 }

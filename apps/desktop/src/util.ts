@@ -77,7 +77,8 @@ export function sortEntries(list: Entry[], sort: Sort, dirsFirst = true): Entry[
         c = a.modified - b.modified;
         break;
       case "kind":
-        c = collator.compare(a.kind, b.kind);
+        // 「종류」 열에 보이는 묶음 차례(설정의 종류 순서)로, 같은 묶음 안에서는 셸 종류 이름으로
+        c = kindRank(a) - kindRank(b) || collator.compare(a.kind, b.kind);
         break;
       case "size":
         c = a.size - b.size;
@@ -143,9 +144,11 @@ export function splitName(name: string, isDir: boolean): [string, string] {
   return i > 0 && name.length - i <= 9 ? [name.slice(0, i), name.slice(i)] : [name, ""];
 }
 
-/** 열 너비 기본값: 이름 · 판 · 고친 날 · 크기 (이름 칸은 남는 자리를 다 쓰므로 최소 너비).
- *  2026.11.11 : 「유형」 열(셸의 긴 종류 이름)을 빼고 「판」을 넣었다 — 확장자는 이름 끝에 흐리게 보인다. */
-export const DEFAULT_COLS = [280, 170, 110, 84];
+/** 열 너비 기본값: 이름 · 판 · 고친 날 · 크기 · 종류 (이름 칸은 남는 자리를 다 쓰므로 최소 너비).
+ *  2026.11.11 : 「유형」 열(셸의 긴 종류 이름)을 빼고 「판」을 넣었다 — 확장자는 이름 끝에 흐리게 보인다.
+ *  2026.11.17 : 「종류」 열을 다시 두되 기본은 숨긴다 — 탐색기처럼 종류로 훑고 싶을 때 켠다. 셸 이름 대신 종류 묶음(문서 · 표 …)을 보인다.
+ *  화면에서는 수정일과 크기 사이에 서지만, 지난 설정의 너비 넷을 그대로 읽으려고 맨 뒤 칸에 둔다. */
+export const DEFAULT_COLS = [280, 170, 110, 84, 96];
 
 /** 파일 종류 — 목록 위 「종류」 거르기 · filedesk 아이콘의 띠 색. 셸의 긴 종류 이름 대신 일에서 쓰는 말로 묶는다.
  *  2026.11.11 : 고정 표였던 것을 설정(보기 › 종류)에서 고치게 했다 — 쓰는 사람마다 「발표」 · 「표」 같은 묶음이 맞지 않았다.
@@ -205,6 +208,7 @@ export const canThumb = (ext: string) => THUMB_EXTS.has(ext.toLowerCase());
 export function kindOf(e: Pick<Entry, "isDir" | "ext">): string {
   return e.isDir ? FOLDER : (extKind.get(e.ext.toLowerCase())?.id ?? OTHER);
 }
+const kindRank = (e: Pick<Entry, "isDir" | "ext">) => kindOrder().indexOf(kindOf(e));
 
 /** 최신판 자리에 남은 지난 판 수 — 최신판 폴더에서 fd-core 가 「옮길 판」으로 표시한 파일 수. 판 눈금의 경고색과 같은 표시다.
  *  단추 글자용이고, 옮길 목록은 백엔드(`stale_in_place`)가 다시 센다. */

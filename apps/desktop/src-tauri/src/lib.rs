@@ -4,9 +4,11 @@
 //!   [1] 공통 — 주 스레드에서 돌리기 · 창 손잡이
 //!   [2] 목록 · 위치 · 주소
 //!   [2-1] 연결 — NAS · 공유 폴더 주소 풀기 · 공유 목록 · 로그인 · 이 PC 가 쓰던 곳 (`fd-shell::net`)
+//!         설치된 앱 목록 · 앱 열기 — 팔레트 · 왼쪽 열 「앱」 (`fd-shell::apps`)
 //!   [3] 열기 · 바로가기 대상 · 오른쪽 메뉴 · 셸 동사
 //!   [3-1] 앱 안 보기 — 글 파일(md · txt) 읽기 · 쓰기 (`fd-core::textfile`) · 그림은 [9] 아이콘 프로토콜의 `raw:`
-//!   [4] 파일 작업 — 이름 바꾸기 · 휴지통 · 복사/이동 · 새 폴더
+//!   [4] 파일 작업 — 이름 바꾸기 · 휴지통 · 복사/이동 · 붙여넣기 · 새 폴더
+//!   [4-1] 실행 취소 — 위 작업과 새 판 · 지난 판 옮기기를 거꾸로 (`undo.rs`)
 //!   [5] 끌기 (앱 밖으로)
 //!   [6] 폴더 변경 감시
 //!   [7] 문서 — 판 묶기 · 새 판 내기 · 지난 판 옮기기
@@ -19,6 +21,7 @@
 //!   [10] 색인 — 찾기 조건 · 스마트 폴더 · 이름 색인(서비스 · 앱 안 엔진) · 본문 색인 (`index.rs`)
 
 mod index;
+mod undo;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -73,13 +76,44 @@ fn outcome(o: Outcome) -> &'static str {
 #[tauri::command]
 async fn list_dir(path: String, show_hidden: bool) -> CmdResult<Vec<Entry>> {
     on_sta(move || {
-        let mut list = fd_core::list_dir(Path::new(&path), show_hidden).map_err(|e| format!("{path}: {e}"))?;
+        let mut list = fd_core::list_dir(Path::new(&path), show_hidden).map_err(|e| list_err(&path, &e))?;
         for e in &mut list {
             e.kind = fd_shell::icon::type_name(&e.ext, e.is_dir);
         }
         Ok(list)
     })
     .await?
+}
+
+/// 목록을 못 읽은 까닭을 머리표 `[missing]` · `[denied]` · `[offline]` 로 갈라 준다 — 화면(Pane [1])이 이것을 보고
+/// 「폴더를 찾을 수 없다」 · 「권한이 없다」 · 「닿지 않는다」 안내와 갈 곳을 따로 그린다.
+/// 2026.11.18 : 전에는 OS 문장(「지정된 경로를 찾을 수 없습니다. (os error 3)」)을 그대로 보였다.
+fn list_err(path: &str, e: &std::io::Error) -> String {
+    let tag = match e.raw_os_error() {
+        Some(2 | 3) => "[missing] ",                                // 파일 · 경로 없음 — 이름이 바뀌었거나 옮겨졌거나 지워졌다
+        Some(5) => "[denied] ",                                     // 접근 거부
+        Some(21 | 53 | 59 | 64 | 67 | 1222 | 1231) => "[offline] ", // 드라이브 준비 안 됨 · 네트워크 이름 · 연결 끊김
+        _ => "",
+    };
+    format!("{tag}{path}: {e}")
+}
+
+/// 없어진 폴더에서 가장 가까운, 아직 있는 위 폴더. 드라이브까지 없으면(빼낸 USB · 끊긴 NAS) None.
+#[tauri::command]
+async fn nearest_dir(path: String) -> Option<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut cur = Path::new(&path).parent();
+        while let Some(p) = cur {
+            if p.is_dir() {
+                return Some(p.to_string_lossy().into_owned());
+            }
+            cur = p.parent();
+        }
+        None
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 #[derive(Serialize)]
@@ -104,6 +138,13 @@ struct Places {
 }
 
 /// 바탕화면 · 다운로드 · 문서 · 드라이브. 사용자가 고정한 위치는 설정(`[8]`)에 있다.
+/// 상태 표시(TortoiseSVN · OneDrive 오버레이) — `dir` 안 `names` 마다 시스템 그림 번호, 없으면 -1.
+/// 목록을 먼저 그리고 따로 묻는다 — 표시 처리기가 느리면 목록까지 늦는다.
+#[tauri::command]
+async fn overlays(dir: String, names: Vec<String>) -> CmdResult<Vec<i32>> {
+    on_sta(move || fd_shell::icon::overlays(&dir, &names)).await
+}
+
 #[tauri::command]
 async fn places() -> CmdResult<Places> {
     on_sta(|| {
@@ -188,6 +229,32 @@ async fn net_resolve(window: WebviewWindow, input: String) -> CmdResult<NetTarge
 struct NetKnown {
     path: String,
     source: String,
+}
+
+#[derive(Serialize)]
+struct AppOut {
+    name: String,
+    id: String,
+    /// 아이콘을 뽑을 셸 이름 (fdicon `i:<크기>:`).
+    icon: String,
+}
+
+/// 설치된 앱 — 시작 메뉴 「모든 앱」. 팔레트 · 왼쪽 열 「앱」이 쓴다 (`fd-shell::apps`).
+/// 수백 개를 셸에 물어 0.2~0.5초 걸린다 — 화면이 앱을 켤 때 한 번, 팔레트를 열 때마다 뒤에서 다시 묻는다 (새로 깐 앱).
+#[tauri::command]
+async fn apps_list() -> CmdResult<Vec<AppOut>> {
+    on_sta(|| {
+        fd_shell::apps::list()
+            .into_iter()
+            .map(|a| AppOut { icon: fd_shell::apps::icon_name(&a.id), name: a.name, id: a.id })
+            .collect()
+    })
+    .await
+}
+
+#[tauri::command]
+async fn launch_app(id: String) -> CmdResult<()> {
+    on_sta(move || fd_shell::apps::launch(&id).map_err(|e| e.to_string())).await?
 }
 
 /// 이 PC 가 이미 쓰는 네트워크 위치 — 연결된 네트워크 드라이브 · 탐색기 「네트워크 위치」 · 탐색기 주소 기록.
@@ -286,10 +353,10 @@ async fn background_menu(app: AppHandle, window: WebviewWindow, dir: String) -> 
         .await?
 }
 
-/// `copy` · `cut` · `paste` · `properties`. 붙여넣기는 대상 폴더 하나를 `paths` 로 준다.
+/// `copy` · `cut` · `properties` · `openas`(연결 프로그램 고르기). 붙여넣기는 `paste_files` 가 한다 (실행 취소를 쌓으려고).
 #[tauri::command]
 async fn shell_verb(app: AppHandle, window: WebviewWindow, paths: Vec<String>, verb: String, dir: String) -> CmdResult<()> {
-    const ALLOWED: &[&str] = &["copy", "cut", "paste", "properties"];
+    const ALLOWED: &[&str] = &["copy", "cut", "properties", "openas"];
     if !ALLOWED.contains(&verb.as_str()) {
         return Err(format!("허용하지 않은 동사: {verb}"));
     }
@@ -307,7 +374,9 @@ async fn rename(window: WebviewWindow, path: String, new_name: String) -> CmdRes
     // 메모를 새 이름으로 옮긴다. 실패해도 이름 바꾸기는 끝난 일이라 오류로 돌리지 않는다 — 다음에 그 폴더를 열 때 파일 ID 로 다시 붙는다.
     if r == "done" {
         if let Some(to) = Path::new(&from).parent().map(|d| d.join(&name)) {
-            let _ = memo_edit(|s| s.moved(&from, &to.to_string_lossy()) > 0);
+            let to = to.to_string_lossy().into_owned();
+            let _ = memo_edit(|s| s.moved(&from, &to) > 0);
+            undo::push(undo::Step::Rename { from, to });
         }
     }
     Ok(r)
@@ -316,12 +385,22 @@ async fn rename(window: WebviewWindow, path: String, new_name: String) -> CmdRes
 #[tauri::command]
 async fn recycle(window: WebviewWindow, paths: Vec<String>) -> CmdResult<&'static str> {
     let hwnd = owner(&window)?;
-    on_sta(move || fd_shell::ops::recycle(hwnd, &paths).map(outcome).map_err(|e| e.to_string())).await?
+    let at = undo::now();
+    let sent = paths.clone();
+    let r = on_sta(move || fd_shell::ops::recycle(hwnd, &paths).map(outcome).map_err(|e| e.to_string())).await?;
+    // 중간에 취소했거나 몇 개에서 실패했어도 이미 보낸 것은 되살릴 수 있게 — 사라진 것만 남긴다 (오류를 돌려주기 전에)
+    let gone: Vec<String> = sent.into_iter().filter(|p| Path::new(p).symlink_metadata().is_err()).collect();
+    if !gone.is_empty() {
+        undo::push(undo::Step::Recycle { paths: gone, at });
+    }
+    r
 }
 
 #[tauri::command]
 async fn new_folder(dir: String) -> CmdResult<String> {
-    fd_shell::ops::new_folder(&dir).map_err(|e| e.to_string())
+    let p = fd_shell::ops::new_folder(&dir).map_err(|e| e.to_string())?;
+    undo::push(undo::Step::NewFolder { path: p.clone() });
+    Ok(p)
 }
 
 fn volume_of(p: &str) -> String {
@@ -361,7 +440,100 @@ async fn drop_files(window: WebviewWindow, paths: Vec<String>, dest: String) -> 
     } else {
         paths.iter().all(|p| volume_of(p) == volume_of(&dest))
     };
-    on_sta(move || fd_shell::ops::transfer(hwnd, &paths, &dest, mv).map(outcome).map_err(|e| e.to_string())).await?
+    transfer_recorded(hwnd, paths, dest, mv).await
+}
+
+/// 복사 · 옮기기를 하고 실제로 바뀐 것을 실행 취소에 쌓는다.
+async fn transfer_recorded(hwnd: RawHwnd, paths: Vec<String>, dest: String, mv: bool) -> CmdResult<&'static str> {
+    let plan = undo::plan_transfer(&paths, &dest);
+    let r = on_sta(move || fd_shell::ops::transfer(hwnd, &paths, &dest, mv).map(outcome).map_err(|e| e.to_string())).await?;
+    // 몇 개에서 실패해도 이미 옮기거나 만든 것은 남긴다 — step_of 는 실제로 바뀐 것만 고른다
+    if let Some(step) = undo::step_of(plan, mv) {
+        undo::push(step);
+    }
+    r
+}
+
+/// 붙여넣기 — 클립보드의 파일을 `dest` 로. 잘라낸 것이면 옮기고 클립보드를 비운다 (탐색기와 같게).
+/// 파일이 아닌 것(글 · 그림)은 예전처럼 셸 「붙여넣기」 동사에 맡긴다 — 그 길은 실행 취소에 쌓이지 않는다.
+#[tauri::command]
+async fn paste_files(app: AppHandle, window: WebviewWindow, dest: String) -> CmdResult<&'static str> {
+    let hwnd = owner(&window)?;
+    let Some((paths, mv)) = on_sta(fd_shell::ops::clipboard_files).await? else {
+        let dir = Path::new(&dest).parent().map(|d| d.to_string_lossy().into_owned()).unwrap_or_else(|| dest.clone());
+        let target = vec![dest];
+        on_main(app, move || fd_shell::menu::invoke_verb(hwnd, &target, "paste", &dir).map_err(|e| e.to_string())).await??;
+        return Ok("done");
+    };
+    let r = transfer_recorded(hwnd, paths, dest, mv).await?;
+    if mv && r == "done" {
+        let _ = on_sta(fd_shell::ops::clear_clipboard).await;
+    }
+    Ok(r)
+}
+
+// ───────────────────────────── [4-1] 실행 취소 ─────────────────────────────
+
+/// 다음 Ctrl+Z 가 되돌릴 것의 이름 (메뉴 글자). 없으면 None.
+#[tauri::command]
+fn undo_peek() -> Option<String> {
+    undo::peek()
+}
+
+/// 마지막 작업을 되돌린다. 돌려주는 값은 화면에 띄울 한 줄. 되돌릴 것이 없으면 None.
+#[tauri::command]
+async fn undo_last(window: WebviewWindow) -> CmdResult<Option<String>> {
+    let hwnd = owner(&window)?;
+    let Some(step) = undo::pop() else { return Ok(None) };
+    let label = step.label();
+    // 중간에 실패하거나 취소하면 이 단계를 다시 쌓는다 — 다음 Ctrl+Z 가 남은 것을 잇는다. 이미 되돌린 항목은 actions 가 「자리가 이미 바뀜」으로 건너뛴다.
+    // 2026.11.18 리뷰 지적 : 꺼낸 채 실패하면 남은 작업이 버려지고, 다음 Ctrl+Z 가 그 앞의 엉뚱한 작업을 되돌렸다.
+    let keep = step.clone();
+    let (acts, mut skipped) = undo::actions(step);
+    let mut aborted = false;
+    let run = async {
+        for a in acts {
+            match a {
+                undo::Action::Rename { path, name, memo_from } => {
+                    let p = path.clone();
+                    let o = on_sta(move || fd_shell::ops::rename(hwnd, &p, &name)).await?.map_err(|e| e.to_string())?;
+                    aborted |= o == Outcome::Aborted;
+                    if o == Outcome::Done {
+                        let _ = memo_edit(|s| s.moved(&path, &memo_from) > 0);
+                    }
+                }
+                undo::Action::MoveBack { paths, dest } => {
+                    let o = on_sta(move || fd_shell::ops::transfer(hwnd, &paths, &dest, true)).await?.map_err(|e| e.to_string())?;
+                    aborted |= o == Outcome::Aborted;
+                }
+                undo::Action::Recycle { paths } => {
+                    let o = on_sta(move || fd_shell::ops::recycle(hwnd, &paths)).await?.map_err(|e| e.to_string())?;
+                    aborted |= o == Outcome::Aborted;
+                }
+                undo::Action::Restore { paths, since } => {
+                    let (_, missed) = tauri::async_runtime::spawn_blocking(move || undo::restore_recycled(&paths, since))
+                        .await
+                        .map_err(|e| e.to_string())?;
+                    skipped += missed.len();
+                }
+            }
+        }
+        Ok::<(), String>(())
+    };
+    if let Err(e) = run.await {
+        undo::push(keep);
+        return Err(format!("「{label}」을 다 되돌리지 못했다: {e} · 다시 Ctrl+Z 로 남은 것을 되돌린다"));
+    }
+    if aborted {
+        undo::push(keep);
+    }
+    Ok(Some(if aborted {
+        format!("「{label}」 되돌리기를 중간에 취소했다 · 다시 Ctrl+Z 로 이어서 되돌린다")
+    } else if skipped > 0 {
+        format!("「{label}」을 되돌렸다 · {skipped}개는 이미 옮겨졌거나 지워져 그대로 두었다")
+    } else {
+        format!("「{label}」을 되돌렸다")
+    }))
 }
 
 // ───────────────────────────── [5] 끌기 ─────────────────────────────
@@ -416,6 +588,11 @@ fn watch_dirs(app: AppHandle, state: tauri::State<'_, WatchState>, dirs: Vec<Str
         .into_iter()
         .map(PathBuf::from)
         .flat_map(|d| {
+            // 없는 폴더(지워졌거나 이름이 바뀐 탭)는 살아 있는 가장 가까운 위 폴더를 본다 — 되살아나면 화면이 그 자리에서 다시 읽게 (Pane [1]).
+            // 2026.11.18 리뷰 지적 : 없는 폴더만 보고 있어 「다시 살아나면 다시 읽는다」가 한 번도 일어나지 않았다. 화면은 못 읽게 되거나 되살아날 때 이 명령을 다시 부른다.
+            if !d.exists() {
+                return d.ancestors().skip(1).find(|a| a.exists()).map(Path::to_path_buf).into_iter().collect::<Vec<_>>();
+            }
             // 2026.11.11 : 지난 판 폴더 이름이 여럿이 되어(`이전판` · `지난판` · `old versions` …) 이름 하나로 찾지 않는다.
             let mut v = fd_core::docs::history_dirs(&d);
             v.push(d);
@@ -456,9 +633,22 @@ async fn new_edition(window: WebviewWindow, path: String, today: String) -> CmdR
     let hwnd = owner(&window)?;
     let plan = fd_core::edition::plan(Path::new(&path), &today)?;
     let fd_core::edition::EditionPlan { source, new_name, new_path, retire, history, .. } = plan;
+    let moved = undo::plan_transfer(&retire, &history);
+    let made_new = Path::new(&new_path).symlink_metadata().is_err();
     let out = on_sta(move || fd_shell::ops::new_edition(hwnd, &source, &new_name, &retire, &history)).await?;
     match out.map_err(|e| e.to_string())? {
-        Outcome::Done => Ok(new_path),
+        Outcome::Done => {
+            let mut steps = Vec::new();
+            if made_new {
+                steps.push(undo::Step::Copy { made: vec![new_path.clone()] });
+            }
+            steps.extend(undo::step_of(moved, true));
+            // 바뀐 것이 없으면 쌓지 않는다 — 빈 단계는 Ctrl+Z 한 번을 헛되이 먹는다
+            if !steps.is_empty() {
+                undo::push(undo::Step::Batch { label: "새 판 내기".into(), steps });
+            }
+            Ok(new_path)
+        }
         Outcome::Aborted => Err("새 판 내기를 중간에 취소했다".into()),
     }
 }
@@ -483,9 +673,15 @@ async fn retire_editions(window: WebviewWindow, dir: String, key: String) -> Cmd
     }
     let history = fd_core::docs::history_dir(Path::new(&paths[0]).parent().ok_or("상위 폴더가 없다")?).to_string_lossy().into_owned();
     let n = paths.len();
+    let moved = undo::plan_transfer(&paths, &history);
     let out = on_sta(move || fd_shell::ops::retire(hwnd, &paths, &history)).await?;
     match out.map_err(|e| e.to_string())? {
-        Outcome::Done => Ok(n),
+        Outcome::Done => {
+            if let Some(step) = undo::step_of(moved, true) {
+                undo::push(undo::Step::Batch { label: "이전판으로 옮기기".into(), steps: vec![step] });
+            }
+            Ok(n)
+        }
         Outcome::Aborted => Err("옮기기를 중간에 취소했다".into()),
     }
 }
@@ -852,6 +1048,9 @@ pub fn run() {
             list_dir,
             places,
             resolve_input,
+            nearest_dir,
+            apps_list,
+            launch_app,
             open_item,
             link_targets,
             read_text,
@@ -864,6 +1063,10 @@ pub fn run() {
             recycle,
             new_folder,
             drop_files,
+            paste_files,
+            overlays,
+            undo_peek,
+            undo_last,
             drag_out,
             watch_dirs,
             doc_groups,

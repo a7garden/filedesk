@@ -18,13 +18,13 @@
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { api, DEFAULT_VIEW, TAG_LABEL, type Place, type Places, type SavedNode, type Settings, type SmartFolder, type SmartScope, type TagColor, type Theme, type ViewPrefs } from "./api";
+import { api, appIconUrl, DEFAULT_VIEW, TAG_LABEL, type AppInfo, type AppPin, type Drive, type Place, type Places, type SavedNode, type Settings, type SmartFolder, type SmartScope, type TagColor, type Theme, type ViewPrefs } from "./api";
 import Palette, { type FindScope, type PaletteItem } from "./Palette";
 import { newSmartId, scopeLabel, scopeOf, validSmart } from "./query";
 import SmartEditor from "./SmartEditor";
 import FavDock from "./FavDock";
 import Pane from "./Pane";
-import { atStep, STEPS } from "./SizeLadder";
+import { atStep, LAST_STEP, STEPS, stepOf } from "./SizeLadder";
 import SettingsPanel from "./SettingsPanel";
 import Sidebar from "./Sidebar";
 import TitleBar from "./TitleBar";
@@ -48,6 +48,8 @@ export const PIN_DROP = "fd:pin";
 
 /** 왼쪽 열 「연결」 머리에 놓는 자리의 표시 — 옮기지 않고 연결에 더한다. */
 export const LINK_DROP = "fd:link";
+/** 왼쪽 열 「앱」 머리 — 실행 파일 · 바로가기를 놓으면 고정한다. */
+export const APP_DROP = "fd:app";
 
 /** 왼쪽 「색 표시」 건반에 놓는 자리의 표시 — 옮기지 않고 그 색을 단다. 「fd:tag@blue」. 2026.11.12 */
 export const TAG_DROP = "fd:tag@";
@@ -60,6 +62,8 @@ const MIN_RATIO = 0.2;
 
 /** 칸 수 상한. 2026.11.11 : 4 — 그 이상은 한 칸이 목록 몇 줄밖에 안 남아 탭을 오가는 편이 낫다. */
 const MAX_PANES = 4;
+/** 드라이브를 다시 읽는 간격 — USB 를 꽂고 기다리는 사람이 답답하지 않을 만큼. */
+const DRIVE_CHECK = 4000;
 
 /** 칸 가장자리에서 이 비율 안쪽에 놓으면 그쪽으로 나눈다. 그보다 안쪽은 칸 가운데(그 칸으로 옮기기). */
 const EDGE = 0.25;
@@ -85,7 +89,8 @@ function withDefaults(s: Partial<Settings> | null): Settings {
     pinned: s?.pinned ?? DEFAULT_PINNED,
     links: Array.isArray(s?.links) ? s.links.filter((x) => x && typeof x.path === "string") : [],
     session: s?.session ?? { tabs: [], active: 0 },
-    cols: s?.cols?.length === DEFAULT_COLS.length ? s.cols : DEFAULT_COLS,
+    // 2026.11.17 : 종류 열 너비가 맨 뒤에 붙었다 — 너비 넷인 지난 설정은 그대로 두고 기본값만 잇는다
+    cols: s?.cols?.length === DEFAULT_COLS.length ? s.cols : s?.cols?.length === DEFAULT_COLS.length - 1 ? [...s.cols, DEFAULT_COLS[DEFAULT_COLS.length - 1]] : DEFAULT_COLS,
     showHidden: s?.showHidden ?? false,
     theme: s?.theme === "light" || s?.theme === "dark" ? s.theme : "system",
     split,
@@ -94,7 +99,12 @@ function withDefaults(s: Partial<Settings> | null): Settings {
       ...DEFAULT_VIEW,
       ...(s?.view ?? {}),
       size: Math.min(3, Math.max(0, Number(s?.view?.size ?? DEFAULT_VIEW.size) || 0)),
-      hiddenCols: Array.isArray(s?.view?.hiddenCols) ? s.view.hiddenCols : [],
+      // 종류 열이 생기기 전(너비 넷) 설정은 그 열을 숨긴 채로 읽는다 — 업데이트로 목록 모양이 바뀌지 않게
+      hiddenCols: Array.isArray(s?.view?.hiddenCols)
+        ? s.cols?.length === DEFAULT_COLS.length - 1 && !s.view.hiddenCols.includes("kind")
+          ? [...s.view.hiddenCols, "kind"]
+          : s.view.hiddenCols
+        : DEFAULT_VIEW.hiddenCols,
       dense: s?.view?.dense === true,
       icons: s?.view?.icons === "filedesk" || s?.view?.icons === "pack" ? s.view.icons : "shell",
       iconPack: typeof s?.view?.iconPack === "string" ? s.view.iconPack : "",
@@ -105,14 +115,24 @@ function withDefaults(s: Partial<Settings> | null): Settings {
       foldStart: s?.view?.foldStart !== false,
       dateStyle: s?.view?.dateStyle === "absolute" ? "absolute" : "relative",
       recent: s?.view?.recent !== false,
+      namePeek: s?.view?.namePeek !== false,
+      overlays: s?.view?.overlays !== false,
       links: typeof s?.view?.links === "boolean" ? s.view.links : Array.isArray(s?.links) && s.links.length > 0,
       sizeUnit: s?.view?.sizeUnit === "auto" ? "auto" : "kb",
       kinds: validKinds(s?.view?.kinds),
     },
     start: typeof s?.start === "string" ? s.start : "",
     smart: validSmart(s?.smart),
+    apps: Array.isArray(s?.apps) ? s.apps.filter((a) => a && typeof a.id === "string" && typeof a.name === "string").map((a) => ({ ...a, icon: typeof a.icon === "string" ? a.icon : a.id })) : [],
+    sideW: clampSide(s?.sideW),
   };
 }
+
+/** 왼쪽 열 너비 — 기본 · 끌 수 있는 범위 (px). 좁으면 드라이브 용량 · 스마트 폴더 개수가 잘리고, 넓으면 목록 자리를 먹는다. */
+export const SIDE_W = 228;
+const SIDE_MIN = 180;
+const SIDE_MAX = 420;
+const clampSide = (w: unknown) => (typeof w === "number" && isFinite(w) ? Math.round(Math.min(SIDE_MAX, Math.max(SIDE_MIN, w))) : SIDE_W);
 
 /** 설정 파일의 기본 정렬 — 손으로 고쳐 꼴이 어긋났으면 이름 오름차순. */
 function validSort(v: unknown): Sort {
@@ -136,8 +156,10 @@ const clampRatio = (r: unknown) => (typeof r === "number" && isFinite(r) ? Math.
 // ───────── 칸 배치 ─────────
 
 /** 칸 하나 — 탭 순서와 지금 보이는 탭. `key` 는 칸이 살아 있는 동안 바뀌지 않는다 (초점 · 그리기 열쇠).
- *  비지 않는다 (마지막 탭이 빠지면 칸째 없앤다). */
-type Leaf = { key: number; ids: number[]; cur: number };
+ *  비지 않는다 (마지막 탭이 빠지면 칸째 없앤다).
+ *  step: 이 칸만의 보기 크기 눈금 (SizeLadder). 없으면 설정의 크기를 따른다.
+ *  2026.11.18 : 사용자 요청 — 나눠 보면 한쪽은 격자로 그림을, 한쪽은 목록으로 문서를 보게. 칸이 하나면 쓰지 않는다 (설정의 크기가 곧 그 칸). */
+type Leaf = { key: number; ids: number[]; cur: number; step?: number };
 /** 두 쪽으로 나눈 자리 — row 는 좌우, col 은 위아래. `a` 가 왼쪽 · 위, `ratio` 는 `a` 의 몫. */
 type Split = { dir: "row" | "col"; ratio: number; a: LayoutNode; b: LayoutNode };
 type LayoutNode = Leaf | Split;
@@ -245,7 +267,9 @@ function restoreLayout(saved: unknown, ids: number[]): LayoutNode | null {
       if (n < 1 || k + n > ids.length) return null;
       const xs = ids.slice(k, (k += n));
       const c = typeof o.cur === "number" ? Math.min(Math.max(0, Math.floor(o.cur)), n - 1) : 0;
-      return newLeaf(xs, xs[c]);
+      const leaf = newLeaf(xs, xs[c]);
+      if (typeof o.step === "number" && o.step >= 0 && o.step <= LAST_STEP) leaf.step = Math.floor(o.step);
+      return leaf;
     }
     if (o.dir !== "row" && o.dir !== "col") return null;
     const a = build(o.a, depth + 1);
@@ -257,7 +281,8 @@ function restoreLayout(saved: unknown, ids: number[]): LayoutNode | null {
 }
 
 function saveLayout(n: LayoutNode): SavedNode {
-  return isLeaf(n) ? { tabs: n.ids.length, cur: Math.max(0, n.ids.indexOf(n.cur)) } : { dir: n.dir, ratio: n.ratio, a: saveLayout(n.a), b: saveLayout(n.b) };
+  if (!isLeaf(n)) return { dir: n.dir, ratio: n.ratio, a: saveLayout(n.a), b: saveLayout(n.b) };
+  return n.step == null ? { tabs: n.ids.length, cur: Math.max(0, n.ids.indexOf(n.cur)) } : { tabs: n.ids.length, cur: Math.max(0, n.ids.indexOf(n.cur)), step: n.step };
 }
 
 // ───────── 칸 자리 셈 ─────────
@@ -325,6 +350,10 @@ export default function App() {
   const [showHidden, setShowHidden] = useState(false);
   const [pinned, setPinned] = useState<Place[]>([]);
   const [links, setLinks] = useState<Place[]>([]);
+  /** 왼쪽 열 「앱」에 고정한 앱 · 설치된 앱 전부(팔레트에서 찾는다 · 켤 때와 팔레트를 열 때 읽는다). */
+  const [pinnedApps, setPinnedApps] = useState<AppPin[]>([]);
+  const [apps, setApps] = useState<AppInfo[]>([]);
+  const [sideW, setSideW] = useState(SIDE_W);
   const [cols, setCols] = useState<number[]>(DEFAULT_COLS);
   const [theme, setTheme] = useState<Theme>("system");
   const [loaded, setLoaded] = useState(false);
@@ -341,6 +370,8 @@ export default function App() {
   const [smartEdit, setSmartEdit] = useState<{ folder: SmartFolder; isNew: boolean } | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  /** 팔레트를 「앱 고정」으로 열었다 — 왼쪽 열 「앱」의 ＋. 앱만 보이고 Enter 가 고정이다. */
+  const [paletteApps, setPaletteApps] = useState(false);
   const panesRef = useRef<HTMLDivElement>(null);
   useAutoUpdate();
 
@@ -367,6 +398,29 @@ export default function App() {
   const split = leaves.length > 1;
   const fgLeaf = leaves.find((l) => l.key === focus) ?? leaves[0];
   const fg = fgLeaf.key;
+
+  /** 칸 하나의 보기 크기를 바꾼다 (Ctrl+휠 · Ctrl+= / − · 아래 줄 눈금 · 오른쪽 메뉴 「보기」). 칸이 하나면 설정의 크기를 바꾼다. */
+  const zoomPane = useCallback(
+    (key: number, f: (step: number) => number) => {
+      if (leaves.length < 2) return setView((v) => atStep(v, f(stepOf(v))));
+      const base = stepOf(view);
+      setRoot((r) => mapLeaves(r, (l) => (l.key === key ? { ...l, step: Math.max(0, Math.min(LAST_STEP, f(l.step ?? base))) } : l)) ?? r);
+    },
+    [leaves.length, view],
+  );
+  /** 설정 창의 크기 — 모든 칸에 한꺼번에. 칸마다 둔 크기는 지운다. */
+  const zoomAll = useCallback((f: (v: ViewPrefs) => ViewPrefs) => {
+    setView(f);
+    setRoot((r) => mapLeaves(r, (l) => (l.step == null ? l : { ...l, step: undefined })) ?? r);
+  }, []);
+  // 칸이 하나로 줄면(한 칸으로 모으기 · 탭 닫기 · 끌어 옮기기) 남은 칸의 크기를 설정의 크기로 올린다 — 보던 크기가 그대로 남게.
+  useEffect(() => {
+    const only = leaves.length === 1 ? leaves[0] : null;
+    if (only?.step == null) return;
+    const s = only.step;
+    setView((v) => atStep(v, s));
+    setRoot((r) => (isLeaf(r) ? { ...r, step: undefined } : r));
+  }, [leaves]);
   /** 독을 얹을 자리 — 나눠 보기면 바닥에 닿은 칸 중 지금 칸(지금 칸이 위쪽이면 그 아래 칸)의 바닥 가운데 절반.
    *  2026.11.13 : 독이 창 가운데 아래에 고정돼, 좌우로 나누면 왼쪽 칸 바닥 줄 오른쪽(보기 크기 단추)과 겹쳤다 (사용자 지적).
    *  칸 바닥 줄은 왼쪽에 개수, 오른쪽에 단추를 두므로 그 칸의 가운데가 비어 있다. 한 칸이면 독의 CSS 자리 그대로. */
@@ -410,6 +464,30 @@ export default function App() {
 
   // ───────── [1] 설정 ─────────
 
+  // 드라이브는 꽂고 빼면 바뀐다 — USB · 카드 · CD 를 넣으면 왼쪽 열에 나타나고 빼면 사라지게 몇 초마다 · 창으로 돌아올 때 다시 읽는다.
+  // 2026.11.18 : 매체 없는 칸을 뺀 뒤로(fd-shell places) 처음 읽은 목록에 머물면 넣은 USB 가 끝내 안 보인다.
+  //   드라이브가 그대로면 그리지 않는다 — 남은 용량은 늘 조금씩 바뀌어, 그것까지 보면 몇 초마다 창 전체를 다시 그린다.
+  useEffect(() => {
+    const sig = (ds: Drive[]) => ds.map((d) => `${d.path}|${d.label}|${d.kind}`).join(" ");
+    // 앞의 읽기가 끝나지 않았으면 건너뛴다 — 끊긴 네트워크 드라이브 · 도는 CD 는 한 번에 몇 초씩 걸려, 겹쳐 부르면 대기가 쌓인다 (2026.11.18 리뷰 지적)
+    let busy = false;
+    const again = () => {
+      if (busy) return;
+      busy = true;
+      api
+        .places()
+        .then((p) => setPlaces((old) => (!old || sig(old.drives) === sig(p.drives) ? old : { ...old, drives: p.drives })))
+        .catch(() => {})
+        .finally(() => (busy = false));
+    };
+    const t = window.setInterval(again, DRIVE_CHECK);
+    window.addEventListener("focus", again);
+    return () => {
+      window.clearInterval(t);
+      window.removeEventListener("focus", again);
+    };
+  }, []);
+
   // 지난번에 열어 둔 탭으로 연다. 처음이면 다운로드 — 들어온 파일을 정리하는 일이 가장 잦다.
   useEffect(() => {
     Promise.all([api.places(), api.loadSettings().catch(() => null)]).then(([p, raw]) => {
@@ -423,6 +501,8 @@ export default function App() {
       setView(s.view);
       setStart(s.start);
       setSmart(s.smart ?? []);
+      setPinnedApps(s.apps ?? []);
+      setSideW(s.sideW ?? SIDE_W);
       const dl = p.known.find((k) => k.name === "다운로드")?.path ?? START;
       // 시작 폴더를 정했으면 그 폴더 하나로 연다 — 지난 탭 · 나눠 보기는 버린다 (설정 「시작 폴더」)
       const restored = s.start ? [newTab(s.start)] : s.session.tabs.length ? s.session.tabs.map(newTab) : [newTab(dl)];
@@ -472,11 +552,13 @@ export default function App() {
           view,
           start,
           smart,
+          apps: pinnedApps,
+          sideW,
         })
         .catch(() => {});
     }, 500);
     return () => window.clearTimeout(t);
-  }, [loaded, tabs, root, focus, pinned, links, cols, showHidden, theme, view, start, smart]);
+  }, [loaded, tabs, root, focus, pinned, links, cols, showHidden, theme, view, start, smart, pinnedApps, sideW]);
 
   // ───────── [1-1] 스마트 폴더 ─────────
 
@@ -536,6 +618,26 @@ export default function App() {
     });
   }, []);
   const unlink = useCallback((path: string) => setLinks((ls) => ls.filter((x) => norm(x.path) !== norm(path))), []);
+  const pinApps = useCallback((add: AppPin[]) => {
+    setPinnedApps((xs) => {
+      const have = new Set(xs.map((x) => x.id.toLowerCase()));
+      const fresh = add.filter((a) => !have.has(a.id.toLowerCase()));
+      return fresh.length ? [...xs, ...fresh] : xs;
+    });
+    if (add.length) setNotice({ text: `왼쪽 열 「앱」에 고정했다: ${add.map((a) => a.name).join(" · ")}`, tone: "ok" });
+  }, []);
+  const unpinApp = useCallback((id: string) => setPinnedApps((xs) => xs.filter((x) => x.id !== id)), []);
+  const launchApp = useCallback((id: string) => {
+    api.launchApp(id).catch((e) => setNotice({ text: errText(e), tone: "warn" }));
+  }, []);
+  // 설치된 앱 — 켤 때 한 번, 팔레트를 열 때마다 뒤에서 다시 (그사이 깐 앱). 목록은 화면에 바로 쓰고 답이 오면 바꾼다.
+  //   닫을 때는 읽지 않는다 — 앱 수백 개를 셸에서 다시 훑는 데 0.2 ~ 0.5초가 든다.
+  const appsAsked = useRef(false);
+  useEffect(() => {
+    if (!paletteOpen && appsAsked.current) return;
+    appsAsked.current = true;
+    api.appsList().then(setApps).catch(() => {});
+  }, [paletteOpen]);
   const unpin = useCallback((path: string) => setPinned((ps) => ps.filter((x) => norm(x.path) !== norm(path))), []);
   const movePin = useCallback((from: number, to: number) => {
     setPinned((ps) => {
@@ -624,9 +726,10 @@ export default function App() {
   const toggleSplit = useCallback(() => {
     if (!split) return splitRight();
     const one = newLeaf(leaves.flatMap((g) => g.ids), active.id);
+    one.step = fgLeaf.step; // 지금 칸의 크기로 모은다 (위 효과가 설정으로 올린다)
     setRoot(one);
     setFocus(one.key);
-  }, [split, splitRight, leaves, active.id]);
+  }, [split, splitRight, leaves, active.id, fgLeaf.step]);
 
   /** 경로를 옆 칸에서 새 탭으로 연다 (오른쪽 메뉴 「옆 칸에서 열기」). 안 나눴으면 오른쪽으로 나눈다.
    *  옆 칸은 칸 차례(왼쪽 · 위부터)로 지금 칸 다음 칸이다.
@@ -762,8 +865,13 @@ export default function App() {
 
   // 열린 탭들의 폴더를 감시한다.
   const watched = tabs.map((t) => t.path).join("|");
+  //   칸이 폴더를 못 읽게 되거나 되살아나면(fd:rewatch) 다시 건다 — 없는 폴더는 Rust 가 그 위 폴더를 보므로, 있고 없음이 바뀌면 볼 자리도 바뀐다.
   useEffect(() => {
-    api.watchDirs([...new Set(tabs.map((t) => t.path))]).catch(() => {});
+    const dirs = [...new Set(tabs.map((t) => t.path))];
+    const go = () => api.watchDirs(dirs).catch(() => {});
+    go();
+    window.addEventListener("fd:rewatch", go);
+    return () => window.removeEventListener("fd:rewatch", go);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [watched]);
 
@@ -855,6 +963,13 @@ export default function App() {
         peek(null);
         const dest = el?.dataset.drop;
         if (!dest || p.paths.length === 0) return;
+        if (dest === APP_DROP) {
+          // 실행 파일 · 바로가기만 — 그 밖의 파일은 「앱」이 아니다 (문서는 즐겨찾기 독으로)
+          const ok = p.paths.filter((x) => /\.(exe|lnk|appref-ms|bat|cmd)$/i.test(x));
+          if (ok.length) pinApps(ok.map((x) => ({ name: baseName(x).replace(/\.[^.]+$/, ""), id: x, icon: x })));
+          if (ok.length < p.paths.length) setNotice({ text: "「앱」에는 실행 파일 · 바로가기만 둔다. 문서는 즐겨찾기 독으로", tone: "warn" });
+          return;
+        }
         if (dest === LINK_DROP) {
           api
             .dirsOf(p.paths)
@@ -941,6 +1056,7 @@ export default function App() {
       } else if (k === "k" || (k === "p" && e.shiftKey)) {
         e.preventDefault();
         e.stopPropagation();
+        setPaletteApps(false);
         setPaletteOpen((v) => !v);
       }
     };
@@ -959,6 +1075,24 @@ export default function App() {
   }, [fgLeaf, active, openTab, closeTab, navigate, showTab, toggleSplit]);
 
   // ───────── [6] 명령 팔레트 ─────────
+
+  /** 팔레트의 앱 줄 — Enter 로 열고 Shift+Enter 로 왼쪽 열에 고정한다. pinOnly(「＋」로 연 팔레트)면 Enter 가 고정이다. */
+  const appItems = (pinOnly: boolean): PaletteItem[] => {
+    const pinnedIds = new Set(pinnedApps.map((a) => a.id.toLowerCase()));
+    return apps.map((a) => {
+      const pin = () => pinApps([{ name: a.name, id: a.id, icon: a.icon }]);
+      const pinned = pinnedIds.has(a.id.toLowerCase());
+      return {
+        id: `app:${a.id}`,
+        group: "앱" as const,
+        label: a.name,
+        hint: pinned ? "고정됨" : undefined,
+        icon: appIconUrl(a.icon, 16),
+        run: pinOnly ? pin : () => launchApp(a.id),
+        alt: pinOnly || pinned ? undefined : { label: "왼쪽 열에 고정", run: pin },
+      };
+    });
+  };
 
   const paletteItems = (): PaletteItem[] => {
     const go = (path: string) => () => navigate(active.id, path);
@@ -983,7 +1117,7 @@ export default function App() {
       cmd("split", split ? "나눠 보기 끄기: 한 칸으로 모으기" : "나눠 보기: 오른쪽으로 나누기", toggleSplit, "Ctrl+\\"),
       cmd("hidden", showHidden ? "숨김 파일 감추기" : "숨김 파일 보이기", () => setShowHidden((v) => !v), "Ctrl+H"),
       cmd("settings", "설정", () => setSettingsOpen(true), "Ctrl+,"),
-      ...STEPS.map((l, i) => cmd(`step:${i}`, `보기: ${l}`, () => setView((v) => atStep(v, i)))),
+      ...STEPS.map((l, i) => cmd(`step:${i}`, `보기: ${l}`, () => zoomPane(fg, () => i))),
       cmd("theme:system", "화면 색: 시스템", () => setTheme("system")),
       cmd("theme:light", "화면 색: 밝게", () => setTheme("light")),
       cmd("theme:dark", "화면 색: 어둡게", () => setTheme("dark")),
@@ -1097,7 +1231,7 @@ export default function App() {
   const dropLabel = dropEdge ? EDGE_LABEL[dropEdge] : "이 칸으로 옮기기";
 
   return (
-    <div className={"app" + (drag?.on ? " tab-dragging" : "")}>
+    <div className={"app" + (drag?.on ? " tab-dragging" : "")} style={{ "--side-w": `${sideW}px` } as CSSProperties}>
       <TitleBar>{titleStrips}</TitleBar>
       <div className="body">
         <Sidebar
@@ -1116,6 +1250,36 @@ export default function App() {
           onOpenSmart={openSmart}
           onEditSmart={(f) => setSmartEdit({ folder: f, isNew: false })}
           onNewSmart={() => setSmartEdit({ folder: { id: newSmartId(), name: "", q: "", scope: { kind: "all" } }, isNew: true })}
+          apps={pinnedApps}
+          onLaunchApp={launchApp}
+          onUnpinApp={unpinApp}
+          onAddApp={() => {
+            setPaletteApps(true);
+            setPaletteOpen(true);
+          }}
+        />
+        <div
+          className="side-resize"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="왼쪽 열 너비"
+          title="끌어서 너비 · 두 번 누르면 기본"
+          onMouseDown={(e) => {
+            if (e.button !== 0) return;
+            e.preventDefault();
+            const x0 = e.clientX;
+            const w0 = sideW;
+            document.body.classList.add("resizing-x");
+            const move = (ev: MouseEvent) => setSideW(clampSide(w0 + ev.clientX - x0));
+            const up = () => {
+              document.body.classList.remove("resizing-x");
+              window.removeEventListener("mousemove", move);
+              window.removeEventListener("mouseup", up);
+            };
+            window.addEventListener("mousemove", move);
+            window.addEventListener("mouseup", up);
+          }}
+          onDoubleClick={() => setSideW(SIDE_W)}
         />
         <div ref={panesRef} className={"panes" + (split ? " split" : "")}>
           {loaded &&
@@ -1133,8 +1297,9 @@ export default function App() {
                   showHidden={showHidden}
                   cols={cols}
                   setCols={setCols}
-                  view={view}
+                  view={at?.leaf.step == null ? view : atStep(view, at.leaf.step)}
                   setView={setView}
+                  zoom={(f) => zoomPane(key, f)}
                   split={split}
                   onOpenBeside={openBeside}
                   onToggleSplit={toggleSplit}
@@ -1181,7 +1346,7 @@ export default function App() {
           onOpenFile={(p) => api.openItem(p).then((to) => to && navigate(active.id, to)).catch((e) => setNotice({ text: errText(e), tone: "warn" }))}
         />
       </div>
-      {paletteOpen && <Palette items={paletteItems()} onSearch={searchInPane} onClose={() => setPaletteOpen(false)} />}
+      {paletteOpen && <Palette items={paletteApps ? appItems(true) : [...paletteItems(), ...appItems(false)]} pinApps={paletteApps} onSearch={searchInPane} onClose={() => setPaletteOpen(false)} />}
       {smartEdit && (
         <SmartEditor
           key={smartEdit.folder.id}
@@ -1201,6 +1366,7 @@ export default function App() {
           current={active.path}
           view={view}
           setView={setView}
+          zoomAll={zoomAll}
           showHidden={showHidden}
           setShowHidden={setShowHidden}
           theme={theme}

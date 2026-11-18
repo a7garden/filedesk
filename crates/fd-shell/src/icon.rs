@@ -111,6 +111,10 @@ fn spawn_worker(name: &str) -> Mutex<std::sync::mpsc::Sender<IconJob>> {
 fn cache_key(key: &str) -> String {
     if let Some(rest) = key.strip_prefix("i:") {
         if let Some((size, path)) = rest.split_once(':') {
+            // 앱(`shell:AppsFolder\…`)은 앱마다 그림이 다르다 — 확장자로 묶으면 「…!App」 꼴 끝말이 같은 앱끼리 그림이 섞인다.
+            if path.starts_with("shell:") {
+                return key.to_string();
+            }
             let p = std::path::Path::new(path);
             let ext = p.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
             let is_dir = p.is_dir();
@@ -203,6 +207,12 @@ fn extract(key: &str) -> Option<Vec<u8>> {
             }
             return Some(png);
         }
+    }
+    // 상태 표시(오버레이) 그림만 — 아래 `overlays` 가 준 시스템 그림 목록 번호
+    if let Some((size, idx)) = key.strip_prefix("o:").and_then(|r| r.split_once(':')) {
+        let png = overlay_png(size.parse().unwrap_or(16), idx.parse().ok()?)?;
+        icon_cache().lock().unwrap().insert(key.to_string(), png.clone());
+        return Some(png);
     }
     let info = if key == "d" {
         query("folder", FILE_ATTRIBUTE_DIRECTORY, SHGFI_ICON | SHGFI_SMALLICON | SHGFI_USEFILEATTRIBUTES)
@@ -347,3 +357,72 @@ unsafe fn draw_to_png(icon: HICON) -> Option<Vec<u8>> {
     }
     Some(out)
 }
+
+// ───────── 상태 표시 (오버레이) ─────────
+//
+// 2026.11.17 : TortoiseSVN 의 고침 · 충돌 표시, OneDrive 의 동기화 표시처럼 탐색기가 아이콘 위에 겹쳐 그리는 그림.
+//   사용자 요청 — SVN 작업복사본을 이 앱으로 열면 어느 파일을 고쳤는지 보이지 않았다.
+//   탐색기와 같은 길로 묻는다: 폴더의 IShellIconOverlay 가 등록된 표시 처리기(TortoiseSVN 등)에게 물어
+//   시스템 그림 목록 번호를 준다. 그 그림만 따로 뽑아(`o:<크기>:<번호>`) 화면이 아이콘 위에 얹는다 —
+//   아이콘과 합쳐 뽑으면 확장자마다 한 장이던 아이콘 기억이 파일마다 한 장이 되어 큰 폴더가 느려진다.
+
+/// `dir` 안 `names` 마다 상태 표시 그림 번호. 없으면 -1. 표시 처리기를 부르므로 STA 스레드에서 부른다.
+pub fn overlays(dir: &str, names: &[String]) -> Vec<i32> {
+    use windows::Win32::System::Com::CoTaskMemFree;
+    use windows::Win32::UI::Shell::Common::ITEMIDLIST;
+    use windows::Win32::UI::Shell::{BHID_SFObject, IShellFolder, IShellIconOverlay, IShellItem};
+    use windows::core::{Interface, PCWSTR};
+
+    let none = || vec![-1; names.len()];
+    let Ok(item): windows::core::Result<IShellItem> = (unsafe { SHCreateItemFromParsingName(&HSTRING::from(dir), None) }) else {
+        return none();
+    };
+    let Ok(folder) = (unsafe { item.BindToHandler::<_, IShellFolder>(None, &BHID_SFObject) }) else {
+        return none();
+    };
+    let Ok(ov) = folder.cast::<IShellIconOverlay>() else {
+        return none();
+    };
+    names
+        .iter()
+        .map(|n| unsafe {
+            let w = HSTRING::from(n.as_str());
+            let mut pidl: *mut ITEMIDLIST = std::ptr::null_mut();
+            if folder.ParseDisplayName(windows::Win32::Foundation::HWND::default(), None, PCWSTR(w.as_ptr()), None, &mut pidl, std::ptr::null_mut()).is_err() || pidl.is_null() {
+                return -1;
+            }
+            // 표시가 없으면 S_FALSE 로 돌아와 번호가 그대로 남는다 — 0 으로 두고 0 이면 없음
+            let mut index = 0i32;
+            let mut icon = -1i32;
+            if ov.GetOverlayIndex(pidl, &mut index).is_ok() && index > 0 {
+                let mut i = 0i32;
+                if ov.GetOverlayIconIndex(pidl, &mut i).is_ok() && i > 0 {
+                    icon = i;
+                }
+            }
+            CoTaskMemFree(Some(pidl as *const _));
+            icon
+        })
+        .collect()
+}
+
+/// 시스템 그림 목록의 `index` 번 그림 (상태 표시는 투명 바탕에 귀퉁이 작은 그림이다).
+fn overlay_png(size: i32, index: i32) -> Option<Vec<u8>> {
+    use windows::Win32::UI::Controls::{IImageList, ILD_TRANSPARENT};
+    use windows::Win32::UI::Shell::SHGetImageList;
+    // SHIL_SMALL(16) · SHIL_LARGE(32) · SHIL_EXTRALARGE(48) · SHIL_JUMBO(256)
+    let list = match size {
+        ..=16 => 1,
+        ..=32 => 0,
+        ..=48 => 2,
+        _ => 4,
+    };
+    let il: IImageList = unsafe { SHGetImageList(list) }.ok()?;
+    let icon = unsafe { il.GetIcon(index, ILD_TRANSPARENT.0) }.ok()?;
+    let png = unsafe { icon_to_png(icon).or_else(|| draw_to_png(icon)) };
+    unsafe {
+        let _ = DestroyIcon(icon);
+    }
+    png
+}
+
