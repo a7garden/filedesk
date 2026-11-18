@@ -89,7 +89,7 @@ pub fn new_edition(owner: RawHwnd, src: &str, new_name: &str, retire: &[String],
     std::fs::create_dir_all(history_dir).map_err(|e| ShellError(format!("{history_dir}: {e}")))?;
     let folder = std::path::Path::new(src)
         .parent()
-        .ok_or_else(|| ShellError(format!("{src}: 상위 폴더가 없다")))?
+        .ok_or_else(|| ShellError(format!("{src}: 상위 폴더 없음")))?
         .to_string_lossy()
         .into_owned();
     let op = new_op(owner, FOF_ALLOWUNDO.0 | FOF_NOCONFIRMMKDIR.0)?;
@@ -117,7 +117,7 @@ pub fn new_folder(dir: &str) -> Result<String> {
             Err(e) => return Err(ShellError(format!("새 폴더를 만들지 못했다: {e}"))),
         }
     }
-    Err(ShellError("새 폴더 이름을 고르지 못했다".into()))
+    Err(ShellError("새 폴더 이름을 정할 수 없음".into()))
 }
 
 /// 기본 프로그램으로 연다 (더블클릭과 같다).

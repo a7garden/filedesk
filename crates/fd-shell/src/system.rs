@@ -64,7 +64,7 @@ pub fn run_elevated(exe: &str, args: &str) -> Result<u32> {
         if let Err(e) = ShellExecuteExW(&mut info) {
             // 1223 = ERROR_CANCELLED
             if e.code().0 as u32 & 0xFFFF == 1223 {
-                return Err(ShellError("관리자 권한 묻기를 취소했다".into()));
+                return Err(ShellError("관리자 권한 요청 취소됨".into()));
             }
             return Err(ShellError::from(e));
         }

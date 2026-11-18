@@ -201,7 +201,7 @@ async fn net_resolve(window: WebviewWindow, input: String) -> CmdResult<NetTarge
         use fd_shell::net::{self, NetError};
         let path = net::normalize(&input);
         let Some(server) = net::server_of(&path).map(str::to_string) else {
-            return if Path::new(&path).is_dir() { Ok(NetTarget { path, shares: None }) } else { Err("열 수 없다. 주소를 확인한다".into()) };
+            return if Path::new(&path).is_dir() { Ok(NetTarget { path, shares: None }) } else { Err("열 수 없음 · 주소 확인".into()) };
         };
         if net::is_server_only(&path) {
             let shares = match net::shares(&server) {
@@ -210,7 +210,7 @@ async fn net_resolve(window: WebviewWindow, input: String) -> CmdResult<NetTarge
             }
             .map_err(|e| e.message())?;
             if shares.is_empty() {
-                return Err("이 서버에 열 수 있는 공유 폴더가 없다".into());
+                return Err("열 수 있는 공유 폴더 없음".into());
             }
             return Ok(NetTarget { path, shares: Some(shares) });
         }
@@ -219,7 +219,7 @@ async fn net_resolve(window: WebviewWindow, input: String) -> CmdResult<NetTarge
         }
         // 열리지 않으면 로그인이 필요한지 본다 — 서버가 꺼졌으면 창 없이 곧바로 실패한다.
         net::login(hwnd, &path).map_err(|e| e.message())?;
-        if Path::new(&path).is_dir() { Ok(NetTarget { path, shares: None }) } else { Err("열 수 없다. 공유 이름과 권한을 확인한다".into()) }
+        if Path::new(&path).is_dir() { Ok(NetTarget { path, shares: None }) } else { Err("열 수 없음 · 공유 이름과 권한 확인".into()) }
     })
     .await
     .map_err(|e| e.to_string())?
@@ -522,17 +522,17 @@ async fn undo_last(window: WebviewWindow) -> CmdResult<Option<String>> {
     };
     if let Err(e) = run.await {
         undo::push(keep);
-        return Err(format!("「{label}」을 다 되돌리지 못했다: {e} · 다시 Ctrl+Z 로 남은 것을 되돌린다"));
+        return Err(format!("「{label}」 일부만 되돌림: {e} · Ctrl+Z로 계속"));
     }
     if aborted {
         undo::push(keep);
     }
     Ok(Some(if aborted {
-        format!("「{label}」 되돌리기를 중간에 취소했다 · 다시 Ctrl+Z 로 이어서 되돌린다")
+        format!("「{label}」 되돌리기 취소됨 · Ctrl+Z로 계속")
     } else if skipped > 0 {
-        format!("「{label}」을 되돌렸다 · {skipped}개는 이미 옮겨졌거나 지워져 그대로 두었다")
+        format!("「{label}」 되돌림 · {skipped}개는 이미 바뀌어 건너뜀")
     } else {
-        format!("「{label}」을 되돌렸다")
+        format!("「{label}」 되돌림")
     }))
 }
 
@@ -649,7 +649,7 @@ async fn new_edition(window: WebviewWindow, path: String, today: String) -> CmdR
             }
             Ok(new_path)
         }
-        Outcome::Aborted => Err("새 판 내기를 중간에 취소했다".into()),
+        Outcome::Aborted => Err("새 판 내기 취소됨".into()),
     }
 }
 
@@ -669,9 +669,9 @@ async fn retire_editions(window: WebviewWindow, dir: String, key: String) -> Cmd
     let hwnd = owner(&window)?;
     let paths = stale_of(&dir, &key)?;
     if paths.is_empty() {
-        return Err("옮길 지난 판이 없다".into());
+        return Err("옮길 지난 판 없음".into());
     }
-    let history = fd_core::docs::history_dir(Path::new(&paths[0]).parent().ok_or("상위 폴더가 없다")?).to_string_lossy().into_owned();
+    let history = fd_core::docs::history_dir(Path::new(&paths[0]).parent().ok_or("상위 폴더 없음")?).to_string_lossy().into_owned();
     let n = paths.len();
     let moved = undo::plan_transfer(&paths, &history);
     let out = on_sta(move || fd_shell::ops::retire(hwnd, &paths, &history)).await?;
@@ -682,14 +682,14 @@ async fn retire_editions(window: WebviewWindow, dir: String, key: String) -> Cmd
             }
             Ok(n)
         }
-        Outcome::Aborted => Err("옮기기를 중간에 취소했다".into()),
+        Outcome::Aborted => Err("옮기기 취소됨".into()),
     }
 }
 
 // ───────────────────────────── [7-1] 메모 ─────────────────────────────
 
 fn memo_file() -> CmdResult<PathBuf> {
-    fd_core::memo::default_file().ok_or_else(|| "APPDATA 가 없어 메모 파일 자리를 모른다".into())
+    fd_core::memo::default_file().ok_or_else(|| "APPDATA 없음 · 메모 파일 위치를 알 수 없음".into())
 }
 
 /// 메모 파일을 읽고 `f` 로 고친 뒤, 고쳤다고(`true`) 하면 쓴다. 명령줄(`fd memo`)과 같은 파일이라 들고 있지 않는다.
@@ -840,7 +840,7 @@ fn image_mime(file: &str) -> Option<&'static str> {
 /// 같은 이름이 여러 꼴이면 svg → png → 나머지 차례로 하나만 (선명한 것 먼저).
 #[tauri::command]
 fn icon_pack(dir: String) -> CmdResult<std::collections::HashMap<String, String>> {
-    let rd = std::fs::read_dir(&dir).map_err(|e| format!("{dir} 을 읽지 못했다. {e}"))?;
+    let rd = std::fs::read_dir(&dir).map_err(|e| format!("{dir} 읽기 실패: {e}"))?;
     let rank = |p: &str| match Path::new(p).extension().map(|e| e.to_string_lossy().to_lowercase()).as_deref() {
         Some("svg") => 0,
         Some("png") => 1,
@@ -893,7 +893,7 @@ fn skill_status() -> SkillStatus {
 
 #[tauri::command]
 fn install_skill(agent: String) -> CmdResult<SkillStatus> {
-    let fd = fd_exe().ok_or("앱 폴더에 fd.exe 가 없다. 설치 파일(릴리스의 setup.exe)로 깔아야 함께 깔린다")?;
+    let fd = fd_exe().ok_or("fd.exe 없음 · 설치 파일(setup.exe)로 설치한 앱에서만 가능")?;
     fd_core::skill::install(&fd_core::skill::find(&agent)?.file, &fd)?;
     Ok(skill_status())
 }
@@ -998,7 +998,7 @@ fn update_installable() -> bool {
 #[tauri::command]
 async fn open_url(window: WebviewWindow, url: String) -> CmdResult<()> {
     if !(url.starts_with("https://") || url.starts_with("http://")) {
-        return Err("웹 주소(http · https)만 연다".into());
+        return Err("웹 주소(http · https)만 열 수 있음".into());
     }
     let hwnd = owner(&window)?;
     on_sta(move || fd_shell::ops::open(hwnd, &url, "").map_err(|e| e.to_string())).await?

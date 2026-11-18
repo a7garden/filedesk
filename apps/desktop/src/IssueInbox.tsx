@@ -188,7 +188,7 @@ export default function IssueInbox({ docs, dir, onRetire, onRetireAll, onShow, o
           </button>
           {!sel ? (
             <div className="ix-empty">
-              <p className="ix-empty-big">{done > 0 || skipped.size > 0 ? "다 처리했다" : "문제 문서가 없다"}</p>
+              <p className="ix-empty-big">{done > 0 || skipped.size > 0 ? "모두 처리함" : "문제 문서 없음"}</p>
               {done > 0 && <p className="muted">지난 판 {done}개를 「이전판」 폴더로 옮겼다</p>}
               <button className="act primary" onClick={onClose}>
                 닫기
@@ -239,7 +239,7 @@ export default function IssueInbox({ docs, dir, onRetire, onRetireAll, onShow, o
                 </button>
                 {done > 0 && <span className="ix-done">지난 판 {done}개 옮김</span>}
               </div>
-              {selStale === 0 && <p className="ix-hint">이름 · 판 번호는 앱이 대신 고치지 않는다. 목록에서 F2 로 이름을 바꾼다.</p>}
+              {selStale === 0 && <p className="ix-hint">이름 · 판 번호는 목록에서 F2로 직접 수정</p>}
             </>
           )}
         </section>

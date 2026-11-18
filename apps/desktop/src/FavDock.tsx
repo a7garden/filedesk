@@ -216,7 +216,7 @@ export default function FavDock(props: Props) {
             return (
               <Fragment key={p.path}>
               {/* 끼울 자리 — 파일을 끄는 동안만. 타일 위는 「그 폴더로 옮기기」라 사이를 따로 둔다 */}
-              {fileDrag && <li className="dock-gap" data-drop={`${PIN_DROP}@${i}`} aria-hidden="true" title="여기에 끼워 즐겨찾기에 추가" />}
+              {fileDrag && <li className="dock-gap" data-drop={`${PIN_DROP}@${i}`} aria-hidden="true" title="여기에 추가" />}
               <li
                 data-pin-index={i}
                 className={"dock-slot" + line + (drag?.on && drag.from === i ? " pin-lifted" : "")}
@@ -233,7 +233,7 @@ export default function FavDock(props: Props) {
                 <button
                   className={"dock-tile" + (isHere ? " current" : "") + (isFresh(p) && fresh?.phase === "open" ? " fresh" : "")}
                   data-drop={p.file ? undefined : p.path}
-                  title={`${p.path}\n${p.file ? "누르면 연다" : "가운데 단추 · Ctrl: 새 탭"} · 오른쪽 단추: 색 표시 · 끌어서 순서 바꾸기`}
+                  title={`${p.path}${p.file ? "" : "\n가운데 단추 · Ctrl: 새 탭"}`}
                   aria-current={isHere ? "page" : undefined}
                   onClick={(e) => (p.file ? onOpenFile(p.path) : e.ctrlKey ? onGoNewTab(p.path) : onGo(p.path))}
                   onContextMenu={(e) => {
@@ -265,7 +265,7 @@ export default function FavDock(props: Props) {
               폴더 · 파일을 여기로 끌어 놓거나 Ctrl+D
             </li>
           ) : (
-            fileDrag && <li className="dock-gap end" data-drop={PIN_DROP} aria-hidden="true" title="끝에 붙여 즐겨찾기에 추가" />
+            fileDrag && <li className="dock-gap end" data-drop={PIN_DROP} aria-hidden="true" title="끝에 추가" />
           )}
         </ul>
       </div>
@@ -277,7 +277,7 @@ export default function FavDock(props: Props) {
           return <span key={p.path} className={"dock-tick" + (c ? ` tag-${c}` : "") + (isHere ? " here" : "") + (isFresh(p) && fresh?.phase === "glow" ? " fresh" : "")} />;
         })}
         {pinned.length === 0 && <span className="dock-tick empty" />}
-        <span className="dock-beckon">여기에 놓으면 즐겨찾기</span>
+        <span className="dock-beckon">즐겨찾기에 추가</span>
       </div>
       {menu && (
         <TagMenu

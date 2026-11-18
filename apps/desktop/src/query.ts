@@ -90,7 +90,7 @@ export function scopeOf(scope: SmartScope, inbox: string[]): { all: boolean; roo
 export function scopeLabel(scope: SmartScope): string {
   if (scope.kind === "all") return "모든 드라이브";
   if (scope.kind === "inbox") return "다운로드 · 바탕화면";
-  if (!scope.roots.length) return "폴더를 고르지 않았다";
+  if (!scope.roots.length) return "폴더 없음";
   const first = scope.roots[0];
   const more = scope.roots.length > 1 ? ` 외 ${scope.roots.length - 1}곳` : "";
   return `${first.path}${first.recursive ? " (하위 폴더까지)" : ""}${more}`;
@@ -137,6 +137,6 @@ export function sourceLabel(r: { sources: string[]; indexedAt: number; partial: 
   if (s.includes("live")) parts.push("폴더를 직접 읽음");
   if (s.includes("content")) parts.push("본문 색인");
   if (s.includes("notes")) parts.push("메모 · 색 표시");
-  if (r.partial) parts.push("일부: 색인을 만드는 중");
+  if (r.partial) parts.push("일부 · 색인 만드는 중");
   return parts.join(" · ");
 }

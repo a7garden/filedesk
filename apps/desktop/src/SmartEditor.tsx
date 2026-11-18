@@ -114,9 +114,9 @@ export default function SmartEditor(p: Props) {
   const save = () => canSave && p.onSave({ id: p.folder.id, name: name.trim(), q: q.trim(), scope });
 
   const WHERE: [SmartScope["kind"], string, string][] = [
-    ["all", "모든 드라이브", "고정 드라이브 전체를 색인에서 찾는다. NAS 는 빠진다"],
-    ["inbox", "다운로드 · 바탕화면", "두 폴더 바로 아래만. 받은 파일이 쌓이는 곳"],
-    ["roots", "고른 폴더", "NAS · 공유 폴더는 찾을 때 폴더를 직접 읽는다"],
+    ["all", "모든 드라이브", "고정 드라이브 전체 · NAS 제외"],
+    ["inbox", "다운로드 · 바탕화면", "두 폴더 바로 아래만"],
+    ["roots", "고른 폴더", "NAS · 공유 폴더는 찾을 때 직접 읽음"],
   ];
   const count = busy
     ? "세는 중…"
@@ -124,7 +124,7 @@ export default function SmartEditor(p: Props) {
       ? `맞는 것 ${preview.items.length.toLocaleString("ko-KR")}개${preview.truncated ? " 넘게" : ""}`
       : q.trim()
         ? ""
-        : "조건을 고르면 맞는 개수가 여기 보인다";
+        : "조건 없음";
 
   return (
     <div className="set-backdrop sheet" onMouseDown={(e) => e.target === e.currentTarget && cancel()}>
@@ -165,7 +165,7 @@ export default function SmartEditor(p: Props) {
                   <button
                     className="se-deep"
                     aria-pressed={r.recursive}
-                    title={r.recursive ? "하위 폴더까지 본다 (누르면 이 폴더 바로 아래만)" : "이 폴더 바로 아래만 본다 (누르면 하위 폴더까지)"}
+                    title={r.recursive ? "하위 폴더 포함" : "바로 아래만"}
                     onClick={() => setRoots((rs) => rs.map((x, j) => (j === i ? { ...x, recursive: !x.recursive } : x)))}
                   >
                     하위까지
@@ -207,7 +207,7 @@ export default function SmartEditor(p: Props) {
             <button
               className="act danger"
               onClick={() => p.onDelete(p.folder.id)}
-              title={p.folder.id === RECENT_ID ? "처음부터 있던 「최근 파일」도 삭제할 수 있다. 다시 만들려면 조건 「수정:3일 종류:파일」 · 다운로드 · 바탕화면" : "왼쪽에서 삭제한다 (파일은 그대로)"}
+              title={p.folder.id === RECENT_ID ? "삭제 · 다시 만들 때 조건: 수정:3일 종류:파일 · 다운로드 · 바탕화면" : "삭제 (파일은 그대로)"}
             >
               삭제
             </button>

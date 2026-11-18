@@ -364,7 +364,7 @@ export function ConditionForm({ initial, kinds, onText, autoFocus = false, outLa
                   {unitPick(f.unitB, SIZE_UNITS, (u) => set({ unitB: u }), "크기 끝 단위")}
                 </>
               )}
-              <span className="muted">폴더는 빠진다</span>
+              <span className="muted">폴더 제외</span>
             </span>
           </>
         );
@@ -462,7 +462,7 @@ export function ConditionForm({ initial, kinds, onText, autoFocus = false, outLa
             <span className="cs-label">그 밖</span>
             <div className="cs-ctl cs-chips">
               {f.rest.map((r) => (
-                <span key={r} className="cond-chip" title="위 갈래로 담지 못한 조건이라 그대로 둔다">
+                <span key={r} className="cond-chip" title="직접 입력한 조건">
                   {r}
                   <button className="kind-x" aria-label={`「${r}」 떼기`} onClick={() => set({ rest: f.rest.filter((x) => x !== r) })}>
                     ×
@@ -484,9 +484,9 @@ export function ConditionForm({ initial, kinds, onText, autoFocus = false, outLa
         </div>
       )}
 
-      <div className="cs-out" title="찾기 칸에 바로 적어도 같다">
+      <div className="cs-out">
         <span className="cs-out-label">{outLabel}</span>
-        {text ? <code>{text}</code> : <span className="muted">조건을 더하면 여기 보인다</span>}
+        {text ? <code>{text}</code> : <span className="muted">조건 없음</span>}
       </div>
     </div>
   );

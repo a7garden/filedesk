@@ -69,7 +69,7 @@ pub fn launch(id: &str) -> Result<()> {
     let target = if is_path(id) { id.to_string() } else { format!("shell:AppsFolder\\{id}") };
     let r = unsafe { ShellExecuteW(None, w!("open"), &HSTRING::from(target), None, None, SW_SHOWNORMAL) };
     // ShellExecute 는 32 이하를 오류로 돌려준다.
-    if r.0 as isize <= 32 { Err(ShellError(format!("앱을 열지 못했다 ({})", r.0 as isize))) } else { Ok(()) }
+    if r.0 as isize <= 32 { Err(ShellError(format!("앱 열기 실패 ({})", r.0 as isize))) } else { Ok(()) }
 }
 
 /// 드라이브 · 네트워크 경로인가 — 왼쪽 열에 끌어 놓은 실행 파일 · 바로가기.

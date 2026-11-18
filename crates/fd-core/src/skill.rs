@@ -117,7 +117,7 @@ pub fn install(file: &Path, fd: &Path) -> Result<bool, String> {
 pub fn uninstall(file: &Path) -> Result<bool, String> {
     let Ok(s) = std::fs::read_to_string(file) else { return Ok(false) };
     if !s.lines().any(|l| l.trim() == "name: filedesk") {
-        return Err(format!("{}: filedesk 가 쓴 스킬이 아니라 두었다", file.display()));
+        return Err(format!("{}: filedesk 스킬이 아니라 건너뜀", file.display()));
     }
     std::fs::remove_file(file).map_err(|e| format!("{}: {e}", file.display()))?;
     if let Some(d) = file.parent() {

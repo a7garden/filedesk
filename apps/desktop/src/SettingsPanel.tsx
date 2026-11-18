@@ -25,7 +25,7 @@ import IndexSettings from "./IndexSettings";
 import SizeLadder from "./SizeLadder";
 import UpdateCard from "./UpdateCard";
 import { useUpdateState } from "./updater";
-import { DEFAULT_KINDS, errText, formatSize, KIND_PALETTE, type KindDef, parseExts, relDate, type SortKey } from "./util";
+import { DEFAULT_KINDS, errText, formatSize, KIND_PALETTE, type KindDef, parseExts, type SortKey } from "./util";
 
 type Props = {
   current: string;
@@ -138,7 +138,7 @@ export default function SettingsPanel(props: Props) {
     (remove ? api.removeSkill(a.id) : api.installSkill(a.id))
       .then((s) => {
         setSkill(s);
-        setSkillMsg(remove ? `${a.name} 에서 뺐다` : `설치했다. ${a.name} 를 새로 열면 「filedesk」 스킬이 보인다`);
+        setSkillMsg(remove ? `${a.name}에서 제거함` : `설치함 · ${a.name} 다시 시작 후 적용`);
       })
       .catch((e) => setSkillMsg(errText(e)));
   };
@@ -166,7 +166,6 @@ export default function SettingsPanel(props: Props) {
       ))}
     </div>
   );
-  const sample = Date.now() - 3 * 3600_000;
 
   const colOn = (c: ColKey) => !view.hiddenCols.includes(c);
   const toggleCol = (c: ColKey) => setView((v) => ({ ...v, hiddenCols: v.hiddenCols.includes(c) ? v.hiddenCols.filter((x) => x !== c) : [...v.hiddenCols, c] }));
@@ -217,7 +216,7 @@ export default function SettingsPanel(props: Props) {
               <span className="set-label">크기</span>
               <div>
                 <SizeLadder view={view} setView={zoomAll} />
-                <p className="muted set-hint">모든 칸에 한꺼번에 · 나눈 칸마다 따로는 그 칸 아래 줄 눈금 · Ctrl+휠 · Ctrl+= / −</p>
+                <p className="muted set-hint">모든 칸에 적용</p>
               </div>
             </div>
             <div className="set-line">
@@ -255,7 +254,7 @@ export default function SettingsPanel(props: Props) {
               <div>
                 {check("숨김 · 시스템 파일", showHidden, setShowHidden, "Ctrl+H")}
                 {check("격자에서 그림 · PDF · 영상의 내용 미리보기", view.thumbs, (thumbs) => setView((v) => ({ ...v, thumbs })))}
-                {check("격자에서 잘린 이름을 마우스를 올리면 바로 펼치기", view.namePeek, (namePeek) => setView((v) => ({ ...v, namePeek })))}
+                {check("격자에서 잘린 이름 펼쳐 보기", view.namePeek, (namePeek) => setView((v) => ({ ...v, namePeek })))}
                 {check("아이콘에 SVN · OneDrive 상태 표시", view.overlays, (overlays) => setView((v) => ({ ...v, overlays })))}
                 {check("왼쪽 열의 스마트 폴더 (최근 파일 · 저장한 조건)", view.recent, (recent) => setView((v) => ({ ...v, recent })))}
                 {check("왼쪽 열의 연결 (NAS · 공유 폴더)", view.links, (links) => setView((v) => ({ ...v, links })))}
@@ -288,13 +287,13 @@ export default function SettingsPanel(props: Props) {
                   view.sort.asc ? "asc" : "desc",
                   (d) => setView((v) => ({ ...v, sort: { ...v.sort, asc: d === "asc" } })),
                 )}
-                <p className="muted set-hint">새 탭 · 앱을 다시 시작할 때 이 정렬로 시작한다 · 열 머리를 눌러 바꾼 정렬은 그 탭에서만</p>
+                <p className="muted set-hint">새 탭의 기본 정렬</p>
               </div>
             </div>
             <div className="set-line">
               <span className="set-label">늘어놓기</span>
               <div>
-                {check("폴더를 파일 위에 모으기", view.dirsFirst, (dirsFirst) => setView((v) => ({ ...v, dirsFirst })), "끄면 수정일 순서에 폴더가 섞인다")}
+                {check("폴더를 파일 위에 모으기", view.dirsFirst, (dirsFirst) => setView((v) => ({ ...v, dirsFirst })))}
                 {view.editions && check("판을 접은 채 시작", view.foldStart, (foldStart) => setView((v) => ({ ...v, foldStart })), "Ctrl+Shift+D 는 그 탭에서만")}
               </div>
             </div>
@@ -303,22 +302,8 @@ export default function SettingsPanel(props: Props) {
               <div>
                 {check("문서의 판을 한 줄로 묶어 관리", view.editions, (editions) => setView((v) => ({ ...v, editions })))}
                 <p className="muted set-hint">
-                  「문서명_v판_날짜」 이름의 파일을 판으로 묶는다. 판 열 · 판 목록 · 새 판 내기 · 문제 문서 처리함이 함께 켜진다. 끄면 파일마다 한 줄이다
+                  「문서명_v판_날짜」 파일을 판으로 묶음 · 판 열 · 판 목록 · 새 판 내기 · 문제 문서 처리함
                 </p>
-              </div>
-            </div>
-            <div className="set-line">
-              <span className="set-label">수정일</span>
-              <div>
-                {choice(
-                  "수정일 표시",
-                  [
-                    ["relative", "오늘 · 어제", relDate(sample, "relative")],
-                    ["absolute", "날짜", relDate(sample, "absolute")],
-                  ],
-                  view.dateStyle,
-                  (dateStyle) => setView((v) => ({ ...v, dateStyle })),
-                )}
               </div>
             </div>
             <div className="set-line">
@@ -345,8 +330,8 @@ export default function SettingsPanel(props: Props) {
                 {choice(
                   "폴더 열기",
                   [
-                    ["double", "두 번 눌러 열기", "탐색기와 같다 · 한 번 누르면 고른다"],
-                    ["single", "한 번 눌러 열기", "고르기는 Ctrl · Shift 누르기나 방향키 · 파일은 두 번 눌러 연다"],
+                    ["double", "두 번 눌러 열기", "탐색기와 같음"],
+                    ["single", "한 번 눌러 열기", "폴더는 한 번 · 파일은 두 번"],
                   ],
                   view.folderClick,
                   (folderClick) => setView((v) => ({ ...v, folderClick })),
@@ -359,8 +344,8 @@ export default function SettingsPanel(props: Props) {
                 {choice(
                   "시작할 때",
                   [
-                    ["last", "지난 탭 그대로", "지난번에 열어 둔 탭 · 나눠 보기 그대로 연다"],
-                    ["folder", "정한 폴더", start || "고르면 지금 폴더로 정한다"],
+                    ["last", "지난 탭 그대로", "지난번 탭 · 나눠 보기"],
+                    ["folder", "정한 폴더", start || "지금 폴더"],
                   ],
                   start ? "folder" : "last",
                   (m) => setStart(m === "folder" ? start || current : ""),
@@ -381,7 +366,7 @@ export default function SettingsPanel(props: Props) {
             <div className="theme-pick" role="radiogroup" aria-label="화면 색">
               {(
                 [
-                  ["system", "시스템", "Windows 설정(밝게 · 어둡게)을 따른다"],
+                  ["system", "시스템", "Windows 설정 따름"],
                   ["light", "밝게", "밝게"],
                   ["dark", "어둡게", "어둡게"],
                 ] as [Theme, string, string][]
@@ -399,9 +384,9 @@ export default function SettingsPanel(props: Props) {
             <div className="icon-pick" role="radiogroup" aria-label="아이콘">
               {(
                 [
-                  ["shell", "Windows", "탐색기와 같은 그림: 설치된 프로그램을 따른다"],
-                  ["filedesk", "filedesk", "형식마다 그린 그림: 설치된 프로그램과 상관없이 같다"],
-                  ["pack", "아이콘 팩", "고른 폴더의 그림: 없는 것은 filedesk 그림"],
+                  ["shell", "Windows", "탐색기와 같음"],
+                  ["filedesk", "filedesk", "형식별 고정 그림"],
+                  ["pack", "아이콘 팩", "고른 폴더의 그림 (없으면 filedesk)"],
                 ] as [ViewPrefs["icons"], string, string][]
               ).map(([m, l, hint]) => (
                 <button key={m} role="radio" aria-checked={view.icons === m} className={"icon-row" + (view.icons === m ? " on" : "")} onClick={() => setView((v) => ({ ...v, icons: m }))}>
@@ -414,7 +399,7 @@ export default function SettingsPanel(props: Props) {
             {view.icons === "pack" && (
               <div className="pack-box">
                 <p className="set-path" title={view.iconPack}>
-                  {view.iconPack || <span className="muted">아이콘 팩 폴더를 정하지 않았다</span>}
+                  {view.iconPack || <span className="muted">폴더 없음</span>}
                 </p>
                 <div className="set-acts">
                   <button className="act primary" onClick={() => setView((v) => ({ ...v, iconPack: current }))} title={current}>
@@ -429,7 +414,7 @@ export default function SettingsPanel(props: Props) {
                 </div>
                 <p className="muted set-note">
                   폴더에 그림(svg · png · ico · webp)을 두고 이름을 확장자(<code>pdf.svg</code>) · 종류(<code>doc.png</code>) · <code>folder</code> · <code>file</code> 로 짓는다.
-                  확장자 → 종류 → file 차례로 찾는다.
+                  찾는 순서: 확장자 → 종류 → file
                   {packMap && ` 찾은 그림 ${Object.keys(packMap).length}개${Object.keys(packMap).length ? `: ${Object.keys(packMap).sort().slice(0, 12).join(" · ")}${Object.keys(packMap).length > 12 ? " …" : ""}` : ""}`}
                 </p>
               </div>
@@ -449,8 +434,7 @@ export default function SettingsPanel(props: Props) {
           <section id="set-skill" aria-labelledby="h-skill">
             <h3 id="h-skill">에이전트 스킬</h3>
             <p className="muted set-note">
-              이 PC 의 코딩 에이전트가 filedesk 명령줄(fd)로 파일을 찾고(색인 · 문서 본문) 판 정리 · 새 판 · 메모 · 색 표시 · 휴지통을 다루게 한다.
-              파일을 바꾸기 전에는 늘 계획을 먼저 보인다.
+              코딩 에이전트용 filedesk 명령줄(fd) 사용법 · 파일 찾기 · 판 정리 · 메모 · 색 표시 · 휴지통
             </p>
             {skill == null ? (
               <p className="set-path">확인 중…</p>
@@ -491,9 +475,9 @@ export default function SettingsPanel(props: Props) {
                 </tbody>
               </table>
             ) : (
-              <p className="set-path">감지한 에이전트가 없다</p>
+              <p className="set-path">감지한 에이전트 없음</p>
             )}
-            {skill && !skill.hasCli && <p className="muted set-note">설치 파일(릴리스의 setup.exe)로 설치한 앱에서만 된다. 그래야 fd.exe 가 함께 설치된다</p>}
+            {skill && !skill.hasCli && <p className="muted set-note">설치 파일(setup.exe)로 설치한 앱에서만 가능</p>}
             {skillMsg && <p className="set-note">{skillMsg}</p>}
             {skillMissing.length > 0 && <p className="muted set-note">감지 못 함: {skillMissing.map((a) => a.name).join(" · ")}</p>}
             <p className="muted set-note">
@@ -602,7 +586,7 @@ function KindsEditor({ kinds, set }: { kinds: KindDef[]; set: (k: KindDef[]) => 
 
   return (
     <>
-      <p className="muted set-note">목록 위 종류 거르기가 이 묶음을 쓴다. 확장자를 다른 종류로 끌어 옮긴다. 「폴더」와, 어디에도 없는 확장자가 가는 「기타」는 늘 있다.</p>
+      <p className="muted set-note">확장자는 끌어서 다른 종류로 이동</p>
       <div className={"kind-edit" + (drag?.on ? " dragging" : "")} role="list">
         {kinds.map((k, i) => (
           <div className={"kind-edit-row" + (drag?.on && drag.over === k.id && drag.from !== k.id ? " drop" : "")} role="listitem" key={k.id} data-kind-row={k.id}>
@@ -624,7 +608,7 @@ function KindsEditor({ kinds, set }: { kinds: KindDef[]; set: (k: KindDef[]) => 
                     key={x}
                     className={"ext-chip" + (lost ? " lost" : "") + (drag?.on && drag.ext === x && drag.from === k.id ? " lifted" : "")}
                     style={{ ["--kc" as string]: k.color }}
-                    title={lost ? `${x}: 위 종류에 이미 있어 여기서는 쓰이지 않는다` : `${x}: 끌어서 다른 종류로`}
+                    title={lost ? `${x}: 위 종류와 겹쳐 쓰이지 않음` : x}
                     onMouseDown={(e) => {
                       if (e.button === 0 && !(e.target as HTMLElement).closest("button")) setDrag({ ext: x, from: k.id, x: e.clientX, y: e.clientY, on: false, over: null });
                     }}
@@ -654,13 +638,13 @@ function KindsEditor({ kinds, set }: { kinds: KindDef[]; set: (k: KindDef[]) => 
               />
             </div>
             <span className="kind-edit-acts">
-              <button className="icon-btn" aria-label="위로" title="위로: 확장자가 겹치면 위 종류가 갖는다" disabled={i === 0} onClick={() => move(i, -1)}>
+              <button className="icon-btn" aria-label="위로" title="위로 (겹치는 확장자는 위 종류 우선)" disabled={i === 0} onClick={() => move(i, -1)}>
                 ↑
               </button>
               <button className="icon-btn" aria-label="아래로" title="아래로" disabled={i === kinds.length - 1} onClick={() => move(i, 1)}>
                 ↓
               </button>
-              <button className="icon-btn" aria-label={`${k.label} 삭제`} title="종류 삭제: 이 확장자들은 「기타」가 된다" onClick={() => set(kinds.filter((_, j) => j !== i))}>
+              <button className="icon-btn" aria-label={`${k.label} 삭제`} title="종류 삭제 (확장자는 「기타」로)" onClick={() => set(kinds.filter((_, j) => j !== i))}>
                 ×
               </button>
             </span>

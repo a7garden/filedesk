@@ -197,14 +197,12 @@ export type ViewPrefs = {
   /** 왼쪽 열에 「연결」(NAS · 공유 폴더)을 보인다. 2026.11.12 더했다 — NAS 를 쓰지 않는 사람에게는 늘 빈 구획이었다.
    *  처음에는 끄고, 이미 연결을 둔 사람은 켠 채로 읽는다 (App readSettings). */
   links: boolean;
-  /** 고친 날 — `relative` 오늘 · 어제 · 날짜만 / `absolute` 늘 날짜와 시각. */
-  dateStyle: "relative" | "absolute";
   /** 크기 — `kb` 탐색기처럼 늘 KB / `auto` 알맞은 단위 (MB · GB). */
   sizeUnit: "kb" | "auto";
 };
 export type ColKey = "ver" | "date" | "size" | "kind";
 export const DEFAULT_VIEW: ViewPrefs = { mode: "list", dense: false, size: 1, icons: "shell", iconPack: "", thumbs: true, namePeek: true, overlays: true, hiddenCols: ["kind"], kinds: DEFAULT_KINDS, folderClick: "double",
-  sort: { key: "name", asc: true }, dirsFirst: true, editions: false, foldStart: true, dateStyle: "relative", sizeUnit: "kb", recent: true, links: false };
+  sort: { key: "name", asc: true }, dirsFirst: true, editions: false, foldStart: true, sizeUnit: "kb", recent: true, links: false };
 
 export type Theme = "system" | "light" | "dark";
 

@@ -128,7 +128,7 @@ export default function Palette({
           ref={inputRef}
           className="pal-input"
           value={q}
-          placeholder={pinApps ? "왼쪽 열에 고정할 앱: 초성으로도 찾는다 (ㄱㅅㄱ → 계산기)" : "위치 · 앱 · 명령 · 색 표시: 초성으로도 찾는다 (ㅅㄹ → 산림)"}
+          placeholder={pinApps ? "고정할 앱 찾기 (초성 가능)" : "위치 · 앱 · 명령 · 색 표시 찾기 (초성 가능)"}
           aria-label="찾을 말"
           aria-controls="pal-list"
           aria-activedescendant={shown[at] ? `pal-${shown[at].id}` : undefined}
@@ -171,10 +171,10 @@ export default function Palette({
               {it.hint && <span className="pal-hint">{it.hint}</span>}
             </li>
           ))}
-          {shown.length === 0 && <li className="pal-empty">맞는 것이 없다</li>}
+          {shown.length === 0 && <li className="pal-empty">결과 없음</li>}
         </ul>
         <div className="pal-foot">
-          {pinApps ? "↑↓ 고르기 · Enter 왼쪽 열에 고정 · Esc 닫기" : `↑↓ 고르기 · Enter ${shown[at]?.group === "앱" ? "열기" : "하기"}${shown[at]?.alt ? ` · Shift+Enter ${shown[at].alt!.label}` : ""} · Esc 닫기`}
+          {pinApps ? "↑↓ 고르기 · Enter 왼쪽 열에 고정 · Esc 닫기" : `↑↓ 고르기 · Enter ${shown[at]?.group === "앱" ? "열기" : "실행"}${shown[at]?.alt ? ` · Shift+Enter ${shown[at].alt!.label}` : ""} · Esc 닫기`}
         </div>
       </div>
     </div>

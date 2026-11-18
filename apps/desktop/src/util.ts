@@ -122,19 +122,38 @@ export function errText(e: unknown): string {
   return typeof e === "string" ? e : e instanceof Error ? e.message : String(e);
 }
 
-/** 목록의 날짜 — 가까운 것은 말로, 먼 것은 짧게. 정확한 시각은 title 로. 설정 「고친 날」이 `absolute` 면 늘 날짜와 시각. */
-export function relDate(ms: number, style: "relative" | "absolute" = "relative"): string {
+/** 수정일 꼴 — 열 너비에 맞춰 한 꼴을 고르고, 한 열 안의 모든 줄이 같은 꼴을 쓴다.
+ *  2026.11.18 : 사용자 지적. 「오늘 14:08」 · 「11-03」 · 「2025-04-01」처럼 줄마다 꼴이 달라 세로로 읽히지 않았다. 설정의 「오늘 · 어제」도 함께 뺐다. */
+export type DateFit = "full" | "short" | "date" | "tiny";
+const DATE_FITS: [DateFit, string][] = [
+  ["full", "2026-12-28 23:58"],
+  ["short", "26-12-28 23:58"],
+  ["date", "2026-12-28"],
+  ["tiny", "26-12-28"],
+];
+/** `width`(칸 안쪽 여백 포함) 에 다 들어가는 가장 긴 꼴. 다 안 들어가면 가장 짧은 꼴(칸이 말줄임표로 자른다).
+ *  글자 폭은 `host` 안에 숨긴 날짜 칸으로 잰다 — 캔버스는 고정폭 숫자(tnum)를 모르고 계산된 font 줄임꼴도 비어 와서 좁게 쟀다. */
+export function pickDateFit(width: number, host: HTMLElement): DateFit {
+  const probe = document.createElement("span");
+  probe.className = "cell date";
+  probe.style.cssText = "position:absolute;visibility:hidden;padding:0;width:auto;overflow:visible";
+  host.appendChild(probe);
+  // 셀 좌우 여백 8px · 반올림 여유
+  const room = width - 18;
+  const fit =
+    DATE_FITS.find(([, s]) => {
+      probe.textContent = s;
+      return probe.getBoundingClientRect().width <= room;
+    })?.[0] ?? "tiny";
+  probe.remove();
+  return fit;
+}
+export function fitDate(ms: number, fit: DateFit): string {
   if (!ms) return "";
-  if (style === "absolute") return formatDate(ms);
   const d = new Date(ms);
-  const now = new Date();
-  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-  const diff = Math.round((day(now) - day(d)) / 86400000);
-  const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  if (diff === 0) return `오늘 ${hm}`;
-  if (diff === 1) return `어제 ${hm}`;
-  if (d.getFullYear() === now.getFullYear()) return `${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const y = fit === "short" || fit === "tiny" ? pad(d.getFullYear() % 100) : String(d.getFullYear());
+  const day = `${y}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return fit === "full" || fit === "short" ? `${day} ${pad(d.getHours())}:${pad(d.getMinutes())}` : day;
 }
 
 /** 이름을 줄기와 확장자로 (확장자는 흐리게 그린다). */
@@ -148,7 +167,8 @@ export function splitName(name: string, isDir: boolean): [string, string] {
  *  2026.11.11 : 「유형」 열(셸의 긴 종류 이름)을 빼고 「판」을 넣었다 — 확장자는 이름 끝에 흐리게 보인다.
  *  2026.11.17 : 「종류」 열을 다시 두되 기본은 숨긴다 — 탐색기처럼 종류로 훑고 싶을 때 켠다. 셸 이름 대신 종류 묶음(문서 · 표 …)을 보인다.
  *  화면에서는 수정일과 크기 사이에 서지만, 지난 설정의 너비 넷을 그대로 읽으려고 맨 뒤 칸에 둔다. */
-export const DEFAULT_COLS = [280, 170, 110, 84, 96];
+// 2026.11.18 : 수정일 110 → 140. 수정일이 「2026-11-18 14:08」 한 꼴이 되어(pickDateFit) 110 이면 시각이 빠졌다.
+export const DEFAULT_COLS = [280, 170, 140, 84, 96];
 
 /** 파일 종류 — 목록 위 「종류」 거르기 · filedesk 아이콘의 띠 색. 셸의 긴 종류 이름 대신 일에서 쓰는 말로 묶는다.
  *  2026.11.11 : 고정 표였던 것을 설정(보기 › 종류)에서 고치게 했다 — 쓰는 사람마다 「발표」 · 「표」 같은 묶음이 맞지 않았다.

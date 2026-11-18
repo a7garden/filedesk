@@ -56,7 +56,7 @@ pub(crate) fn shell_item(path: &str) -> Result<IShellItem> {
 /// 여러 경로를 셸 항목 묶음으로. 오른쪽 메뉴 · 끌기 · 복사가 모두 이 묶음을 받는다.
 pub(crate) fn item_array(paths: &[String]) -> Result<IShellItemArray> {
     if paths.is_empty() {
-        return Err(ShellError("고른 항목이 없다".into()));
+        return Err(ShellError("선택한 항목 없음".into()));
     }
     let mut pidls: Vec<*const ITEMIDLIST> = Vec::with_capacity(paths.len());
     let mut failed = None;

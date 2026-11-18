@@ -175,7 +175,7 @@ pub fn stale_in_place(g: &DocGroup) -> Vec<String> {
 /// 폴더 `dir` 의 문서 `key` 에서 최신판 자리에 남은 지난 판. 화면의 「지난 판을 이전판으로」와 `fd retire --doc` 이 쓴다.
 pub fn stale_of(dir: &Path, key: &str) -> Result<Vec<String>, String> {
     let groups = group_dir(dir, false);
-    let g = groups.iter().find(|g| g.key == key).ok_or("문서를 찾지 못했다. 폴더가 바뀌었다")?;
+    let g = groups.iter().find(|g| g.key == key).ok_or("문서를 찾을 수 없음 · 폴더가 바뀜")?;
     Ok(stale_in_place(g))
 }
 
@@ -271,11 +271,11 @@ fn group_issues(files: &[DocFile]) -> Vec<String> {
         ds.sort();
         let label = format!("v{}", v.iter().map(|n| n.to_string()).collect::<Vec<_>>().join("."));
         let days: Vec<String> = ds.iter().map(|d| format!("{}-{}", &d[4..6], &d[6..8])).collect();
-        issues.push(format!("{label} 이 여러 날짜에 있다 ({})", days.join(" · ")));
+        issues.push(format!("{label} 날짜가 여럿 ({})", days.join(" · ")));
     }
 
     if files.iter().any(|f| f.back_order) {
-        issues.push("날짜 순서와 판 순서가 어긋난다".into());
+        issues.push("날짜 순서와 판 순서 불일치".into());
     }
 
     // 정본 자리(이전판 밖)에 판이 여럿 — 옮길 판이 있는 폴더마다, 그 폴더의 판 수를 센다.
@@ -340,8 +340,8 @@ mod tests {
         ]);
         assert_eq!(g.len(), 1);
         assert_eq!(g[0].files[0].name, "LDM_D14_공통코드_정의서_v0.2_20261016.xlsx");
-        assert!(g[0].issues.iter().any(|i| i.starts_with("v0.3 이 여러 날짜")), "{:?}", g[0].issues);
-        assert!(g[0].issues.iter().any(|i| i.contains("어긋난다")));
+        assert!(g[0].issues.iter().any(|i| i.starts_with("v0.3 날짜가 여럿")), "{:?}", g[0].issues);
+        assert!(g[0].issues.iter().any(|i| i.contains("불일치")));
     }
 
     #[test]
@@ -404,8 +404,8 @@ mod tests {
         // v1.6(10-07) 다음 날짜에 v1.5 — v1.5 만 어긋남
         assert!(by_name(g, "v1.5").back_order);
         assert!(!by_name(g, "v1.6_20261007").back_order && !by_name(g, "v1.6_20261015").back_order);
-        assert!(g.issues.iter().any(|i| i.starts_with("v1.6 이 여러 날짜")), "{:?}", g.issues);
-        assert!(g.issues.iter().any(|i| i.contains("어긋난다")));
+        assert!(g.issues.iter().any(|i| i.starts_with("v1.6 날짜가 여럿")), "{:?}", g.issues);
+        assert!(g.issues.iter().any(|i| i.contains("불일치")));
     }
 
     #[test]

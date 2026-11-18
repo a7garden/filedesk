@@ -69,7 +69,7 @@ export default function Viewer(p: Props) {
   );
 
   const close = () =>
-    void flush.current().then((ok) => (ok ? p.onClose() : setNote("다른 곳에서 수정한 내용과 겹친다. 아래에서 다시 읽을지 덮어쓸지 먼저 고른다")));
+    void flush.current().then((ok) => (ok ? p.onClose() : setNote("다른 곳에서 수정됨 · 다시 읽기 또는 덮어쓰기 선택")));
   const external = () => void flush.current().then(() => api.openItem(p.target.path).catch(fail));
 
   /** 마크다운 속 링크 — 웹 주소는 브라우저로, 앱 안에서 볼 파일은 여기서, 나머지는 기본 앱으로. */
@@ -78,10 +78,10 @@ export default function Viewer(p: Props) {
     const path = localPath(href, p.target.path);
     if (!path) return;
     // 실행되는 파일 · 다른 서버의 경로는 링크로 열지 않는다 — 받은 문서 하나로 프로그램이 돌거나 로그인 정보가 남의 서버로 가지 않게 (2026.11.11 리뷰)
-    if (runnable(path)) return setNote(`실행 파일 링크는 열지 않는다. 필요하면 목록에서 직접 연다: ${path}`);
-    if (foreignShare(path, p.target.path)) return setNote(`다른 서버의 경로는 링크로 열지 않는다. 필요하면 주소 줄에 넣어 연다: ${path}`);
+    if (runnable(path)) return setNote(`실행 파일 링크는 열지 않음: ${path}`);
+    if (foreignShare(path, p.target.path)) return setNote(`다른 서버 경로는 링크로 열지 않음: ${path}`);
     if (viewKind(path.split(".").pop() ?? ""))
-      void flush.current().then((ok) => (ok ? p.onPick(targetOf(path)) : setNote("다른 곳에서 수정한 내용과 겹친다. 먼저 다시 읽을지 덮어쓸지 고른다")));
+      void flush.current().then((ok) => (ok ? p.onPick(targetOf(path)) : setNote("다른 곳에서 수정됨 · 다시 읽기 또는 덮어쓰기 선택")));
     else api.openItem(path).catch(fail);
   };
 
@@ -134,7 +134,7 @@ export default function Viewer(p: Props) {
           {p.target.name}
         </span>
         <span className="viewer-info">{info}</span>
-        <button className="viewer-act" onClick={external} title="Windows 에 정해진 앱으로 연다">
+        <button className="viewer-act" onClick={external} title="기본 앱으로 열기">
           기본 앱으로 열기
         </button>
       </div>
@@ -267,7 +267,7 @@ function TextView(p: {
     p.setInfo(
       file && (
         <>
-          <span title="읽은 인코딩 · 줄바꿈 방식 그대로 저장한다">
+          <span title="읽은 인코딩 · 줄바꿈 그대로 저장">
             {ENCODING_LABEL[file.encoding]} · {file.crlf ? "CRLF" : "LF"}
           </span>
           <span className={"viewer-status " + status}>{statusText[status]}</span>
@@ -289,7 +289,7 @@ function TextView(p: {
     <>
       {status === "conflict" && (
         <div className="viewer-bar warn" role="alertdialog">
-          <span>연 뒤에 다른 곳에서 이 파일을 수정했다. 여기서 수정한 내용은 아직 저장하지 않았다.</span>
+          <span>다른 곳에서 파일이 수정됨 · 여기서 고친 내용은 저장 전</span>
           <button className="act" onClick={() => void load()}>
             저장된 파일 다시 읽기
           </button>
@@ -300,7 +300,7 @@ function TextView(p: {
       )}
       {file.mixed && (
         <div className="viewer-bar" role="note">
-          <span>줄바꿈 방식(CRLF · LF)이 섞인 파일이라 읽기만 한다. 여기서 고치면 다른 줄의 줄바꿈까지 바뀐다. 고치려면 「기본 앱으로 열기」.</span>
+          <span>줄바꿈(CRLF · LF)이 섞인 파일이라 읽기 전용</span>
         </div>
       )}
       {status === "error" && (
@@ -336,7 +336,7 @@ function fixImages(root: HTMLElement, doc: string) {
     // 다른 서버의 그림은 읽지 않는다 — 문서를 열기만 해도 그 서버에 Windows 로그인 정보가 건너간다 (2026.11.11 리뷰)
     if (local && foreignShare(local, doc)) {
       img.removeAttribute("src");
-      img.alt = `다른 서버의 그림은 그리지 않는다: ${local}`;
+      img.alt = `다른 서버 그림은 표시하지 않음: ${local}`;
     } else if (local && IMAGE_EXTS.has((local.split(".").pop() ?? "").toLowerCase())) img.src = rawUrl(local);
   }
 }
@@ -482,7 +482,7 @@ function ImageView(p: { target: ViewTarget; siblings: Entry[]; setInfo: (n: Reac
   if (broken)
     return (
       <div className="viewer-empty">
-        <p>이 그림은 앱 안에서 그리지 못했다. 「기본 앱으로 열기」를 쓴다.</p>
+        <p>앱에서 표시할 수 없는 그림</p>
       </div>
     );
   return (

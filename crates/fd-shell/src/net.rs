@@ -92,10 +92,10 @@ impl NetError {
     /// 화면에 그대로 내는 문장.
     pub fn message(&self) -> String {
         match self {
-            NetError::Denied => "로그인하지 못했다. 사용자 이름과 암호를 확인한다".into(),
-            NetError::Unreachable => "서버를 찾지 못했다. 주소와 네트워크 연결을 확인한다".into(),
-            NetError::Cancelled => "로그인을 취소했다".into(),
-            NetError::Other(c) => format!("연결하지 못했다 (오류 {c})"),
+            NetError::Denied => "로그인 실패 · 사용자 이름과 암호 확인".into(),
+            NetError::Unreachable => "서버를 찾을 수 없음 · 주소와 네트워크 확인".into(),
+            NetError::Cancelled => "로그인 취소됨".into(),
+            NetError::Other(c) => format!("연결 실패 (오류 {c})"),
         }
     }
 }

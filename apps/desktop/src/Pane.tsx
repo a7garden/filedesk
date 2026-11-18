@@ -58,7 +58,9 @@ import {
   kindOrder,
   norm,
   parentOf,
-  relDate,
+  fitDate,
+  pickDateFit,
+  type DateFit,
   issueText,
   samePath,
   sortEntries,
@@ -870,7 +872,7 @@ export default function Pane(p: Props) {
       api
         .recycle(paths)
         .then((r) => {
-          say(r === "done" ? `${paths.length}개를 휴지통으로 보냈다` : "지우기를 중간에 취소했다", r === "done" ? "ok" : "warn");
+          say(r === "done" ? `${paths.length}개를 휴지통으로 보냄` : "삭제 취소됨", r === "done" ? "ok" : "warn");
           if (next) pendingFocus.current = { path: next.e.path };
           load(true);
         })
@@ -947,14 +949,14 @@ export default function Pane(p: Props) {
     if (paths.length === 0) return;
     api
       .shellVerb(paths, verb, path)
-      .then(() => say(`${paths.length}개를 ${verb === "copy" ? "복사했다" : "잘라냈다"}`, "ok"))
+      .then(() => say(`${paths.length}개 ${verb === "copy" ? "복사함" : "잘라냄"}`, "ok"))
       .catch(report);
   };
 
   const paste = () =>
     api
       .pasteFiles(path)
-      .then((r) => r === "aborted" && say("붙여넣기를 중간에 취소했다", "warn"))
+      .then((r) => r === "aborted" && say("붙여넣기 취소됨", "warn"))
       .catch(report);
 
   /** 실행 취소 — 이 앱에서 한 마지막 파일 작업을 거꾸로 (src-tauri `undo.rs`). 2026.11.17 더했다. */
@@ -962,7 +964,7 @@ export default function Pane(p: Props) {
     api
       .undoLast()
       .then((m) => {
-        say(m ?? "되돌릴 작업이 없다", m ? "ok" : undefined);
+        say(m ?? "되돌릴 작업 없음", m ? "ok" : undefined);
         if (m) load(true);
       })
       .catch(report);
@@ -992,7 +994,7 @@ export default function Pane(p: Props) {
   const copyPaths = (paths: string[]) =>
     navigator.clipboard
       .writeText(paths.join("\r\n"))
-      .then(() => say(paths.length === 1 ? "경로를 복사했다" : `경로 ${paths.length}개를 복사했다`, "ok"))
+      .then(() => say(paths.length === 1 ? "경로 복사함" : `경로 ${paths.length}개 복사함`, "ok"))
       .catch(report);
 
   /** 판 목록 창을 그 줄 밑에 띄운다 (메뉴 「판 목록 보기」). */
@@ -1068,7 +1070,7 @@ export default function Pane(p: Props) {
       { label: p.split ? "나눠 보기 끄기" : "나눠 보기", hint: "Ctrl+\\", run: p.onToggleSplit },
       { label: "새로 고침", hint: "F5", run: () => load(true) },
       "sep",
-      { label: "이 폴더를 즐겨찾기에", hint: "Ctrl+D", run: () => p.onPin([{ path, isDir: true }]) },
+      { label: "이 폴더 즐겨찾기에 추가", hint: "Ctrl+D", run: () => p.onPin([{ path, isDir: true }]) },
       { label: "이 폴더 경로 복사", run: () => copyPaths([path]) },
       { label: "속성", run: () => api.shellVerb([path], "properties", parentOf(path) ?? path).catch(report) },
       "sep",
@@ -1095,7 +1097,7 @@ export default function Pane(p: Props) {
     api
       .newEdition(source.path, today())
       .then((np) => {
-        say(`새 판을 냈다: ${baseName(np)}`, "ok");
+        say(`새 판 만듦: ${baseName(np)}`, "ok");
         pendingFocus.current = { path: np };
         load(true);
       })
@@ -1113,7 +1115,7 @@ export default function Pane(p: Props) {
     api
       .retireEditions(path, g.key)
       .then((n) => {
-        say(`지난 판 ${n}개를 「이전판」 폴더로 옮겼다`, "ok");
+        say(`지난 판 ${n}개를 「이전판」 폴더로 옮김`, "ok");
         load(true);
       })
       .catch(report);
@@ -1124,7 +1126,7 @@ export default function Pane(p: Props) {
     let n = 0;
     try {
       for (const g of gs) n += await api.retireEditions(path, g.key);
-      say(`지난 판 ${n}개를 「이전판」 폴더로 옮겼다`, "ok");
+      say(`지난 판 ${n}개를 「이전판」 폴더로 옮김`, "ok");
     } catch (err) {
       report(err);
     }
@@ -1370,6 +1372,18 @@ export default function Pane(p: Props) {
     ]
       .filter(Boolean)
       .join(" ");
+  // 수정일 꼴은 그 열의 실제 너비로 고른다 — 칸을 나누거나 열을 끌어 좁히면 시각 · 연도 앞자리를 차례로 뺀다 (util pickDateFit)
+  const [dateFit, setDateFit] = useState<DateFit>("full");
+  useEffect(() => {
+    const sec = sectionRef.current;
+    const col = sec?.querySelector<HTMLElement>(".cols > .col-2");
+    if (!sec || !col) return;
+    const host = sec.querySelector<HTMLElement>(".list") ?? sec;
+    const ro = new ResizeObserver(() => col.clientWidth > 0 && setDateFit(pickDateFit(col.clientWidth, host)));
+    ro.observe(col);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isGrid, p.view.hiddenCols.join(), p.view.editions]);
   const colsTemplate = colTemplate("wide");
   const narrowCols = colTemplate("narrow");
   const tightCols = colTemplate("tight");
@@ -1398,7 +1412,7 @@ export default function Pane(p: Props) {
       {i > 0 && (
         <span
           className="resizer"
-          title="끌어서 너비 바꾸기 · 두 번 누르면 처음대로"
+          title="너비 조절 · 두 번 눌러 기본값"
           onMouseDown={(e) => startResize(e, i)}
           onDoubleClick={() => p.setCols(p.cols.map((w, j) => (j === i ? DEFAULT_COLS[i] : w)))}
           aria-hidden="true"
@@ -1416,14 +1430,14 @@ export default function Pane(p: Props) {
       {finding && (
         <span className="scope" role="group" aria-label="찾을 범위">
           {/* 2026.11.11 : 찾은 수는 지금 범위 단추에 붙인다 — 빈 목록이 「없다」를 문장으로 되풀이하지 않게. */}
-          <button className="kind" aria-pressed={!deep} onClick={() => setDeep(null)} title="이 폴더의 이름 · 메모 (Tab · Shift+Tab 으로 범위를 돌린다)">
+          <button className="kind" aria-pressed={!deep} onClick={() => setDeep(null)} title="이 폴더에서 찾기 (Tab: 범위 바꾸기)">
             이 폴더{!deep && entries && <span className="kind-n">{rows.length}</span>}
           </button>
           <button
             className="kind"
             aria-pressed={deep?.scope === "below" || deep?.scope === "content"}
             onClick={() => startDeep(isContent(deep?.scope) ? "content" : "below")}
-            title="하위 폴더 전부의 이름 · 메모 (Shift+Enter)"
+            title="하위 폴더까지 찾기 (Shift+Enter)"
           >
             <span className="long">하위 폴더까지</span>
             <span className="short">하위</span>
@@ -1433,7 +1447,7 @@ export default function Pane(p: Props) {
             className="kind"
             aria-pressed={isAll(deep?.scope)}
             onClick={() => startDeep(isContent(deep?.scope) ? "allContent" : "all")}
-            title="모든 고정 드라이브: 색인에서 찾는다 (Alt+Enter). NAS 는 빠진다"
+            title="모든 고정 드라이브에서 찾기 (Alt+Enter) · NAS 제외"
           >
             <span className="long">모든 드라이브</span>
             <span className="short">전체</span>
@@ -1443,7 +1457,7 @@ export default function Pane(p: Props) {
             className="kind"
             aria-pressed={isContent(deep?.scope)}
             onClick={toggleContent}
-            title="문서 본문까지: hwpx · docx · pptx · xlsx · pdf · txt · md (Ctrl+Enter). 하위 폴더 · 모든 드라이브에 더해 켜고 끈다"
+            title="문서 본문까지 찾기 (Ctrl+Enter) · hwpx · docx · pptx · xlsx · pdf · txt · md"
           >
             <span className="long">문서 본문까지</span>
             <span className="short">본문</span>
@@ -1458,7 +1472,7 @@ export default function Pane(p: Props) {
         placeholder={isFind(deep?.scope) ? `${FIND_LABEL[deep!.scope as FindScope]} 찾기` : "찾기"}
         aria-label={isFind(deep?.scope) ? `${FIND_LABEL[deep!.scope as FindScope]} 찾기` : "이 폴더에서 찾기"}
         title={
-          "Ctrl+F: 이 폴더의 이름 · 메모에서 찾는다\nTab · Shift+Tab: 범위 돌리기 (이 폴더 → 하위 폴더까지 → 모든 드라이브)\n" +
+          "Ctrl+F: 이 폴더에서 찾기\nTab · Shift+Tab: 범위 바꾸기 (이 폴더 → 하위 폴더까지 → 모든 드라이브)\n" +
           "Shift+Enter: 하위 폴더까지 · Alt+Enter: 모든 드라이브 · Ctrl+Enter: 문서 본문까지 켜고 끄기\n" +
           "조건: 수정:오늘 · 수정:3일 · 수정:>30일 · 크기:>10MB · 확장자:pdf · 종류:문서 · 색:빨강 · 메모:있음 · -뺄말"
         }
@@ -1506,7 +1520,7 @@ export default function Pane(p: Props) {
         </button>
       )}
       {finding && (
-        <button className="save-smart" onClick={saveSmart} title="지금 조건과 범위에 이름을 붙여 왼쪽 「스마트 폴더」에 둔다">
+        <button className="save-smart" onClick={saveSmart} title="스마트 폴더로 저장">
           저장
         </button>
       )}
@@ -1516,7 +1530,7 @@ export default function Pane(p: Props) {
           className="icon-btn qb-btn"
           aria-label="찾기 조건 고르기"
           aria-expanded={qbFrom != null}
-          title="찾기 조건: 수정일 · 크기 · 종류 · 색 · 메모를 골라 찾는다"
+          title="찾기 조건 (수정일 · 크기 · 종류 · 색 · 메모)"
           onClick={() => setQbFrom((v) => (v == null ? filter : null))}
         >
           <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
@@ -1547,7 +1561,7 @@ export default function Pane(p: Props) {
   const verButton = (g: DocGroup, label: ReactNode, cls: string) => (
     <button
       className={"ver-btn " + cls}
-      title={`판 ${editionCount(g)}개: 눌러 판 목록 보기`}
+      title={`판 ${editionCount(g)}개 · 판 목록 보기`}
       onMouseDown={(ev) => ev.stopPropagation()}
       onDoubleClick={(ev) => ev.stopPropagation()}
       onClick={(ev) => {
@@ -1693,7 +1707,7 @@ export default function Pane(p: Props) {
         )}
         {colOn("date") && (
           <span className="cell date" role="gridcell" title={formatDate(e.modified)}>
-            {relDate(e.modified, p.view.dateStyle)}
+            {fitDate(e.modified, dateFit)}
           </span>
         )}
         {colOn("kind") && (
@@ -1842,12 +1856,12 @@ export default function Pane(p: Props) {
                 <button
                   className="act"
                   onClick={() => askEdition(g, r.source)}
-                  title="최신판을 다음 판 이름 · 오늘 날짜로 복사하고 지난 판은 「이전판」 폴더로 옮긴다"
+                  title="최신판을 다음 판 · 오늘 날짜로 복사 · 지난 판은 「이전판」 폴더로 이동"
                 >
                   새 판…
                 </button>
               ) : (
-                <span className="muted">이름이 「문서명_v판_날짜」 형식이 아니라 새 판을 낼 수 없다</span>
+                <span className="muted">「문서명_v판_날짜」 형식이 아니라 새 판을 낼 수 없음</span>
               )}
             </>
           )}
@@ -1886,7 +1900,7 @@ export default function Pane(p: Props) {
                 {issueText(g, baseName(path)).join(" · ")}
               </span>
               {stale > 0 ? (
-                <button className="act" onClick={() => askRetire(g)} title="옮길 파일을 먼저 보이고, 확인하면 이 폴더 안 「이전판」 폴더로 옮긴다">
+                <button className="act" onClick={() => askRetire(g)}>
                   「이전판」 폴더로 옮기기
                 </button>
               ) : (
@@ -1939,7 +1953,7 @@ export default function Pane(p: Props) {
         <div className="kinds" role="toolbar" aria-label="문제 · 조건 · 종류 · 색으로 거르기">
           {/* 문제 문서는 이 폴더의 문서 묶음으로 센다 — 다른 곳을 모아 보는 동안(찾기 · 스마트 폴더 · 색)에는 그 결과와 상관이 없어 뺀다 */}
           {issueLead.size > 0 && !deep && (
-            <button className="issue-chip" aria-haspopup="dialog" onClick={() => setInbox(true)} title="이름 · 판에 문제가 있는 문서를 한 창에 모아 하나씩 처리한다">
+            <button className="issue-chip" aria-haspopup="dialog" onClick={() => setInbox(true)} title="문제 문서 처리함">
               문제 문서 {issueLead.size}개
             </button>
           )}
@@ -1947,7 +1961,7 @@ export default function Pane(p: Props) {
             <span
               className="deep-tag"
               title={[
-                deep.scope === "tag" ? "모든 폴더" : deep.scope === "recent" ? "다운로드 · 바탕화면에 새로 생기거나 바뀐 파일" : deep.scope === "smart" ? (deep.smart?.q ?? "") : isAll(deep.scope) ? "모든 고정 드라이브" : path,
+                deep.scope === "tag" ? "모든 폴더" : deep.scope === "recent" ? "다운로드 · 바탕화면의 새 파일" : deep.scope === "smart" ? (deep.smart?.q ?? "") : isAll(deep.scope) ? "모든 고정 드라이브" : path,
                 sourceLabel(deep.info),
               ]
                 .filter(Boolean)
@@ -1964,7 +1978,7 @@ export default function Pane(p: Props) {
                 deep.smart ? (
                   <button
                     className="deep-name"
-                    title={`${deep.smart.q}\n누르면 이름 · 조건 · 찾을 위치를 편집한다`}
+                    title={`${deep.smart.q}\n클릭: 편집`}
                     onClick={() => window.dispatchEvent(new CustomEvent("fd:smart-edit", { detail: deep.smart }))}
                   >
                     스마트 폴더: {deep.q}
@@ -2016,7 +2030,7 @@ export default function Pane(p: Props) {
           ))}
           {(!deep || isFind(deep.scope)) && (
             <span className="preset-wrap">
-              <button className="kind" aria-expanded={presetOpen} title="조건 추가: 찾기 칸 끝에 붙는다" onClick={() => setPresetOpen((v) => !v)}>
+              <button className="kind" aria-expanded={presetOpen} title="조건 추가" onClick={() => setPresetOpen((v) => !v)}>
                 ＋ 조건
               </button>
               {presetOpen && (
@@ -2080,8 +2094,8 @@ export default function Pane(p: Props) {
             setColMenu({ x: e.clientX, y: e.clientY });
           }}
         >
-          {header("name", "이름", 0, "", "오른쪽 단추: 표시할 열 고르기")}
-          {colOn("ver") && header(null, "판", 1, "", "최신판의 판 번호 · 날짜(월-일) · 판 수 (「이전판」 폴더에 든 것까지)\n누르면 판 목록이 뜬다")}
+          {header("name", "이름", 0, "", "오른쪽 클릭: 표시할 열 고르기")}
+          {colOn("ver") && header(null, "판", 1, "", "최신판 번호 · 날짜 · 판 수 (「이전판」 폴더 포함)")}
           {colOn("date") && header("modified", "수정일", 2)}
           {colOn("kind") && header("kind", "종류", 4)}
           {colOn("size") && header("size", "크기", 3, "right")}
@@ -2153,13 +2167,13 @@ export default function Pane(p: Props) {
             ) : deep ? (
               <>
                 {deep.scope === "recent"
-                  ? `${deep.q} 동안 새 파일이 없다`
+                  ? `${deep.q} 동안 새 파일 없음`
                   : deep.scope === "tag"
-                  ? `${deep.q} 표시를 단 항목이 없다`
+                  ? `${deep.q} 표시한 항목 없음`
                   : deep.scope === "smart"
                   ? (
                     <>
-                      조건에 맞는 것이 없다
+                      결과 없음
                       {deep.smart && (
                         <button className="act" onClick={() => window.dispatchEvent(new CustomEvent("fd:smart-edit", { detail: deep.smart }))}>
                           조건 편집
@@ -2241,7 +2255,7 @@ export default function Pane(p: Props) {
                           : isAll(deep.scope)
                             ? "모든 드라이브에서"
                             : "하위 폴더에서"
-                } ${deep.items.length.toLocaleString("ko-KR")}개${deep.truncated ? " (더 있다. 조건을 더 좁힌다)" : ""}${deep.info ? ` · ${sourceLabel(deep.info)}` : ""}`
+                } ${deep.items.length.toLocaleString("ko-KR")}개${deep.truncated ? " (일부만 표시)" : ""}${deep.info ? ` · ${sourceLabel(deep.info)}` : ""}`
             : entries
               ? `${entries.length.toLocaleString("ko-KR")}개`
               : "읽는 중"}
@@ -2346,22 +2360,22 @@ export default function Pane(p: Props) {
 
 /** 격자 칸의 미리보기 — 셸에 미리보기가 없으면(404) 아이콘 설정대로 그린 그림으로 바꾼다.
  *  2026.11.11 : 예전에는 셸이 미리보기 대신 아이콘을 줘서, filedesk 아이콘을 골라도 pdf · 영상은 Windows 아이콘이었다. */
-/** 목록을 못 읽었을 때의 안내 — 무슨 일인지 · 왜 그럴 수 있는지 · 어디로 갈지. OS 문장은 맨 아래 작게 (복사해 묻기 좋게). */
+/** 목록을 못 읽었을 때의 안내 — 무슨 일인지 · 어디로 갈지. OS 문장은 맨 아래 작게 (복사해 묻기 좋게).
+ *  2026.11.18 : 「~했을 수 있다」 추측 문단을 뺐다 (사용자 지적 · 화면 글을 짧은 명사형으로). */
 function LoadFailed({ error, path, onGo, onRetry }: { error: LoadError; path: string; onGo: (p: string) => void; onRetry: () => void }) {
   const up = error.kind === "missing" ? error.near : error.kind === "denied" ? parentOf(path) : null;
-  const [title, why] =
+  const title =
     error.kind === "missing"
-      ? ["이 폴더를 찾을 수 없다", "이름이 바뀌었거나 다른 곳으로 옮겨졌거나 지워졌을 수 있다."]
+      ? "폴더를 찾을 수 없음"
       : error.kind === "denied"
-        ? ["이 폴더를 열 권한이 없다", "관리자 권한이 필요한 폴더이거나 다른 사용자의 폴더다."]
+        ? "폴더를 열 권한 없음"
         : error.kind === "offline"
-          ? ["이 위치에 닿지 않는다", "드라이브가 빠졌거나 NAS · 공유 폴더 연결이 끊겼을 수 있다."]
-          : ["이 폴더를 읽지 못했다", ""];
+          ? "위치에 연결할 수 없음"
+          : "폴더를 읽을 수 없음";
   return (
     <div className="load-failed" role="alert">
       <FolderGlyph faint size={40} />
       <strong>{title}</strong>
-      {why && <p>{why}</p>}
       <code className="lf-path">{path}</code>
       <div className="lf-acts">
         {up && (
@@ -2414,7 +2428,7 @@ function MemoEditor({ at, initial, onCommit, onCancel }: { at: { x: number; y: n
         ref={ref}
         className="memo-input"
         defaultValue={initial}
-        placeholder="메모: 비우면 뗀다"
+        placeholder="메모 (비우면 삭제)"
         spellCheck={false}
         aria-label="메모"
         rows={1}

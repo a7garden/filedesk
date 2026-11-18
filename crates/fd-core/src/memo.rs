@@ -72,7 +72,7 @@ impl MemoStore {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
             Err(e) => return Err(format!("{}: {e}", file.display())),
         };
-        let disk: Disk = serde_json::from_str(&raw).map_err(|e| format!("메모 파일을 읽지 못했다 ({}): {e}", file.display()))?;
+        let disk: Disk = serde_json::from_str(&raw).map_err(|e| format!("메모 파일 읽기 실패 ({}): {e}", file.display()))?;
         Ok(Self { items: disk.memos.into_iter().map(|m| (key(&m.path), m)).collect() })
     }
 

@@ -198,12 +198,12 @@ pub(crate) fn strip_copy_marks(stem: &str) -> (String, bool) {
 
 // 이름 문제 문장 — 목록의 문제 줄에 그대로 보인다.
 // 2026.11.11 : 「복사 표시」 「줄표」 같은 낱말만 보여 무엇이 문제인지 몰랐다 — 읽히는 문장으로 바꿨다.
-pub const ISSUE_COPY: &str = "이름에 복사본 표시가 붙었다";
-pub const ISSUE_SIX_DIGIT_DATE: &str = "날짜가 여섯 자리다";
-pub const ISSUE_DASH: &str = "이름에 긴 줄표(— –)가 있다";
+pub const ISSUE_COPY: &str = "이름에 복사본 표시";
+pub const ISSUE_SIX_DIGIT_DATE: &str = "여섯 자리 날짜";
+pub const ISSUE_DASH: &str = "이름에 긴 줄표(— –)";
 
 fn status_issue(word: &str) -> String {
-    format!("이름에 「{word}」 같은 상태 말이 붙었다")
+    format!("이름에 상태 말 「{word}」")
 }
 
 pub fn parse(name: &str) -> DocName {

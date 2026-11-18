@@ -81,7 +81,7 @@ function UpdateChip() {
   }, [open]);
 
   if (s.phase === "checking" && mine) return <span className="upd muted">업데이트 확인 중…</span>;
-  if (s.phase === "latest" && mine) return <span className="upd muted">최신 버전이다</span>;
+  if (s.phase === "latest" && mine) return <span className="upd muted">최신 버전</span>;
   if (s.phase === "error" && mine)
     return (
       <button className="upd warn" title={s.error} onClick={() => checkUpdate(true)}>

@@ -143,7 +143,7 @@ export default function EditionList({ x, y, group, onOpen, onFolder, onClose }: 
                     {extOf(f)}
                   </button>
                 ))}
-                <button className="ed-ext" onClick={() => onFolder(first)} title="이 판이 든 폴더로 간다">
+                <button className="ed-ext" onClick={() => onFolder(first)} title="폴더 열기">
                   폴더
                 </button>
               </span>

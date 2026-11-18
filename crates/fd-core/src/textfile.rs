@@ -67,7 +67,7 @@ fn modified_ms(path: &Path) -> std::io::Result<i64> {
 pub fn read(path: &Path) -> Result<TextFile, String> {
     let meta = std::fs::metadata(path).map_err(|e| e.to_string())?;
     if meta.len() > MAX_BYTES {
-        return Err(format!("{}MB 가 넘는 텍스트 파일은 앱 안에서 열지 않는다", MAX_BYTES / 1024 / 1024));
+        return Err(format!("{}MB 넘는 텍스트 파일은 앱에서 열 수 없음", MAX_BYTES / 1024 / 1024));
     }
     // 고친 때를 읽기 앞뒤로 재어 같을 때만 받는다 — 읽은 뒤에만 재면, 그사이 다른 프로그램이 쓴 새 시각이 옛 글에 붙어
     // 다음 자동 저장이 「밖에서 안 바뀌었다」로 보고 그 변경을 덮는다. 계속 바뀌면 세 번 만에 그만둔다.
@@ -81,7 +81,7 @@ pub fn read(path: &Path) -> Result<TextFile, String> {
         }
         tries += 1;
         if tries >= 3 {
-            return Err("파일이 계속 바뀌고 있어 읽지 못했다. 잠시 뒤 다시 연다".into());
+            return Err("파일이 계속 바뀌어 읽을 수 없음".into());
         }
     };
     let (text, encoding) = decode(&bytes)?;
@@ -110,14 +110,14 @@ fn decode(bytes: &[u8]) -> Result<(String, Encoding), String> {
     }
     // BOM 없는 UTF-16 · 그림 같은 이진 파일은 NUL 이 섞인다. 글로 열어 고쳐 쓰면 파일이 망가진다.
     if bytes.iter().take(64 * 1024).any(|&b| b == 0) {
-        return Err("텍스트 파일이 아니다 (바이너리 파일)".into());
+        return Err("텍스트 파일 아님 (바이너리)".into());
     }
     match std::str::from_utf8(bytes) {
         Ok(s) => Ok((s.to_owned(), Encoding::Utf8)),
         Err(_) => {
             let (s, _, bad) = encoding_rs::EUC_KR.decode(bytes);
             if bad {
-                return Err("글자 인코딩을 알 수 없다 (UTF-8 · CP949 가 아니다)".into());
+                return Err("알 수 없는 인코딩 (UTF-8 · CP949 아님)".into());
             }
             Ok((s.into_owned(), Encoding::Cp949))
         }
@@ -153,7 +153,7 @@ fn replace_in_place(path: &Path, bytes: &[u8]) -> Result<(), String> {
     });
     if let Err(e) = staged {
         let _ = std::fs::remove_file(&tmp);
-        return Err(format!("저장할 자리를 만들지 못했다. {e}"));
+        return Err(format!("저장 실패: {e}"));
     }
     // 여는 데서 실패하면(읽기 전용 · 다른 프로그램이 잠금) 원본은 손대지 않은 것이니 임시 파일을 치운다
     let mut out = match std::fs::OpenOptions::new().write(true).truncate(true).open(path) {
@@ -164,7 +164,7 @@ fn replace_in_place(path: &Path, bytes: &[u8]) -> Result<(), String> {
         }
     };
     if let Err(e) = out.write_all(bytes).and_then(|_| out.sync_all()) {
-        return Err(format!("원본을 덮다가 멈췄다 ({e}): 고친 내용은 {} 에 온전히 남아 있다", tmp.display()));
+        return Err(format!("원본 덮어쓰기 실패 ({e}) · 고친 내용은 {}에 있음", tmp.display()));
     }
     drop(out);
     let _ = std::fs::remove_file(&tmp);
@@ -181,7 +181,7 @@ fn encode(text: &str, encoding: Encoding) -> Result<Vec<u8>, String> {
             let (b, _, bad) = encoding_rs::EUC_KR.encode(text);
             // 이모지 같은 글자는 CP949 에 없다. 몰래 「&#…;」로 바꿔 쓰지 않고 알린다.
             if bad {
-                return Err("CP949 파일에 담을 수 없는 글자가 있다 (이모지 · 옛 한글 등)".into());
+                return Err("CP949로 저장할 수 없는 글자 있음 (이모지 · 옛 한글 등)".into());
             }
             b.into_owned()
         }

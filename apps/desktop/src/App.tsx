@@ -90,7 +90,7 @@ function withDefaults(s: Partial<Settings> | null): Settings {
     links: Array.isArray(s?.links) ? s.links.filter((x) => x && typeof x.path === "string") : [],
     session: s?.session ?? { tabs: [], active: 0 },
     // 2026.11.17 : 종류 열 너비가 맨 뒤에 붙었다 — 너비 넷인 지난 설정은 그대로 두고 기본값만 잇는다
-    cols: s?.cols?.length === DEFAULT_COLS.length ? s.cols : s?.cols?.length === DEFAULT_COLS.length - 1 ? [...s.cols, DEFAULT_COLS[DEFAULT_COLS.length - 1]] : DEFAULT_COLS,
+    cols: oldDateCol(s?.cols?.length === DEFAULT_COLS.length ? s.cols : s?.cols?.length === DEFAULT_COLS.length - 1 ? [...s.cols, DEFAULT_COLS[DEFAULT_COLS.length - 1]] : DEFAULT_COLS),
     showHidden: s?.showHidden ?? false,
     theme: s?.theme === "light" || s?.theme === "dark" ? s.theme : "system",
     split,
@@ -113,7 +113,6 @@ function withDefaults(s: Partial<Settings> | null): Settings {
       dirsFirst: s?.view?.dirsFirst !== false,
       editions: s?.view?.editions === true,
       foldStart: s?.view?.foldStart !== false,
-      dateStyle: s?.view?.dateStyle === "absolute" ? "absolute" : "relative",
       recent: s?.view?.recent !== false,
       namePeek: s?.view?.namePeek !== false,
       overlays: s?.view?.overlays !== false,
@@ -127,6 +126,9 @@ function withDefaults(s: Partial<Settings> | null): Settings {
     sideW: clampSide(s?.sideW),
   };
 }
+
+/** 옛 기본 수정일 너비(110)를 새 기본으로 — 손대지 않은 열만. 손으로 바꾼 너비는 그대로 둔다. 2026.11.18 */
+const oldDateCol = (cols: number[]) => (cols[2] === 110 ? cols.map((w, i) => (i === 2 ? DEFAULT_COLS[2] : w)) : cols);
 
 /** 왼쪽 열 너비 — 기본 · 끌 수 있는 범위 (px). 좁으면 드라이브 용량 · 스마트 폴더 개수가 잘리고, 넓으면 목록 자리를 먹는다. */
 export const SIDE_W = 228;
@@ -607,7 +609,7 @@ export default function App() {
       return [...ps.slice(0, i), ...add, ...ps.slice(i)];
     });
     setPinFlash((f) => ({ paths: items.map((i) => i.path), n: (f?.n ?? 0) + 1 }));
-    setNotice({ text: items.length === 1 ? `「${baseName(items[0].path)}」을 즐겨찾기에 더했다` : `${items.length}개를 즐겨찾기에 더했다`, tone: "ok" });
+    setNotice({ text: items.length === 1 ? `「${baseName(items[0].path)}」 즐겨찾기에 추가함` : `${items.length}개 즐겨찾기에 추가함`, tone: "ok" });
   }, []);
   /** 「연결」에 더한다 — 폴더만 (파일은 자리가 아니다). 이미 있으면 그대로. */
   const addLinks = useCallback((paths: string[]) => {
@@ -624,7 +626,7 @@ export default function App() {
       const fresh = add.filter((a) => !have.has(a.id.toLowerCase()));
       return fresh.length ? [...xs, ...fresh] : xs;
     });
-    if (add.length) setNotice({ text: `왼쪽 열 「앱」에 고정했다: ${add.map((a) => a.name).join(" · ")}`, tone: "ok" });
+    if (add.length) setNotice({ text: `「앱」에 고정함: ${add.map((a) => a.name).join(" · ")}`, tone: "ok" });
   }, []);
   const unpinApp = useCallback((id: string) => setPinnedApps((xs) => xs.filter((x) => x.id !== id)), []);
   const launchApp = useCallback((id: string) => {
@@ -967,7 +969,7 @@ export default function App() {
           // 실행 파일 · 바로가기만 — 그 밖의 파일은 「앱」이 아니다 (문서는 즐겨찾기 독으로)
           const ok = p.paths.filter((x) => /\.(exe|lnk|appref-ms|bat|cmd)$/i.test(x));
           if (ok.length) pinApps(ok.map((x) => ({ name: baseName(x).replace(/\.[^.]+$/, ""), id: x, icon: x })));
-          if (ok.length < p.paths.length) setNotice({ text: "「앱」에는 실행 파일 · 바로가기만 둔다. 문서는 즐겨찾기 독으로", tone: "warn" });
+          if (ok.length < p.paths.length) setNotice({ text: "「앱」에는 실행 파일 · 바로가기만 놓을 수 있음", tone: "warn" });
           return;
         }
         if (dest === LINK_DROP) {
@@ -976,7 +978,7 @@ export default function App() {
             .then((dirs) => {
               const ds = p.paths.filter((_, i) => dirs[i]);
               if (ds.length) addLinks(ds);
-              if (ds.length < p.paths.length) setNotice({ text: "「연결」에는 폴더만 둔다. 파일은 즐겨찾기 독으로", tone: "warn" });
+              if (ds.length < p.paths.length) setNotice({ text: "「연결」에는 폴더만 놓을 수 있음", tone: "warn" });
             })
             .catch((e) => setNotice({ text: errText(e), tone: "warn" }));
           return;
@@ -986,7 +988,7 @@ export default function App() {
           Promise.all(p.paths.map((x) => api.setColor(x, c)))
             .then(() => {
               window.dispatchEvent(new CustomEvent("fd:colors"));
-              setNotice({ text: `${p.paths.length}개에 ${TAG_LABEL[c]} 표시를 달았다`, tone: "ok" });
+              setNotice({ text: `${p.paths.length}개에 ${TAG_LABEL[c]} 표시함`, tone: "ok" });
             })
             .catch((e) => setNotice({ text: errText(e), tone: "warn" }));
           return;
@@ -1003,7 +1005,7 @@ export default function App() {
         if (p.paths.every((x) => norm(x.slice(0, x.lastIndexOf("\\"))) === norm(dest))) return;
         api
           .dropFiles(p.paths, dest)
-          .then((r) => r === "aborted" && setNotice({ text: "옮기기 · 복사를 중간에 취소했다", tone: "warn" }))
+          .then((r) => r === "aborted" && setNotice({ text: "옮기기 · 복사 취소됨", tone: "warn" }))
           .catch((e) => setNotice({ text: errText(e), tone: "warn" }));
       }
     });
@@ -1114,7 +1116,7 @@ export default function App() {
       ...smartItems,
       cmd("smart:new", "새 스마트 폴더", () => setSmartEdit({ folder: { id: newSmartId(), name: "", q: "", scope: { kind: "all" } }, isNew: true })),
       cmd("tab", "새 탭", () => openTab(active.path), "Ctrl+T"),
-      cmd("split", split ? "나눠 보기 끄기: 한 칸으로 모으기" : "나눠 보기: 오른쪽으로 나누기", toggleSplit, "Ctrl+\\"),
+      cmd("split", split ? "나눠 보기 끄기" : "오른쪽으로 나눠 보기", toggleSplit, "Ctrl+\\"),
       cmd("hidden", showHidden ? "숨김 파일 감추기" : "숨김 파일 보이기", () => setShowHidden((v) => !v), "Ctrl+H"),
       cmd("settings", "설정", () => setSettingsOpen(true), "Ctrl+,"),
       ...STEPS.map((l, i) => cmd(`step:${i}`, `보기: ${l}`, () => zoomPane(fg, () => i))),
@@ -1128,7 +1130,7 @@ export default function App() {
   // ───────── [7] 그리기 ─────────
 
   const dropTo = drag?.on ? drag.to : null;
-  const dragTip = `\n끌어서 칸 가장자리에 놓으면 그쪽으로 나눠 본다 (${MAX_PANES}칸까지) · 다른 칸의 탭 줄이나 가운데에 놓으면 그 칸으로 옮긴다`;
+  const dragTip = `\n칸 가장자리로 끌어 나눠 보기 (최대 ${MAX_PANES}칸)`;
 
   /** 칸 하나의 탭 줄. 위 가장자리에 닿은 칸은 제목 줄에서 제 칸 너비만큼(`style`) 차지해 제 칸 바로 위에 서고,
    *  아래쪽 칸은 제 칸 맨 위에 선다(`inPane`). */
@@ -1263,7 +1265,7 @@ export default function App() {
           role="separator"
           aria-orientation="vertical"
           aria-label="왼쪽 열 너비"
-          title="끌어서 너비 · 두 번 누르면 기본"
+          title="너비 조절 · 두 번 눌러 기본값"
           onMouseDown={(e) => {
             if (e.button !== 0) return;
             e.preventDefault();

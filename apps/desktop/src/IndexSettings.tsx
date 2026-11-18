@@ -53,40 +53,38 @@ export default function IndexSettings({ current }: { current: string }) {
   return (
     <>
       <p className="muted set-note">
-        「모든 드라이브」 찾기 · 스마트 폴더가 쓴다. 파일 이름 · 크기 · 수정일을 담고, 문서(hwpx · docx · pptx · xlsx · pdf · txt · md)는 본문도 담는다.
-        색인은 이 PC 안에만 있고 지워도 다시 만든다. NAS · 네트워크 드라이브는 담지 않는다. 찾을 때 폴더를 직접 읽는다.
+        「모든 드라이브」 찾기 · 스마트 폴더용. NAS · 네트워크 드라이브 제외.
       </p>
       <div className="set-line">
         <span className="set-label">빠른 색인</span>
         <div>
           <div className="set-acts">
             <span className="set-path">
-              {hub == null ? "확인 중…" : svc ? `서비스가 맡는다${old ? " (앱과 버전이 다르다)" : ""}` : "앱이 드라이브를 읽어 색인한다"}
+              {hub == null ? "확인 중…" : svc ? `빠른 색인 서비스${old ? " (앱과 버전 다름)" : ""}` : "앱이 직접 색인"}
             </span>
             {hub && !svc && (
               <button
                 className="act primary"
                 disabled={!hub.bundled || !!busy}
-                title={hub.bundled ? "관리자 권한을 묻는 창이 뜬다" : "설치 파일로 설치한 앱에서만 된다"}
-                onClick={() => run("install", () => api.serviceSetup("install"), "빠른 색인 서비스를 설치했다")}
+                title={hub.bundled ? "관리자 권한 필요" : "설치 파일로 설치한 앱에서만 가능"}
+                onClick={() => run("install", () => api.serviceSetup("install"), "빠른 색인 서비스 설치됨")}
               >
                 {busy === "install" ? "설치하는 중…" : "빠른 색인 서비스 설치"}
               </button>
             )}
             {svc && old && (
-              <button className="act primary" disabled={!hub?.bundled || !!busy} onClick={() => run("update", () => api.serviceSetup("update"), "서비스를 앱과 같은 버전으로 바꿨다")}>
+              <button className="act primary" disabled={!hub?.bundled || !!busy} onClick={() => run("update", () => api.serviceSetup("update"), "서비스 업데이트됨")}>
                 서비스 업데이트
               </button>
             )}
             {svc && (
-              <button className="act" disabled={!hub?.bundled || !!busy} onClick={() => run("uninstall", () => api.serviceSetup("uninstall"), "서비스를 지웠다. 앱이 다시 색인한다")}>
+              <button className="act" disabled={!hub?.bundled || !!busy} onClick={() => run("uninstall", () => api.serviceSetup("uninstall"), "서비스 제거됨")}>
                 서비스 지우기
               </button>
             )}
           </div>
           <p className="muted set-hint">
-            관리자 권한 서비스가 NTFS 드라이브의 파일 목록(MFT)을 바로 읽어 몇 초 만에 색인하고, 앱이 꺼져 있던 동안 바뀐 것도 정확히 따라간다. 파일 내용은 열지 않는다.
-            설치할 때 Windows 가 관리자 권한을 묻고, 서명하지 않은 서비스라 보안 프로그램이 막을 수 있다. 막히면 앱이 계속 색인한다.
+            NTFS 파일 목록(MFT)을 직접 읽어 몇 초 안에 색인. 서명하지 않은 서비스라 보안 프로그램이 막을 수 있음.
           </p>
         </div>
       </div>
@@ -118,7 +116,7 @@ export default function IndexSettings({ current }: { current: string }) {
               </tbody>
             </table>
           ) : (
-            <p className="muted set-hint">{hub ? "아직 색인이 없다. 만드는 중이거나 고정 드라이브가 없다" : ""}</p>
+            <p className="muted set-hint">{hub ? "색인 없음" : ""}</p>
           )}
         </div>
       </div>
@@ -144,11 +142,11 @@ export default function IndexSettings({ current }: { current: string }) {
                 </button>
               </div>
               <p className="muted set-hint">
-                뒤에서 천천히 담는다. pdf 는 한 개에 몇 초가 걸려 맨 뒤에 따로 한다. Windows · Program Files · AppData · 다른 계정 폴더는 담지 않는다.
+                제외: Windows · Program Files · AppData · 다른 계정 폴더
               </p>
             </>
           ) : (
-            <p className="muted set-hint">본문 색인을 열지 못했다. 「문서 본문까지」는 파일을 직접 읽는다</p>
+            <p className="muted set-hint">본문 색인을 열 수 없음</p>
           )}
         </div>
       </div>
@@ -164,7 +162,7 @@ export default function IndexSettings({ current }: { current: string }) {
             onChange={(e) => setExclude(e.target.value)}
           />
           <div className="set-acts">
-            <button className="act" onClick={() => run("exclude", () => api.indexExclude(exclude.split("\n")), "제외 폴더를 바꿨다. 찾기 결과에서 바로 빠진다")}>
+            <button className="act" onClick={() => run("exclude", () => api.indexExclude(exclude.split("\n")), "제외 폴더 저장됨")}>
               저장
             </button>
             <button className="link-btn" onClick={() => setExclude((x) => (x.trim() ? `${x.trim()}\n${current}` : current))} title={current}>
@@ -174,7 +172,7 @@ export default function IndexSettings({ current }: { current: string }) {
         </div>
       </div>
       <div className="set-acts">
-        <button className="act" disabled={!!busy} onClick={() => run("rebuild", () => api.indexRebuild(), "처음부터 다시 만든다. 그동안은 지난 색인으로 찾는다")}>
+        <button className="act" disabled={!!busy} onClick={() => run("rebuild", () => api.indexRebuild(), "색인 다시 만드는 중")}>
           다시 만들기
         </button>
         {msg && <span className={msg.warn ? "warn-text" : "muted"}>{msg.text}</span>}

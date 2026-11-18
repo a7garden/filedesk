@@ -46,12 +46,12 @@ export default function UpdateCard({ version, compact = false, onDone }: { versi
               {s.phase === "checking"
                 ? "확인 중…"
                 : s.phase === "error"
-                  ? `확인하지 못했다. ${s.error.slice(0, 120)}`
+                  ? `확인 실패: ${s.error.slice(0, 120)}`
                   : u
                     ? ago(s.checkedAt)
                     : s.checkedAt
-                      ? `최신 버전이다 · ${ago(s.checkedAt)}`
-                      : "아직 확인하지 않았다"}
+                      ? `최신 버전 · ${ago(s.checkedAt)}`
+                      : "확인 전"}
             </span>
           </div>
           {!u && (
@@ -89,11 +89,11 @@ export default function UpdateCard({ version, compact = false, onDone }: { versi
           ) : (
             <div className="uc-acts">
               {s.installable ? (
-                <button className="act primary" onClick={() => installUpdate()} title="받아서 설치하면 앱이 꺼졌다 새 버전으로 다시 켜진다. 열어 둔 탭은 다시 열린다">
+                <button className="act primary" onClick={() => installUpdate()}>
                   설치하고 다시 켜기
                 </button>
               ) : (
-                <button className="act primary" onClick={openReleases} title="설치 파일(setup.exe)로 설치한 앱이 아니라 스스로 새 버전으로 바꾸지 못한다">
+                <button className="act primary" onClick={openReleases} title="설치 파일로 설치한 앱만 자동 업데이트 가능">
                   릴리스 페이지에서 받기
                 </button>
               )}
