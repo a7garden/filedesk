@@ -44,7 +44,7 @@ export type SmartFolder = { id: string; name: string; q: string; scope: SmartSco
 export type ContentStatus = { indexed: number; queued: number; pdfLeft: number; failed: number; paused: boolean };
 export type VolStatus = { root: string; method: string; files: number; updated: number; state: string; usn: boolean; note: string };
 export type IndexStatus = { service: boolean; serviceVersion: number; volumes: VolStatus[]; exclude: string[] };
-export type HubStatus = { index: IndexStatus; content: ContentStatus | null; bundled: boolean; appVersion: number; exclude: string[] };
+export type HubStatus = { index: IndexStatus; content: ContentStatus | null; bundled: boolean; appVersion: number; serviceBuild: string | null; appBuild: string; contentError: string | null; exclude: string[] };
 export type QueryResult = {
   items: Found[];
   spec: QuerySpec;
@@ -199,10 +199,14 @@ export type ViewPrefs = {
   links: boolean;
   /** 크기 — `kb` 탐색기처럼 늘 KB / `auto` 알맞은 단위 (MB · GB). */
   sizeUnit: "kb" | "auto";
+  /** 찾기 결과에서 늘 빼는 확장자 (점 없이 소문자 · 예: lnk). 이 폴더 안 거르기 · 색 표시 · 새 파일 모아 보기에는 먹지 않는다.
+   *  2026.11.20 : 사용자 요청. 모든 드라이브에서 찾으면 시작 메뉴 · 바탕화면의 바로가기가 원본과 나란히 섞였다.
+   *  기본은 바로가기(lnk · url) · 임시 파일(tmp) · 받다 만 파일(crdownload). 다 지운 설정은 빈 채로 읽는다 (App readSettings). */
+  findSkip: string[];
 };
 export type ColKey = "ver" | "date" | "size" | "kind";
 export const DEFAULT_VIEW: ViewPrefs = { mode: "list", dense: false, size: 1, icons: "shell", iconPack: "", thumbs: true, namePeek: true, overlays: true, hiddenCols: ["kind"], kinds: DEFAULT_KINDS, folderClick: "double",
-  sort: { key: "name", asc: true }, dirsFirst: true, editions: false, foldStart: true, sizeUnit: "kb", recent: true, links: false };
+  sort: { key: "name", asc: true }, dirsFirst: true, editions: false, foldStart: true, sizeUnit: "kb", recent: true, links: false, findSkip: ["lnk", "url", "tmp", "crdownload"] };
 
 export type Theme = "system" | "light" | "dark";
 

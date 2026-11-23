@@ -122,7 +122,13 @@ const isFind = (s: DeepScope | undefined): s is FindScope => s === "below" || s 
 const isContent = (s: DeepScope | undefined) => s === "content" || s === "allContent";
 const isAll = (s: DeepScope | undefined) => s === "all" || s === "allContent";
 const FIND_LABEL: Record<FindScope, string> = { below: "하위 폴더까지", content: "문서 본문까지", all: "모든 드라이브", allContent: "모든 드라이브 · 문서 본문까지" };
-type EntryRow = { kind: "entry"; e: Entry; depth: 0 | 1; group?: DocGroup; hiddenCount?: number; where?: string };
+/** 본문 글에서 찾는 말을 굵게 — 색이 아니라 굵기로 (색을 못 봐도 읽힌다). 대소문자는 가리지 않는다. 2026.11.20 */
+function markTerms(text: string, terms: string[]): ReactNode {
+  const ts = terms.filter(Boolean).map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  if (!ts.length) return text;
+  return text.split(new RegExp(`(${ts.join("|")})`, "gi")).map((part, i) => (i % 2 ? <b key={i}>{part}</b> : part));
+}
+type EntryRow = { kind: "entry"; e: Entry; depth: 0 | 1; group?: DocGroup; hiddenCount?: number; where?: string; snip?: string };
 type EditionRow = { kind: "edition"; group: DocGroup; source: Entry };
 type IssueRow = { kind: "issue"; group: DocGroup; stack: boolean };
 type Row = EntryRow | EditionRow | IssueRow;
@@ -223,6 +229,11 @@ export default function Pane(p: Props) {
   /** 아래 폴더까지 찾기. 켜져 있으면 목록 대신 찾은 것을 보인다. */
   /** 이 폴더 밖까지 모아 보기 — 하위 폴더까지(below) · 문서 본문까지(content) · 색 표시(tag, 모든 폴더) · 새 파일(recent, 다운로드 · 바탕화면). */
   const [deep, setDeep] = useState<Deep | null>(null);
+  /** 찾기에서 뺀 확장자(설정 `findSkip`)를 이번 찾기에만 다시 보인다 — 바닥 줄 단추. 찾기를 끝내면 다시 뺀다. */
+  const [skipOff, setSkipOff] = useState(false);
+  useEffect(() => {
+    if (!deep) setSkipOff(false);
+  }, [deep]);
   /** 방금 펼친 문서 — 그 판 줄만 나타나는 움직임을 준다 (스크롤로 다시 그려지는 줄은 움직이지 않게). */
   const [justOpened, setJustOpened] = useState<{ key: string; at: number } | null>(null);
   /** 읽기 차례 — 늦게 온 앞선 읽기가 새 폴더 목록을 덮지 않게. */
@@ -693,6 +704,22 @@ export default function Pane(p: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 종류 설정이 바뀌면 kindOf 가 다른 답을 낸다
     [kind, colorOnly, colors, p.view.kinds],
   );
+  /** 설정 「찾기에서 뺄 확장자」에 걸려 빠지는가. 찾기 칸 · 스마트 폴더로 찾은 것에만 — 색 표시 · 새 파일은 사용자가 고른 모음이라 그대로 둔다.
+   *  찾는 말에 그 확장자를 적었으면(.lnk · 확장자:lnk) 빼지 않는다 — 바로가기를 찾는데 바로가기가 빠지면 안 된다. */
+  const skipSet = useMemo(() => new Set(p.view.findSkip), [p.view.findSkip]);
+  const skipped = useCallback(
+    (e: Entry) =>
+      !skipOff && !e.isDir && skipSet.has(e.ext) && (isFind(deep?.scope) || deep?.scope === "smart") && !(spec?.exts.includes(e.ext) || spec?.kindExts.includes(e.ext)),
+    [skipOff, skipSet, deep?.scope, spec],
+  );
+  const skippedCount = useMemo(() => (deep?.items ? deep.items.filter((e) => passes(e) && skipped(e)).length : 0), [deep?.items, passes, skipped]);
+  /** 이번 찾기에서 빠지는(빠질 수 있는) 확장자 — 칩 글자. 뺀 것을 다시 보이는 중에도 칩이 남아야 다시 뺄 수 있어 skipOff 와 상관없이 센다. */
+  const skipExts = useMemo(() => {
+    if (!deep?.items || !(isFind(deep.scope) || deep.scope === "smart")) return [];
+    const s = new Set<string>();
+    for (const e of deep.items) if (!e.isDir && skipSet.has(e.ext) && !(spec?.exts.includes(e.ext) || spec?.kindExts.includes(e.ext))) s.add(e.ext);
+    return [...s];
+  }, [deep?.items, deep?.scope, skipSet, spec]);
 
   const rows = useMemo<Row[]>(() => {
     if (deep) {
@@ -703,8 +730,10 @@ export default function Pane(p: Props) {
         if (deep.scope === "tag" || deep.scope === "recent" || deep.scope === "smart" || isAll(deep.scope)) return dir;
         return samePath(dir, path) ? "" : dir.slice(path.replace(/\\$/, "").length + 1);
       };
-      const whereOf = (f: Found) => [rel(f.path), f.snippet ? `…${f.snippet}…` : ""].filter(Boolean).join(" · ");
-      return sortEntries((deep.items ?? []).filter(passes), sort, p.view.dirsFirst).map((e): Row => ({ kind: "entry", e, depth: 0, where: whereOf(e) || undefined }));
+      // 자리와 본문 글을 따로 둔다 — 자리는 앞을 줄이고(가까운 폴더가 남게) 본문 글은 뒤를 줄인다 (entryRow 「.where」)
+      return sortEntries((deep.items ?? []).filter((e) => passes(e) && !skipped(e)), sort, p.view.dirsFirst).map(
+        (e): Row => ({ kind: "entry", e, depth: 0, where: rel(e.path) || undefined, snip: (e as Found).snippet ? `…${(e as Found).snippet}…` : undefined }),
+      );
     }
     const all = (entries ?? []).filter(passes);
     const q = filter.trim().toLowerCase();
@@ -752,7 +781,7 @@ export default function Pane(p: Props) {
       }
     }
     return out;
-  }, [entries, groups, groupOf, issueLead, fold, filter, sort, p.view.dirsFirst, open, path, deep, passes, memos, spec, colors]);
+  }, [entries, groups, groupOf, issueLead, fold, filter, sort, p.view.dirsFirst, open, path, deep, passes, skipped, memos, spec, colors]);
 
   /** 고르기 · 키보드가 다니는 줄 (새 판 줄은 건너뛴다). */
   const nav = useMemo(() => rows.filter((r): r is EntryRow => r.kind === "entry"), [rows]);
@@ -1652,9 +1681,10 @@ export default function Pane(p: Props) {
             </span>
           )}
           <TagDot color={color} />
-          {r.where && (
-            <span className="where" title={parentOf(e.path) ?? ""}>
-              {r.where}
+          {/* 본문 찾기의 맞은 글 — 무엇이 맞았나가 판단 근거라 이름 바로 곁에, 찾는 말은 굵게 */}
+          {r.snip && (
+            <span className="snip" title={r.snip}>
+              {markTerms(r.snip, spec?.terms ?? [])}
             </span>
           )}
           {memo ? (
@@ -1687,6 +1717,14 @@ export default function Pane(p: Props) {
             >
               색
             </button>
+          )}
+          {/* 2026.11.20 : 사용자 요청. 자리가 길면 이름이 잘렸다 — 이제 자리가 먼저 줄고, 앞을 줄여 가까운 폴더가 남는다.
+              이름 칸 오른쪽 끝에 붙여 줄마다 같은 세로선에 선다 — 어느 폴더 것인지 위아래로 훑어 견준다 (styles.css 「.row .where」).
+              메모 · 색 단추보다 뒤에 둔다 — 마우스를 올려 단추가 나타나도 자리가 옆으로 밀리지 않게 */}
+          {r.where && (
+            <span className="where" title={parentOf(e.path) ?? ""}>
+              <bdi>{r.where}</bdi>
+            </span>
           )}
         </span>
         {colOn("ver") && (
@@ -1997,6 +2035,21 @@ export default function Pane(p: Props) {
               </button>
             </span>
           )}
+          {/* 설정 「찾기에서 뺄 확장자」로 빠진 것 — 범위 칩 바로 곁. 누르면 이번 찾기에서만 다시 보인다.
+              2026.11.20 : 바닥 줄 단추 → 여기. 눈이 찾기 칸에 있는 동안 「빠진 것이 있다」를 놓쳐 「없다」로 잘못 알 수 있었다.
+              빠진 동안은 점선 테두리(덜 보인다), 다시 보이는 동안은 실선 — 색이 아니라 모양으로 가른다 */}
+          {skipExts.length > 0 && (
+            <button
+              className={"skip-chip" + (skipOff ? " shown" : "")}
+              aria-pressed={skipOff}
+              onClick={() => setSkipOff((v) => !v)}
+              title={skipOff ? "다시 빼기 · 설정 › 목록 › 찾기에서 뺄 확장자" : "이번 찾기에서 보기 · 설정 › 목록 › 찾기에서 뺄 확장자"}
+            >
+              {skipExts.slice(0, 2).join(" · ")}
+              {skipExts.length > 2 && ` 외 ${skipExts.length - 2}`}
+              {skipOff ? " 보이는 중" : ` ${skippedCount.toLocaleString("ko-KR")}개 뺌`}
+            </button>
+          )}
           {/* 조건 칩 — 찾기 칸의 `열쇠:값` 을 읽는 말로. × 로 그 조건만 뗀다 */}
           {spec?.chips.map((c) => (
             <span key={c.raw} className="cond-chip" title={c.raw}>
@@ -2255,7 +2308,7 @@ export default function Pane(p: Props) {
                           : isAll(deep.scope)
                             ? "모든 드라이브에서"
                             : "하위 폴더에서"
-                } ${deep.items.length.toLocaleString("ko-KR")}개${deep.truncated ? " (일부만 표시)" : ""}${deep.info ? ` · ${sourceLabel(deep.info)}` : ""}`
+                } ${(deep.items.length - skippedCount).toLocaleString("ko-KR")}개${deep.truncated ? " (일부만 표시)" : ""}${deep.info ? ` · ${sourceLabel(deep.info)}` : ""}`
             : entries
               ? `${entries.length.toLocaleString("ko-KR")}개`
               : "읽는 중"}

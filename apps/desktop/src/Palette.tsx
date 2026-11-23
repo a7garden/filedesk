@@ -60,7 +60,8 @@ function score(label: string, hint: string, q: string): number {
   return total;
 }
 
-const GROUP_ORDER: PaletteItem["group"][] = ["위치", "앱", "스마트 폴더", "명령", "색 표시", "찾기"];
+// 2026.11.18 : 앱을 명령 뒤로. 「설」 → Windows 「설정」 앱이 이 앱의 「설정」 명령보다 먼저 섰다 (UI 평가).
+const GROUP_ORDER: PaletteItem["group"][] = ["위치", "스마트 폴더", "명령", "앱", "색 표시", "찾기"];
 
 export default function Palette({
   items,
@@ -89,12 +90,22 @@ export default function Palette({
       run: () => window.dispatchEvent(new CustomEvent("fd:tagged", { detail: c })),
     }));
     const query0 = q.trim();
-    const scored = [...items, ...(pinApps ? [] : colorItems)]
+    const hits = [...items, ...(pinApps ? [] : colorItems)]
       // 앱은 찾는 말이 있을 때만 (고정 모드는 늘) — 빈 칸에 수백 줄이 쏟아지면 자리 · 명령이 묻힌다
       .filter((it) => it.group !== "앱" || pinApps || query0)
       .map((it) => ({ it, s: score(it.label, it.hint ?? "", q) }))
-      .filter((x) => x.s > 0)
-      .sort((a, b) => b.s - a.s || GROUP_ORDER.indexOf(a.it.group) - GROUP_ORDER.indexOf(b.it.group))
+      .filter((x) => x.s > 0);
+    // 묶음은 한 덩어리로 — 묶음의 가장 잘 맞는 줄 차례로 묶음을 세우고, 묶음 안은 맞는 정도 차례.
+    // 2026.11.18 : 줄마다 점수로만 세워 「앱 · 명령 · 앱」처럼 같은 묶음이 갈라지고 머리가 두 번 섰다 (UI 평가).
+    const best = new Map<string, number>();
+    for (const x of hits) best.set(x.it.group, Math.max(best.get(x.it.group) ?? 0, x.s));
+    const scored = hits
+      .sort(
+        (a, b) =>
+          best.get(b.it.group)! - best.get(a.it.group)! ||
+          GROUP_ORDER.indexOf(a.it.group) - GROUP_ORDER.indexOf(b.it.group) ||
+          b.s - a.s,
+      )
       .slice(0, pinApps ? 200 : 40)
       .map((x) => x.it);
     const query = query0;

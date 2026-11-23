@@ -28,15 +28,17 @@
 //   2026.11.13 : 「연결」 주소 칸이 서버 주소를 알아듣는다 — `192.168.0.2` · `\nas` · `smb://nas/공유` 를 적으면 공유 목록을 보여 고르게 하고,
 //                로그인이 필요하면 Windows 로그인 창을 띄운다. 전에는 경로 확인만 해서 서버만 적으면 늘 「열 수 없다」였다.
 //                칸을 누르면 「이 PC 에서 쓰던 곳」(네트워크 드라이브 · 탐색기 네트워크 위치 · 탐색기 주소 기록)을 띄워 한 번 눌러 더한다.
+//   2026.11.20 : 주소 칸 · 고르는 판을 왼쪽 열에서 가운데 「연결 추가」 창으로 옮겼다 — 좁은 열 안에서 단추가 넘쳤다. 왼쪽에는 「＋ 연결 추가」 한 줄.
 //   2026.11.12 : 「최근 파일」 밑에 파일 다섯 개를 이름 그대로 늘어놓던 것을 걷었다 — 스마트 폴더로 바꾼 뒤에도 파일이 왼쪽 열에 바로 올라와
 //                구획이 「폴더 목록」이 아니라 「파일 목록」으로 읽혔다. 이제 모든 스마트 폴더가 이름과 개수 한 줄이고, 파일은 누르면 칸에서 본다.
 // 항목마다 [data-drop] — 파일을 끌어다 놓으면 그 자리로 옮긴다.
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { api, appIconUrl, TAG_COLORS, TAG_LABEL, type AppPin, type Drive, type HubStatus, type Place, type Places, type SmartFolder, type TagColor, type ViewPrefs } from "./api";
 import { APP_DROP, LINK_DROP, TAG_DROP } from "./App";
 import { PlaceGlyph } from "./glyphs";
 import { ago, kindTable, remoteOnly, scopeLabel, scopeOf, tzOffset } from "./query";
-import { baseName, errText, formatBytes, norm, parentOf } from "./util";
+import { baseName, errText, formatBytes, norm } from "./util";
 
 type Props = {
   places: Places | null;
@@ -186,11 +188,9 @@ export default function Sidebar(props: Props) {
       })
       .catch((e) => setAddState({ busy: false, err: errText(e) }));
   };
-  /** 한 단계 위로. 공유 맨 위에서는 서버의 공유 목록으로 — 공유 주소로 들어왔으면 그때 목록을 묻는다. */
-  const browseUp = () => {
+  /** 서버의 공유 목록으로 — 경로 줄 맨 앞 서버 마디. 공유 주소로 들어왔으면 그때 목록을 묻는다. */
+  const goShares = () => {
     if (!pick?.at) return;
-    const parent = parentOf(pick.at);
-    if (parent) return browseTo({ ...pick, at: parent });
     if (pick.shares) return browseTo({ ...pick, at: null });
     setAddState({ busy: true, err: "" });
     api
@@ -209,6 +209,8 @@ export default function Sidebar(props: Props) {
   };
   const openForm = () => {
     if (formOpen) return;
+    browseSeq.current++; // 닫은 뒤 늦게 온 답이 새 창에 지난 판을 띄우지 않게
+    setPick(null);
     setFormOpen(true);
     api
       .netKnown()
@@ -352,132 +354,163 @@ export default function Sidebar(props: Props) {
               </div>
             );
           })}
-          {/* 늘 맨 아래 주소 칸 — 서버 주소를 적고 Enter 면 공유를 고른다. 누르면 이 PC 에서 쓰던 곳이 뜬다. 폴더를 끌어 놓아도 더한다 */}
-          <form
-            className="link-form"
-            data-drop={LINK_DROP}
-            onSubmit={(e) => {
-              e.preventDefault();
-              resolveLink(addr);
-            }}
-            onBlur={(e) => {
-              if (!addState.busy && !e.currentTarget.contains(e.relatedTarget as Node | null)) closeForm();
-            }}
-          >
-            <input
-              value={addr}
-              placeholder={links.length ? "서버 주소로 추가" : "NAS 주소 (예: 192.168.0.2)"}
-              aria-label="서버 주소"
-              spellCheck={false}
-              disabled={addState.busy}
-              onFocus={openForm}
-              onChange={(e) => {
-                setAddr(e.target.value);
-                setPick(null);
-                if (addState.err) setAddState({ busy: false, err: "" });
-              }}
-              onKeyDown={(e) => {
-                e.stopPropagation();
-                if (e.key === "Escape") {
-                  closeForm();
-                  e.currentTarget.blur();
-                }
-              }}
-            />
-            {(addState.busy || addState.err) && (
-              <p className={"side-hint" + (addState.err ? " warn" : "")} role="status">
-                {addState.busy ? "확인 중…" : addState.err}
-              </p>
-            )}
-            {pick && (
-              <div className="link-pick" role="group" aria-label="연결할 곳 고르기">
-                <div className="link-pick-nav">
-                  <button
-                    type="button"
-                    className="link-up"
-                    disabled={!pick.at || (!pick.shares && !parentOf(pick.at) && !serverOf(pick.at))}
-                    title="위로"
-                    aria-label="위로"
-                    onClick={browseUp}
-                  >
-                    ‹
-                  </button>
-                  <span title={pick.at ?? pick.server}>{pick.at ? shortAt(pick.at) : `${pick.server.replace(/^\\\\/, "")} 의 공유 폴더`}</span>
-                </div>
-                <div className="link-pick-list" role="listbox" aria-label="폴더">
-                  {pick.dirs == null && <p className="link-pick-head">읽는 중…</p>}
-                  {pick.dirs?.length === 0 && <p className={"link-pick-head" + (pick.err ? " warn" : "")}>{pick.err || "하위 폴더 없음"}</p>}
-                  {pick.dirs?.map((d) => {
-                    const have = linked.has(norm(d));
-                    return (
-                      <div
-                        key={d}
-                        role="option"
-                        tabIndex={0}
-                        aria-selected={pick.sel === d}
-                        className={"link-pick-row" + (pick.sel === d ? " sel" : "")}
-                        onClick={() => setPick({ ...pick, sel: pick.sel === d ? null : d })}
-                        onDoubleClick={() => browseTo({ ...pick, at: d })}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") browseTo({ ...pick, at: d });
-                          else if (e.key === " ") setPick({ ...pick, sel: d });
-                          else return;
-                          e.preventDefault();
-                          e.stopPropagation();
-                        }}
-                      >
-                        <PlaceGlyph kind="net" size={14} />
-                        <span>{baseName(d)}</span>
-                        {have && <em>추가됨</em>}
-                        <button
-                          type="button"
-                          className="link-in"
-                          tabIndex={-1}
-                          title="안으로 들어가기 (두 번 누르기 · Enter)"
-                          aria-label={`${baseName(d)} 안으로`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            browseTo({ ...pick, at: d });
-                          }}
-                        >
-                          ›
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-                {(() => {
-                  const target = pick.sel ?? pick.at;
-                  const have = !!target && linked.has(norm(target));
-                  return (
-                    <div className="link-pick-foot">
-                      <button type="button" className="act primary" disabled={!target || have} onClick={addPicked} title={target ?? undefined}>
-                        {!target ? "폴더 선택" : have ? "추가됨" : `「${baseName(target)}」 추가`}
-                      </button>
-                      <button type="button" className="act" onClick={closeForm}>
-                        닫기
-                      </button>
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
-            {formOpen && !pick && !addr && !addState.busy && !addState.err && (
-              <div className="link-pick" role="group" aria-label="이 PC 에서 쓰던 네트워크 위치">
-                {suggestions.length > 0 && <p className="link-pick-head">이 PC에서 쓰던 위치</p>}
-                {suggestions.map((k) => (
-                  <button key={k.path} type="button" className="link-pick-row" title={k.path} onClick={() => resolveLink(k.path)}>
-                    <PlaceGlyph kind="net" size={14} />
-                    <span>{k.path.replace(/^[\\/]+/, "")}</span>
-                    <em>{k.source}</em>
-                  </button>
-                ))}
-                {known && !suggestions.length && <p className="link-pick-head">예: 192.168.0.2 · \\nas\공유</p>}
-              </div>
-            )}
-          </form>
+          {/* 늘 맨 아래 「연결 추가」 — 누르면 연결 창이 뜬다. 폴더를 끌어 놓아도 더한다.
+              2026.11.20 : 사용자 요청. 주소 칸 · 고르는 판 · 추가 단추가 좁은 왼쪽 열 안에 펼쳐져 단추가 넘쳤다 — 가운데 창으로 옮겼다. */}
+          <button className="side-empty link-add" data-drop={LINK_DROP} onClick={openForm}>
+            ＋ 연결 추가
+          </button>
         </section>
       )}
+      {formOpen &&
+        createPortal(
+          <div className="set-backdrop" onMouseDown={(e) => e.target === e.currentTarget && closeForm()}>
+            <div
+              className="link-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-label="연결 추가"
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === "Escape") closeForm();
+              }}
+            >
+              <header className="link-dialog-head">
+                <h2>연결 추가</h2>
+                <button type="button" className="link-dialog-x" aria-label="닫기" title="닫기 (Esc)" onClick={closeForm}>
+                  <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+                    <path d="M.5.5l9 9M9.5.5l-9 9" stroke="currentColor" />
+                  </svg>
+                </button>
+              </header>
+              {/* 서버 주소를 적고 Enter 면 공유를 고른다. 처음에는 이 PC 에서 쓰던 곳이 뜬다 */}
+              <form
+                className="link-form"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  resolveLink(addr);
+                }}
+              >
+                <div className="link-addr">
+                  <input
+                    autoFocus
+                    value={addr}
+                    placeholder="NAS · 서버 주소 (예: 192.168.0.2 · \\nas\공유)"
+                    aria-label="서버 주소"
+                    spellCheck={false}
+                    disabled={addState.busy}
+                    onChange={(e) => {
+                      setAddr(e.target.value);
+                      setPick(null);
+                      if (addState.err) setAddState({ busy: false, err: "" });
+                    }}
+                  />
+                  <button type="submit" className="act" disabled={addState.busy || !addr.trim()}>
+                    열기
+                  </button>
+                </div>
+                {(addState.busy || addState.err) && (
+                  <p className={"side-hint" + (addState.err ? " warn" : "")} role="status">
+                    {addState.busy ? "확인 중…" : addState.err}
+                  </p>
+                )}
+                {pick && (
+                  <div className="link-pick" role="group" aria-label="연결할 곳 고르기">
+                    {/* 경로 줄 — 마디마다 눌러 그 자리로. 2026.11.20 : 「‹ 위로 + 끝 두 마디」 → 마디 줄. 창이 넓어 경로 전체가 들어가고,
+                        몇 단계 위로 갈 때 ‹ 를 여러 번 누르지 않는다. 맨 앞 서버 마디는 공유 목록, 마지막 마디는 지금 자리(누르지 않는다) */}
+                    <nav className="link-crumbs" aria-label="지금 자리">
+                      {crumbsOf(pick).map((c, i, all) =>
+                        i === all.length - 1 ? (
+                          <span key={c.label + i} aria-current="location" title={c.path ?? pick.server}>
+                            {c.label}
+                          </span>
+                        ) : (
+                          <span key={c.label + i} className="link-crumb-step">
+                            <button
+                              type="button"
+                              title={c.path ?? `${pick.server} 의 공유 폴더`}
+                              disabled={c.path == null && !serverOf(pick.server)}
+                              onClick={() => (c.path == null ? goShares() : browseTo({ ...pick, at: c.path }))}
+                            >
+                              {c.label}
+                            </button>
+                            <span aria-hidden="true">›</span>
+                          </span>
+                        ),
+                      )}
+                    </nav>
+                    <div className="link-pick-list" role="listbox" aria-label="폴더">
+                      {pick.dirs == null && <p className="link-pick-head">읽는 중…</p>}
+                      {pick.dirs?.length === 0 && <p className={"link-pick-head" + (pick.err ? " warn" : "")}>{pick.err || "하위 폴더 없음"}</p>}
+                      {pick.dirs?.map((d) => {
+                        const have = linked.has(norm(d));
+                        return (
+                          <div
+                            key={d}
+                            role="option"
+                            tabIndex={0}
+                            aria-selected={pick.sel === d}
+                            className={"link-pick-row" + (pick.sel === d ? " sel" : "")}
+                            onClick={() => setPick({ ...pick, sel: pick.sel === d ? null : d })}
+                            onDoubleClick={() => browseTo({ ...pick, at: d })}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") browseTo({ ...pick, at: d });
+                              else if (e.key === " ") setPick({ ...pick, sel: d });
+                              else return;
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }}
+                          >
+                            <PlaceGlyph kind="net" size={14} />
+                            <span>{baseName(d)}</span>
+                            {have && <em>추가됨</em>}
+                            <button
+                              type="button"
+                              className="link-in"
+                              tabIndex={-1}
+                              title="안으로 들어가기 (두 번 누르기 · Enter)"
+                              aria-label={`${baseName(d)} 안으로`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                browseTo({ ...pick, at: d });
+                              }}
+                            >
+                              ›
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {(() => {
+                      const target = pick.sel ?? pick.at;
+                      const have = !!target && linked.has(norm(target));
+                      return (
+                        <div className="link-pick-foot">
+                          <button type="button" className="act primary" disabled={!target || have} onClick={addPicked} title={target ?? undefined}>
+                            {!target ? "폴더 선택" : have ? "추가됨" : `「${baseName(target)}」 추가`}
+                          </button>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+                {formOpen && !pick && !addr && !addState.busy && !addState.err && (
+                  <div className="link-pick" role="group" aria-label="이 PC 에서 쓰던 네트워크 위치">
+                    {suggestions.length > 0 && <p className="link-pick-head">이 PC에서 쓰던 위치</p>}
+                    {suggestions.map((k) => (
+                      <button key={k.path} type="button" className="link-pick-row" title={k.path} onClick={() => resolveLink(k.path)}>
+                        <PlaceGlyph kind="net" size={14} />
+                        <span>{k.path.replace(/^[\\/]+/, "")}</span>
+                        <em>{k.source}</em>
+                      </button>
+                    ))}
+                    {known && !suggestions.length && <p className="link-pick-head">예: 192.168.0.2 · \\nas\공유</p>}
+                  </div>
+                )}
+              </form>
+            </div>
+          </div>,
+          document.body,
+        )}
 
       <section>
         <h2>색 표시</h2>
@@ -595,9 +628,15 @@ type Browse = { server: string; shares: string[] | null; at: string | null; dirs
 const serverOf = (p: string) => /^\\\\[^\\]+/.exec(p)?.[0] ?? null;
 
 /** 판 머리의 지금 자리 — 깊으면 앞을 줄이고 끝 두 마디만 (좁은 왼쪽 열에서 지금 폴더 이름이 보여야 한다). */
-function shortAt(p: string): string {
-  const parts = p.split("\\").filter(Boolean);
-  return parts.length > 3 ? `…\\${parts.slice(-2).join("\\")}` : parts.join("\\");
+/** 고르는 판의 경로 줄 마디. path 가 null 인 마디는 서버(누르면 공유 목록).
+ *  `\\nas\공유\자료` → nas · 공유 · 자료 / 공유 목록을 보는 중이면 nas 하나 / 연결한 드라이브 `Z:\자료` → Z: · 자료. */
+function crumbsOf(b: Browse): { label: string; path: string | null }[] {
+  const host = { label: b.server.replace(/^\\\\/, ""), path: null };
+  if (!b.at) return [host];
+  const unc = b.at.startsWith("\\\\");
+  const parts = b.at.replace(/^\\\\/, "").split("\\").filter(Boolean);
+  if (!unc) return parts.map((p, i) => ({ label: p, path: parts.slice(0, i + 1).join("\\") + (i === 0 ? "\\" : "") }));
+  return [host, ...parts.slice(1).map((p, i) => ({ label: p, path: `\\\\${parts.slice(0, i + 2).join("\\")}` }))];
 }
 
 function shareAt(server: string, share: string): string {

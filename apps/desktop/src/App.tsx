@@ -29,7 +29,7 @@ import SettingsPanel from "./SettingsPanel";
 import Sidebar from "./Sidebar";
 import TitleBar from "./TitleBar";
 import { useAutoUpdate } from "./updater";
-import { applyTheme, baseName, DEFAULT_COLS, DEFAULT_KINDS, errText, type KindDef, norm, setIconPack, setKinds, type Sort, type SortKey } from "./util";
+import { applyTheme, baseName, DEFAULT_COLS, DEFAULT_KINDS, errText, type KindDef, norm, parseExts, setIconPack, setKinds, type Sort, type SortKey } from "./util";
 
 export type Tab = { id: number; path: string; back: string[]; fwd: string[] };
 
@@ -119,6 +119,7 @@ function withDefaults(s: Partial<Settings> | null): Settings {
       links: typeof s?.view?.links === "boolean" ? s.view.links : Array.isArray(s?.links) && s.links.length > 0,
       sizeUnit: s?.view?.sizeUnit === "auto" ? "auto" : "kb",
       kinds: validKinds(s?.view?.kinds),
+      findSkip: Array.isArray(s?.view?.findSkip) ? parseExts(s.view.findSkip.filter((x) => typeof x === "string").join(" ")) : DEFAULT_VIEW.findSkip,
     },
     start: typeof s?.start === "string" ? s.start : "",
     smart: validSmart(s?.smart),
@@ -491,9 +492,12 @@ export default function App() {
   }, []);
 
   // 지난번에 열어 둔 탭으로 연다. 처음이면 다운로드 — 들어온 파일을 정리하는 일이 가장 잦다.
+  // 2026.11.18 : 드라이브 목록(약 0.1초)을 기다리지 않고 설정만 읽으면 탭을 연다 — 켤 때 목록이 그만큼 늦게 떴다.
+  //   드라이브 목록이 필요한 것은 처음 켤 때(지난 탭 없음)의 다운로드 폴더뿐이다.
   useEffect(() => {
-    Promise.all([api.places(), api.loadSettings().catch(() => null)]).then(([p, raw]) => {
-      setPlaces(p);
+    const placesP = api.places().catch(() => null);
+    placesP.then((p) => p && setPlaces(p));
+    api.loadSettings().catch(() => null).then(async (raw) => {
       const s = withDefaults(raw);
       setPinned(s.pinned);
       setLinks(s.links);
@@ -505,7 +509,7 @@ export default function App() {
       setSmart(s.smart ?? []);
       setPinnedApps(s.apps ?? []);
       setSideW(s.sideW ?? SIDE_W);
-      const dl = p.known.find((k) => k.name === "다운로드")?.path ?? START;
+      const dl = s.start || s.session.tabs.length ? START : ((await placesP)?.known.find((k) => k.name === "다운로드")?.path ?? START);
       // 시작 폴더를 정했으면 그 폴더 하나로 연다 — 지난 탭 · 나눠 보기는 버린다 (설정 「시작 폴더」)
       const restored = s.start ? [newTab(s.start)] : s.session.tabs.length ? s.session.tabs.map(newTab) : [newTab(dl)];
       setTabs(restored);
@@ -1234,7 +1238,14 @@ export default function App() {
 
   return (
     <div className={"app" + (drag?.on ? " tab-dragging" : "")} style={{ "--side-w": `${sideW}px` } as CSSProperties}>
-      <TitleBar>{titleStrips}</TitleBar>
+      <TitleBar
+        onPalette={() => {
+          setPaletteApps(false);
+          setPaletteOpen(true);
+        }}
+      >
+        {titleStrips}
+      </TitleBar>
       <div className="body">
         <Sidebar
           places={places}

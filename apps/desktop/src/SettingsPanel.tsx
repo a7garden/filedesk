@@ -2,7 +2,7 @@
 //
 // 목차 (한 장으로 이어진다 · 왼쪽 목차는 지금 읽는 자리를 따라간다)
 //   보기       크기 사다리 · 보일 열 · 숨김 파일 · 격자 미리보기
-//   목록       기본 정렬 · 폴더를 위에 · 판 접어 시작 · 판 관리(2026.11.16 · 기본 끔) · 고친 날 · 크기 꼴
+//   목록       기본 정렬 · 폴더를 위에 · 판 접어 시작 · 찾기에서 뺄 확장자(2026.11.20) · 판 관리(2026.11.16 · 기본 끔) · 고친 날 · 크기 꼴
 //   열기       폴더 열기(두 번 · 한 번 누르기) · 시작 폴더
 //   화면 색     시스템 · 밝게 · 어둡게 — 작은 창 그림으로 고른다
 //   아이콘      Windows · filedesk · 아이콘 팩 — 같은 파일 몇 개가 셋에서 어떻게 보이는지 나란히
@@ -19,7 +19,7 @@
 //                일반 파일 탐색기에 한 과업에만 맞는 설정이었다 — 상태어는 고정 목록, 작성자 꼬리는 이름 꼴로 추정한다 (fd-core docname).
 import { useEffect, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import { api, iconUrl, type ColKey, type Entry, type SkillAgent, type SkillStatus, type Theme, type ViewPrefs } from "./api";
+import { api, DEFAULT_VIEW, iconUrl, type ColKey, type Entry, type SkillAgent, type SkillStatus, type Theme, type ViewPrefs } from "./api";
 import { FileGlyph, FolderGlyph } from "./glyphs";
 import IndexSettings from "./IndexSettings";
 import SizeLadder from "./SizeLadder";
@@ -205,10 +205,13 @@ export default function SettingsPanel(props: Props) {
             {upd.update && (upd.phase === "available" || upd.phase === "downloading") && <span className="set-ver-new">새 버전 {upd.update.version}</span>}
           </button>
         </nav>
+        {/* 2026.11.18 : 본문 안 → 본문 밖. 본문과 함께 흘러 첫 구획 머리에 겹쳤고 작았다 (UI 평가) */}
+        <button className="set-close" aria-label="설정 닫기" title="닫기 (Esc)" onClick={onClose}>
+          <svg width="12" height="12" viewBox="0 0 10 10" aria-hidden="true">
+            <path d="M.5.5l9 9M9.5.5l-9 9" stroke="currentColor" />
+          </svg>
+        </button>
         <div className="set-body" ref={body}>
-          <button className="set-close" aria-label="설정 닫기" title="닫기 (Esc)" onClick={onClose}>
-            ×
-          </button>
 
           <section id="set-view" aria-labelledby="h-view">
             <h3 id="h-view">보기</h3>
@@ -298,6 +301,21 @@ export default function SettingsPanel(props: Props) {
               </div>
             </div>
             <div className="set-line">
+              <span className="set-label">찾기에서 뺄 확장자</span>
+              <div>
+                <SkipExts exts={view.findSkip} set={(findSkip) => setView((v) => ({ ...v, findSkip }))} />
+                <p className="muted set-hint">
+                  하위 폴더 · 모든 드라이브 · 스마트 폴더 결과에서 뺌
+                  {view.findSkip.join(" ") !== DEFAULT_VIEW.findSkip.join(" ") && " · "}
+                  {view.findSkip.join(" ") !== DEFAULT_VIEW.findSkip.join(" ") && (
+                    <button className="link-btn" onClick={() => setView((v) => ({ ...v, findSkip: DEFAULT_VIEW.findSkip }))}>
+                      처음 값으로
+                    </button>
+                  )}
+                </p>
+              </div>
+            </div>
+            <div className="set-line">
               <span className="set-label">판 관리</span>
               <div>
                 {check("문서의 판을 한 줄로 묶어 관리", view.editions, (editions) => setView((v) => ({ ...v, editions })))}
@@ -307,7 +325,7 @@ export default function SettingsPanel(props: Props) {
               </div>
             </div>
             <div className="set-line">
-              <span className="set-label">크기</span>
+              <span className="set-label">파일 크기 표기</span>
               <div>
                 {choice(
                   "크기 표시",
@@ -459,7 +477,7 @@ export default function SettingsPanel(props: Props) {
                         </td>
                         <td>
                           <span className="set-acts">
-                            <button className={"act" + (!a.installed || old ? " primary" : "")} disabled={!skill.hasCli} onClick={() => skillAct(a, false)}>
+                            <button className={"act" + (a.installed && old ? " primary" : "")} disabled={!skill.hasCli} onClick={() => skillAct(a, false)}>
                               {a.installed ? "다시 설치" : "설치"}
                             </button>
                             {a.installed && (
@@ -524,6 +542,44 @@ function MiniWindow({ theme }: { theme: Theme }) {
         <rect x="22" y="4" width="24" height="3" rx="1.5" fill={c.ink} />
       </g>
     </svg>
+  );
+}
+
+/** 찾기에서 뺄 확장자 — 종류 편집과 같은 칩. 칸에 적고 Enter · 빈칸 · 쉼표로 더한다 (.lnk · *.lnk 도 받는다). 2026.11.20 더했다. */
+function SkipExts({ exts, set }: { exts: string[]; set: (x: string[]) => void }) {
+  const [text, setText] = useState("");
+  const add = () => {
+    const more = parseExts(text);
+    if (more.length) set(parseExts([...exts, ...more].join(" ")));
+    setText("");
+  };
+  return (
+    <div className="ext-chips" role="list" aria-label="찾기에서 뺄 확장자">
+      {exts.map((x) => (
+        <span key={x} className="ext-chip plain" role="listitem">
+          {x}
+          <button aria-label={`${x} 제거`} onClick={() => set(exts.filter((y) => y !== x))}>
+            ×
+          </button>
+        </span>
+      ))}
+      <input
+        className="ext-add"
+        spellCheck={false}
+        value={text}
+        placeholder="+ 확장자"
+        aria-label="찾기에서 뺄 확장자 추가"
+        onChange={(e) => setText(e.target.value)}
+        onBlur={add}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === "Enter" || e.key === " " || e.key === ",") {
+            e.preventDefault();
+            add();
+          }
+        }}
+      />
+    </div>
   );
 }
 

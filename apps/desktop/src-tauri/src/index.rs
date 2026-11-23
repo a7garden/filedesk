@@ -29,6 +29,9 @@ pub struct IndexHub {
     /// 서비스가 없을 때만.
     local: Mutex<Option<Engine>>,
     content: Mutex<Option<Worker>>,
+    /// 본문 색인을 열지 못한 까닭. 아직 여는 중이면 None.
+    /// 2026.11.18 : 여는 중과 실패를 가르지 않아, 켜자마자 설정을 열면 「열 수 없음」으로 보였고 실패해도 까닭이 없었다.
+    content_error: Mutex<Option<String>>,
     exclude: Mutex<Vec<String>>,
 }
 
@@ -78,14 +81,20 @@ impl IndexHub {
             } else {
                 hub.start_local(&exclude);
             }
-            if let (Some(dir), Some(base)) = (fd_content::default_dir(), base_dir()) {
-                match ContentIndex::open(&dir, true) {
+            match (fd_content::default_dir(), base_dir()) {
+                (Some(dir), Some(base)) => match ContentIndex::open(&dir, true) {
                     Ok(ix) => {
                         let w = Worker::start(Arc::new(ix), base.join("content-work"), fd_index::scope::Scope::for_current_user(&exclude), fd_shell::system::background_thread);
                         *hub.content.lock().unwrap() = Some(w);
                     }
-                    Err(e) => eprintln!("{e}"),
-                }
+                    Err(e) => {
+                        let e = e.to_string();
+                        // 같은 색인을 다른 filedesk 창(또는 다른 계정의 앱)이 이미 쓰고 있다 — 색인 엔진의 영어 글 대신
+                        let e = if e.contains("LockBusy") { "다른 filedesk 창이 쓰는 중 · 그 창에서 색인".to_string() } else { e };
+                        *hub.content_error.lock().unwrap() = Some(e);
+                    }
+                },
+                _ => *hub.content_error.lock().unwrap() = Some("LOCALAPPDATA 없음".into()),
             }
             hub.feed();
         });
@@ -402,6 +411,12 @@ pub struct HubStatus {
     pub bundled: bool,
     /// 앱이 아는 규약 판 — 서비스 판이 다르면 「서비스 업데이트」.
     pub app_version: u32,
+    /// 서비스 파일의 판 · 이 앱의 판 (`0.1.12`). 다르면 「서비스 업데이트」.
+    /// 2026.11.18 : 규약 판만 견주어, 앱을 0.1.12 로 올려도 11-13 에 깐 서비스가 옛 문구 · 옛 동작으로 남은 것을 몰랐다.
+    pub service_build: Option<String>,
+    pub app_build: String,
+    /// 본문 색인을 열지 못한 까닭 (`content` 가 없고 이것도 없으면 여는 중).
+    pub content_error: Option<String>,
     pub exclude: Vec<String>,
 }
 
@@ -418,6 +433,9 @@ fn hub_status(app: &AppHandle) -> HubStatus {
         content: hub.worker().map(|w| w.status()),
         bundled: bundled_indexd(app).is_some(),
         app_version: fd_index::proto::VERSION,
+        service_build: fd_index::client::service_build(),
+        app_build: env!("CARGO_PKG_VERSION").to_string(),
+        content_error: hub.content_error.lock().unwrap().clone(),
         exclude: hub.exclude.lock().unwrap().clone(),
     }
 }

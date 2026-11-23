@@ -33,6 +33,15 @@ pub fn service_version() -> Option<u32> {
     }
 }
 
+/// 서비스 실행 파일의 판 (`0.1.12` 꼴). 서비스가 없으면 None.
+/// 2026.11.18 : 규약 판(`VERSION`)이 같아도 서비스 파일은 옛 판일 수 있다 — 앱 업데이트는 서비스를 바꾸지 않는다.
+pub fn service_build() -> Option<String> {
+    match call(&Request::Hello { version: VERSION }).ok()? {
+        Response::Hello { server, .. } => Some(server),
+        _ => None,
+    }
+}
+
 /// 답이 오류면 Err 로 바꾼다.
 pub fn expect(resp: Response) -> io::Result<Response> {
     match resp {

@@ -18,20 +18,24 @@
   --ink-2:      light-dark(#474c54, #c3c7cd);
   --muted:      light-dark(#676d75, #989ea7);
   --faint:      light-dark(#b2b7be, #666c75);
-  --hover:      light-dark(rgba(26, 29, 33, 0.05), rgba(255, 255, 255, 0.075));
+  /* 2026.11.23 : 올린 줄 · 고른 줄 · 선을 한 단 진하게 (0.05→0.07 · 0.11→0.16 · 0.08→0.11) — 사용자 지적 「탐색기보다 가독성이 떨어진다」.
+     밝게에서 지금 줄이 어디인지 · 열이 어디서 갈리는지가 흐렸다 */
+  --hover:      light-dark(rgba(26, 29, 33, 0.07), rgba(255, 255, 255, 0.085));
   /* 2026.11.12 : 강조색을 짙은 초록에서 쪽빛 파랑으로 바꿨다 — 사용자 요청. 앱 아이콘과 같은 색.
      --ok(완료 표시)는 초록으로 남겨 강조색과 뗀다 — 「다 됐다」는 뜻이 파랑에 묻히지 않게. */
-  --sel:        light-dark(rgba(43, 95, 217, 0.11), rgba(134, 168, 255, 0.24));
+  --sel:        light-dark(rgba(43, 95, 217, 0.16), rgba(134, 168, 255, 0.28));
   --accent:     light-dark(#2b5fd9, #86a8ff);
   --accent-ink: light-dark(#ffffff, #0f1a33);
   --warn:       light-dark(#a83a1e, #f0a07f);
   --warn-bg:    light-dark(rgba(168, 58, 30, 0.08), rgba(240, 160, 127, 0.1));
   --ok:         light-dark(#1f6f5c, #63b59c);
-  --line:       light-dark(rgba(26, 29, 33, 0.08), rgba(255, 255, 255, 0.12));
+  --line:       light-dark(rgba(26, 29, 33, 0.11), rgba(255, 255, 255, 0.14));
   --focus:      light-dark(rgba(43, 95, 217, 0.55), rgba(134, 168, 255, 0.6));
-  /* 2026.11.11 : 채운 폴더 · 파일 종이 (glyphs.tsx). 폴더는 무채색 바탕에서 튀지 않는 푸른 회색 두 겹 — 뒤판이 한 단 진하다. */
-  --folder-back:  light-dark(#7f8b99, #76828f);
-  --folder-front: light-dark(#a3aebb, #9aa6b3);
+  /* 2026.11.11 : 채운 폴더 · 파일 종이 (glyphs.tsx). 뒤판이 한 단 진하다.
+     2026.11.23 : 푸른 회색 → 누런 색. 사용자 지적 「탐색기보다 가독성이 떨어진다」 — 회색 폴더는 회색 · 흰 종이 파일과 명도가 비슷해
+     목록에서 폴더 덩어리가 갈리지 않았다. 탐색기처럼 폴더만 색 덩어리로 두되 채도는 한 단 낮춘다 */
+  --folder-back:  light-dark(#d39a2c, #b8862e);
+  --folder-front: light-dark(#f0c25a, #dcb055);
   --icon-paper:   light-dark(#ffffff, #383b40);
 }
 :root[data-theme="light"] {
@@ -127,6 +131,37 @@ button:disabled {
 .winctl button.close:hover {
   background: #c42b1c;
   color: #ffffff;
+}
+/* 명령 팔레트 단추 — 목록 위 「찾기」 칸과 같은 바탕 · 높이. 좁은 창에서는 글을 접고 돋보기 · 단축키만 */
+.tb-palette {
+  align-self: center;
+  flex: none;
+  margin-right: 10px;
+  padding: 0 6px 0 10px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 6px;
+  background: var(--hover);
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.tb-palette:hover {
+  color: var(--ink);
+}
+.tb-palette kbd {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--paper);
+  font: inherit;
+  font-size: 11px;
+}
+@media (max-width: 900px) {
+  .tb-palette-label {
+    display: none;
+  }
 }
 /* 새 판 알림: 평소엔 없다. 있을 때만 창 단추 왼쪽에 글자 하나 */
 .upd {
@@ -783,16 +818,17 @@ button:disabled {
   grid-template-columns: var(--cols);
   align-items: center;
 }
-/* 오른쪽 여백에 목록 스크롤바 너비(--sbw, Pane 이 잰다)를 더한다 — 그래야 머리 · 열 경계선 · 줄 칸이 한 줄에 선다 */
+/* 오른쪽 여백에 목록 스크롤바 너비(--sbw, Pane 이 잰다)를 더한다 — 그래야 머리 · 열 경계선 · 줄 칸이 한 줄에 선다.
+   왼쪽 8 = .list 4 + .row 4 · 오른쪽 12 = .list 4 + .row 8. 셋 중 하나를 바꾸면 .col-guides 와 함께 맞춘다 */
 .cols {
-  padding: 0 calc(24px + var(--sbw, 0px)) 0 16px;
+  padding: 0 calc(12px + var(--sbw, 0px)) 0 8px;
   height: 26px;
   color: var(--muted);
   font-size: 12px;
 }
 .col {
   position: relative;
-  padding: 0 8px;
+  padding: 0 6px;
   min-width: 0;
 }
 .col.right {
@@ -836,7 +872,7 @@ body.col-resizing * {
 .col-guides {
   position: absolute;
   inset: 0;
-  padding: 0 calc(24px + var(--sbw, 0px)) 0 16px;
+  padding: 0 calc(12px + var(--sbw, 0px)) 0 8px;
   display: grid;
   grid-template-columns: var(--cols);
   pointer-events: none;
@@ -870,7 +906,8 @@ body.col-resizing * {
   position: relative;
   flex: 1;
   overflow: auto;
-  padding: 0 8px 12px;
+  /* 2026.11.23 : 좌우 8 → 4 · 줄 16/8 → 8/4 · 칸 8 → 6. 사용자 지적 — 이름이 왼쪽 끝에서 24px 떨어져 시작했다 */
+  padding: 0 4px 12px;
   /* 스크롤바 자리를 늘 비워 둔다 — 넘칠 때만 생기면 열 경계선과 줄 칸이 그만큼 어긋났다 풀렸다 한다 */
   scrollbar-gutter: stable;
 }
@@ -953,7 +990,7 @@ body.col-resizing * {
   right: 0;
   top: 0;
   height: 30px;
-  padding: 0 16px 0 8px;
+  padding: 0 8px 0 4px;
   border-radius: 6px;
 }
 .list.dense .row {
@@ -985,7 +1022,7 @@ body.col-resizing * {
 }
 .cell {
   min-width: 0;
-  padding: 0 8px;
+  padding: 0 6px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1258,7 +1295,7 @@ body.col-resizing * {
 .row.issue-line {
   display: flex;
   align-items: center;
-  padding-left: 40px;
+  padding-left: 34px;
 }
 .row.issue-line:hover {
   background: none;
@@ -1293,26 +1330,27 @@ body.col-resizing * {
 .issue-chip:hover {
   background: var(--warn-bg);
 }
-/* 날짜 · 크기는 고정폭 숫자 — 줄마다 자릿수가 위아래로 맞는다 */
+/* 날짜 · 크기는 고정폭 숫자 — 줄마다 자릿수가 위아래로 맞는다.
+   2026.11.23 : 날짜 · 종류 · 크기 글자 --muted → --ink-2. 흐린 회색 셋이 이어져 이름 오른쪽이 통째로 바랬다 (사용자 지적 · 탐색기와 견줌) */
 .cell.date {
-  color: var(--muted);
+  color: var(--ink-2);
   font-variant-numeric: tabular-nums;
 }
 .cell.kind {
-  color: var(--muted);
+  color: var(--ink-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .cell.size {
   text-align: right;
-  color: var(--muted);
+  color: var(--ink-2);
   font-variant-numeric: tabular-nums;
 }
 
 /* 펼친 판: 들여 쓰고 흐리게 — 최신판(위 줄)이 주인공 */
 .row.sub {
-  padding-left: 40px;
+  padding-left: 34px;
 }
 .row.sub .label {
   color: var(--ink-2);
@@ -1320,7 +1358,7 @@ body.col-resizing * {
 .row.sub::after {
   content: "";
   position: absolute;
-  left: 23px;
+  left: 17px; /* 꺾쇠 가운데 — 줄 4 + 칸 6 + 꺾쇠 16 의 반 */
   top: 0;
   bottom: 0;
   border-left: 1px solid var(--line);
@@ -1721,10 +1759,38 @@ body.resizing-y * {
 .filter.deep {
   box-shadow: inset 0 0 0 1px var(--focus);
 }
+/* 찾은 것의 자리 · 본문 글. 2026.11.20 : 사용자 요청. 자리를 45% 까지 먼저 잡아 긴 경로가 이름을 잘랐다.
+   이제 자리 → 메모 → 본문 글 → 이름 차례로 준다 (flex-shrink 큰 쪽이 먼저). 자리는 rtl 로 앞을 줄여 「…\상위\폴더」처럼 가까운 폴더가 남고,
+   안의 bdi 가 경로 글자 차례를 지킨다 — bdi 가 없으면 끝의 \ · 괄호가 앞으로 튄다. 전체 경로는 마우스를 올리면 보인다.
+   자리는 이름 칸 오른쪽 끝에 붙는다(margin-left: auto) — 가까운 폴더가 모든 줄에서 같은 세로선에 서서 위아래로 견준다.
+   본문 글은 본문 찾기의 판단 근거라 메모보다 늦게 준다 (메모는 flex-shrink 100). */
 .row .where {
-  max-width: 45%;
+  flex: 0 1000 auto;
+  min-width: 3em;
+  margin-left: auto;
+  padding-left: 12px;
   overflow: hidden;
+  white-space: nowrap;
   text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+.row .snip {
+  flex: 0 10 auto;
+  min-width: 3em;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.row .snip b {
+  font-weight: 700;
+  color: var(--ink);
+}
+.row .label {
+  flex: 0 1 auto;
+  min-width: 4em;
 }
 
 /* 바로가기 — 가리키는 것의 그림 왼쪽 아래에 작은 화살표 딱지 (탐색기와 같은 자리). 2026.11.12 */
@@ -1891,7 +1957,9 @@ body.resizing-y * {
   gap: 6px;
   height: 22px;
   padding: 0 8px;
-  font: 11.5px/1 ui-monospace, "Cascadia Mono", Consolas, monospace;
+  /* 2026.11.18 : 고정폭 → 본문 글꼴. 왼쪽 열에서 서버 이름 한 줄만 다른 글꼴이었다 (UI 평가) */
+  font-size: 11.5px;
+  line-height: 1;
   color: var(--muted);
   white-space: nowrap;
 }
@@ -1997,6 +2065,81 @@ body.resizing-y * {
 .link-form .side-hint {
   margin: 4px 6px 0;
 }
+/* 연결 추가 창 — 2026.11.20 : 사용자 요청. 좁은 왼쪽 열 안에서 펼치던 주소 칸 · 고르는 판을 가운데 창으로 옮겼다 (단추가 넘쳤다).
+   왼쪽 열에는 「＋ 연결 추가」 한 줄만 남고, 폴더를 그 줄에 끌어 놓아도 더한다 */
+.side-empty.link-add.drop-hover {
+  background: var(--sel);
+  color: var(--accent);
+}
+/* 위에 붙여 아래로만 자란다 — 가운데 두면 목록을 읽어 오거나 폴더를 오갈 때마다 높이가 바뀌어 주소 칸이 위아래로 뛰었다 (2026.11.20) */
+.link-dialog {
+  align-self: start;
+  margin-top: max(56px, 12vh);
+  width: min(460px, calc(100vw - 48px));
+  max-height: calc(100vh - max(56px, 12vh) - 32px);
+  display: flex;
+  flex-direction: column;
+  padding: 14px 16px 16px;
+  border-radius: 12px;
+  background: var(--raise);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22), inset 0 0 0 1px var(--line);
+  animation: pop-in 0.16s ease-out;
+}
+.link-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.link-dialog-head h2 {
+  margin: 0;
+  font-size: 14px;
+}
+.link-dialog-x {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--muted);
+}
+.link-dialog-x:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.link-dialog .link-form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin: 0;
+}
+.link-addr {
+  display: flex;
+  gap: 6px;
+}
+.link-dialog .link-form input {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  font-size: 13px;
+  background: var(--paper);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.link-dialog .link-form input:focus {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.link-dialog .link-pick {
+  min-height: 0;
+  margin-top: 10px;
+}
+.link-dialog .link-pick-list {
+  max-height: 320px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .link-dialog {
+    animation: none;
+  }
+}
 /* 주소 칸 밑 고르기 — 서버의 공유 폴더 · 이 PC 에서 쓰던 곳 (2026.11.13).
    공유 줄과 같은 들여쓰기 · 높이라 더하면 그 자리 그대로 위 목록에 올라간 것처럼 읽힌다. 오른쪽 글은 어디서 찾았는지 */
 .link-pick {
@@ -2043,24 +2186,37 @@ body.resizing-y * {
   cursor: default;
 }
 /* 연결할 곳 고르는 판 (Sidebar Browse) — 2026.11.18 : 공유 안 폴더까지 내려가 고르고 「추가」로 더한다 */
-.link-pick-nav {
+/* 경로 줄 — 마디마다 누른다. 2026.11.20 : 「‹ 위로 + 끝 두 마디」를 갈았다. 길면 줄을 바꾼다 (창이라 세로 자리가 있다) */
+.link-crumbs {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
-  margin: 2px 0 2px;
-  font-size: 11.5px;
+  gap: 2px 0;
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: var(--ink);
+}
+.link-crumbs > span[aria-current] {
+  padding: 2px 6px;
+  font-weight: 600;
+}
+.link-crumb-step {
+  display: inline-flex;
+  align-items: center;
+  color: var(--faint);
+}
+.link-crumb-step button {
+  padding: 2px 6px;
+  border-radius: 4px;
   color: var(--muted);
 }
-.link-pick-nav span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.link-crumb-step button:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--ink);
 }
 .link-pick-head.warn {
   color: var(--warn);
 }
-.link-up,
 .link-in {
   flex: none;
   width: 20px;
@@ -2070,13 +2226,9 @@ body.resizing-y * {
   font-size: 14px;
   line-height: 1;
 }
-.link-up:hover:not(:disabled),
 .link-in:hover {
   background: var(--hover);
   color: var(--ink);
-}
-.link-up:disabled {
-  opacity: 0.35;
 }
 .link-pick-list {
   display: grid;
@@ -2173,6 +2325,12 @@ body.resizing-y * {
   align-items: center;
   gap: 3px;
   transition: opacity 120ms ease 260ms;
+}
+/* 입술의 「즐겨찾기」 — 타일 이름(.dock-name)과 이름을 떼어 둔다. 같은 이름이면 이 흐린 색 · 여백이 선반 타일 이름에도 붙는다 */
+.dock-lip-name {
+  margin-right: 5px;
+  font-size: 11px;
+  color: var(--faint);
 }
 .dock-tick {
   width: 12px;
@@ -2463,6 +2621,7 @@ body.resizing-y * {
   animation: fade-in 0.14s ease-out;
 }
 .settings {
+  position: relative;
   width: min(860px, calc(100vw - 48px));
   height: min(680px, calc(100vh - 64px));
   display: grid;
@@ -2570,16 +2729,23 @@ body.resizing-y * {
 }
 .set-body > section + section {
   border-top: 1px solid var(--line);
+  /* 2026.11.18 : 설정을 열 때 아홉 구획(약 1,000개 요소)을 한꺼번에 배치해 열고 닫을 때 끊겼다 (사용자 지적).
+     화면 밖 구획은 보일 때 배치한다. 목차 따라가기 · 건너뛰기는 머리 자리만 보므로 그대로 된다 */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 420px;
 }
 .set-close {
   position: absolute;
+  z-index: 2;
   top: 10px;
-  right: 12px;
-  width: 28px;
-  height: 28px;
+  right: 14px;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
   border-radius: 6px;
+  background: var(--raise);
   color: var(--muted);
-  font-size: 18px;
 }
 .set-close:hover {
   background: var(--hover);
@@ -2686,6 +2852,11 @@ body.resizing-y * {
   color: var(--ink-2);
   cursor: grab;
   user-select: none;
+}
+/* 끌어 옮기지 않는 칩 (설정 「찾기에서 뺄 확장자」) — 종류 색 띠 없이 */
+.ext-chip.plain {
+  box-shadow: inset 0 0 0 1px var(--line);
+  cursor: default;
 }
 .ext-chip.lost {
   text-decoration: line-through;
@@ -3310,6 +3481,8 @@ body.resizing-y * {
   animation: pop-in 0.12s ease-out;
 }
 .pal-input {
+  /* 2026.11.18 : 앱 고정 팔레트는 줄이 수백 개라 목록이 칸을 다 먹고 입력 칸이 19px 로 눌렸다 (사용자 지적). 입력 · 아래 줄은 줄지 않는다 */
+  flex: none;
   height: 46px;
   padding: 0 16px;
   border: 0;
@@ -3322,6 +3495,7 @@ body.resizing-y * {
   user-select: text;
 }
 .pal-list {
+  min-height: 0;
   list-style: none;
   margin: 0;
   padding: 6px;
@@ -3329,7 +3503,7 @@ body.resizing-y * {
 }
 .pal-item {
   display: grid;
-  grid-template-columns: 44px auto minmax(0, 1fr) auto;
+  grid-template-columns: 64px auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   height: 32px;
@@ -3339,7 +3513,7 @@ body.resizing-y * {
   cursor: default;
 }
 .pal-item:not(:has(.tag-dot, .pal-icon)) {
-  grid-template-columns: 44px minmax(0, 1fr) auto;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
 }
 .pal-item.gap {
   margin-top: 6px;
@@ -3349,6 +3523,8 @@ body.resizing-y * {
   color: var(--ink);
 }
 .pal-group {
+  /* 2026.11.18 : 「스마트 폴더」가 44px 칸에서 두 줄로 깨졌다 (UI 평가). 칸을 64px 로 넓히고 한 줄로 */
+  white-space: nowrap;
   font-size: 11px;
   color: var(--muted);
   text-align: right;
@@ -3375,6 +3551,7 @@ body.resizing-y * {
   font-size: 12.5px;
 }
 .pal-foot {
+  flex: none;
   padding: 6px 14px;
   border-top: 1px solid var(--line);
   font-size: 11px;
@@ -3395,6 +3572,9 @@ body.resizing-y * {
 .set-hint {
   margin: 4px 0 0;
   font-size: 12px;
+}
+.set-hint.warn {
+  color: var(--warn);
 }
 .link-btn {
   color: var(--accent);
@@ -3870,6 +4050,26 @@ body.resizing-y * {
   color: var(--warn);
   background: var(--warn-bg);
   box-shadow: none;
+}
+/* 찾기에서 뺀 확장자 (Pane skipExts) — 빠진 동안 점선, 다시 보이는 동안 실선. 2026.11.20 */
+.skip-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px dashed var(--faint);
+  border-radius: 12px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.skip-chip.shown {
+  border-style: solid;
+  color: var(--ink-2);
+}
+.skip-chip:hover {
+  background: var(--hover);
+  color: var(--ink);
 }
 .deep-src {
   margin-left: 6px;
@@ -4454,7 +4654,8 @@ body.resizing-y * {
 .index-exclude {
   resize: vertical;
   max-width: 460px;
-  font-family: var(--mono, ui-monospace, monospace);
+  /* 2026.11.18 : --mono 는 편집기 안에서만 정해져 여기서는 기본 고정폭(한글 글꼴)으로 떨어져 \ 가 ₩ 로 보였다 (UI 평가) */
+  font-family: "Cascadia Mono", Consolas, monospace;
   font-size: 12px;
 }
 

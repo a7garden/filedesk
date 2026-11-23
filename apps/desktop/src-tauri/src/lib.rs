@@ -1004,6 +1004,26 @@ async fn open_url(window: WebviewWindow, url: String) -> CmdResult<()> {
     on_sta(move || fd_shell::ops::open(hwnd, &url, "").map_err(|e| e.to_string())).await?
 }
 
+/// 주 창을 화면 색 바탕으로 띄운다.
+/// 2026.11.18 : 웹 화면이 준비되기 전(약 0.5초) 창이 흰 바탕으로 비어 있어, 어두운 화면 색에서 켤 때마다 번쩍였다 (사용자 지적).
+///   창은 숨긴 채 만들고(tauri.conf.json `visible: false`), 지난 화면 색의 바탕(styles.css `--paper`)을 칠한 뒤 바로 보인다.
+fn show_main(app: &tauri::App) {
+    let Some(w) = app.get_webview_window("main") else { return };
+    let theme = settings_path(app.handle())
+        .ok()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| v.get("theme")?.as_str().map(str::to_owned));
+    let dark = match theme.as_deref() {
+        Some("dark") => true,
+        Some("light") => false,
+        _ => matches!(w.theme(), Ok(tauri::Theme::Dark)),
+    };
+    let paper = if dark { tauri::window::Color(0x21, 0x23, 0x27, 0xff) } else { tauri::window::Color(0xf8, 0xf9, 0xfa, 0xff) };
+    let _ = w.set_background_color(Some(paper));
+    let _ = w.show();
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -1011,6 +1031,7 @@ pub fn run() {
         .manage(WatchState::default())
         .manage(index::IndexHub::default())
         .setup(|app| {
+            show_main(app);
             std::thread::spawn(refresh_skill);
             index::IndexHub::start(app.handle());
             Ok(())

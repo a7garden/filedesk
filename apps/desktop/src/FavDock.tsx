@@ -271,6 +271,8 @@ export default function FavDock(props: Props) {
       </div>
       {/* 입술 — 숨었을 때 보이는 자리. 눈금 하나가 즐겨찾기 하나다. 읽는 값은 위 선반이 글자로 다 가지고 있어 낭독기에는 숨긴다 */}
       <div className="dock-lip" aria-hidden="true">
+        {/* 2026.11.18 : 눈금만으로는 무엇인지 몰라 독이 있는 줄도 몰랐다 (UI 평가). 이름을 붙인다 */}
+        <span className="dock-lip-name">즐겨찾기</span>
         {pinned.slice(0, MAX_TICKS).map((p) => {
           const c = colors.get(norm(p.path));
           const isHere = !p.file && norm(p.path) === here;

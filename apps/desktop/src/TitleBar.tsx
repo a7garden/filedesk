@@ -1,6 +1,6 @@
 // 제목 줄 — Windows 창 틀 대신 직접 그린다 (tauri.conf `decorations: false`).
 //
-//   [탭들] [빈 자리 = 창 끌기 · 두 번 누르면 최대화] [새 판 알림] [_ □ ×]
+//   [탭들] [빈 자리 = 창 끌기 · 두 번 누르면 최대화] [팔레트 단추] [새 판 알림] [_ □ ×]
 //   탭 줄이 곧 제목 줄이다 — 창 틀 한 줄 · 탭 한 줄로 두 번 쓰던 위 자리를 한 줄로 줄였다.
 //   창 끌기는 `data-tauri-drag-region` 이 붙은 요소 자신을 누를 때만 된다 (자식 단추 · 탭은 제 일을 한다).
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -10,7 +10,7 @@ import UpdateCard from "./UpdateCard";
 
 const win = getCurrentWindow();
 
-export default function TitleBar({ children }: { children: ReactNode }) {
+export default function TitleBar({ children, onPalette }: { children: ReactNode; onPalette: () => void }) {
   const [maxed, setMaxed] = useState(false);
   useEffect(() => {
     const sync = () => win.isMaximized().then(setMaxed).catch(() => {});
@@ -24,6 +24,16 @@ export default function TitleBar({ children }: { children: ReactNode }) {
     <header className="titlebar" data-tauri-drag-region>
       {children}
       <div className="drag" data-tauri-drag-region />
+      {/* 2026.11.18 : 명령 팔레트가 Ctrl+K 로만 열려 있는 줄도 몰랐다 (사용자 지적). 늘 보이는 단추를 두고 단축키를 함께 적는다.
+          목록 위 「찾기」 칸(지금 폴더 안 이름)과 헷갈리지 않게 찾는 대상을 적는다 */}
+      <button className="tb-palette" onClick={onPalette} aria-keyshortcuts="Control+K">
+        <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+          <circle cx="7" cy="7" r="5" fill="none" stroke="currentColor" strokeWidth="1.6" />
+          <path d="M11 11l3.5 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+        <span className="tb-palette-label">앱 · 위치 · 명령</span>
+        <kbd>Ctrl+K</kbd>
+      </button>
       <UpdateChip />
       <div className="winctl">
         <button aria-label="최소화" title="최소화" onClick={() => win.minimize()}>

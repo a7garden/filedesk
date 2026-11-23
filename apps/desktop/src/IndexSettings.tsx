@@ -47,7 +47,7 @@ export default function IndexSettings({ current }: { current: string }) {
   };
 
   const svc = hub?.index.service;
-  const old = svc && hub && hub.index.serviceVersion !== hub.appVersion;
+  const old = svc && hub && (hub.index.serviceVersion !== hub.appVersion || (hub.serviceBuild != null && hub.serviceBuild !== hub.appBuild));
   const content = hub?.content;
 
   return (
@@ -60,7 +60,7 @@ export default function IndexSettings({ current }: { current: string }) {
         <div>
           <div className="set-acts">
             <span className="set-path">
-              {hub == null ? "확인 중…" : svc ? `빠른 색인 서비스${old ? " (앱과 버전 다름)" : ""}` : "앱이 직접 색인"}
+              {hub == null ? "확인 중…" : svc ? `빠른 색인 서비스${old ? ` ${hub.serviceBuild ?? ""} · 앱 ${hub.appBuild}` : ""}` : "앱이 직접 색인"}
             </span>
             {hub && !svc && (
               <button
@@ -146,7 +146,9 @@ export default function IndexSettings({ current }: { current: string }) {
               </p>
             </>
           ) : (
-            <p className="muted set-hint">본문 색인을 열 수 없음</p>
+            <p className={hub?.contentError ? "set-hint warn" : "muted set-hint"}>
+              {hub == null ? "확인 중…" : hub.contentError ? `본문 색인을 열 수 없음: ${hub.contentError}` : "여는 중…"}
+            </p>
           )}
         </div>
       </div>
