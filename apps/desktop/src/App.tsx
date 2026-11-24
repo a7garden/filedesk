@@ -698,6 +698,18 @@ export default function App() {
     });
   }, []);
   const unlink = useCallback((path: string) => setLinks((ls) => ls.filter((x) => norm(x.path) !== norm(path))), []);
+  /** 연결 이름 바꾸기 — 공유 줄(label) · 서버 줄(host, 그 서버의 연결 전부). 빈 이름이면 원래 이름(경로에서 딴 것)으로 돌린다. */
+  const renameLinks = useCallback((paths: string[], key: "label" | "host", name: string) => {
+    const want = new Set(paths.map(norm));
+    const v = name.trim();
+    setLinks((ls) =>
+      ls.map((x) => {
+        if (!want.has(norm(x.path))) return x;
+        const { [key]: _, ...rest } = x;
+        return v ? { ...rest, [key]: v } : rest;
+      }),
+    );
+  }, []);
   const pinApps = useCallback((add: AppPin[]) => {
     setPinnedApps((xs) => {
       const have = new Set(xs.map((x) => x.id.toLowerCase()));
@@ -1392,6 +1404,7 @@ export default function App() {
           links={links}
           onAddLinks={addLinks}
           onUnlink={unlink}
+          onRenameLinks={renameLinks}
           view={view}
           current={active.path}
           onGo={(p) => navigate(active.id, p)}

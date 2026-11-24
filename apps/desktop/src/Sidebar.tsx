@@ -33,6 +33,8 @@
 //                구획이 「폴더 목록」이 아니라 「파일 목록」으로 읽혔다. 이제 모든 스마트 폴더가 이름과 개수 한 줄이고, 파일은 누르면 칸에서 본다.
 //   2026.11.24 : 항목마다 오른쪽 메뉴 (사용자 요청) — 스마트 폴더 오른쪽 단추가 곧바로 편집 창을 열었고, 연결 · 즐겨찾기 · 앱은
 //                마우스를 올려야 보이는 작은 × 로만 뺄 수 있었다. 열기 · 새 탭 · 경로 복사 · 편집 · 복제 · 삭제를 메뉴에 모은다.
+//   2026.11.24 : 연결 이름 바꾸기 (사용자 요청) — 서버 줄(192.168.0.2 → 「사무실 NAS」)과 공유 줄을 오른쪽 메뉴 · 두 번 누르기 · F2 로 바꾼다.
+//                경로는 그대로 두고 보일 이름만 바꾼다. 비우면 원래 이름으로.
 //   2026.11.24 : 「즐겨찾기」를 왼쪽 열에도 둔다 (사용자 요청 · 설정 › 보기 › 표시할 항목에서 끈다). 아래 독과 같은 목록이다 —
 //                독은 마우스를 대야 올라와 자주 가는 곳을 늘 보이게 두지 못했다. 제목의 「＋」는 지금 폴더를 더하고, 제목에 끌어 놓아도 더한다.
 // 항목마다 [data-drop] — 파일을 끌어다 놓으면 그 자리로 옮긴다.
@@ -57,6 +59,8 @@ type Props = {
   onUnpinApp: (id: string) => void;
   onAddApp: () => void;
   onUnlink: (path: string) => void;
+  /** 연결의 보일 이름 — label 은 공유 줄 하나, host 는 서버 줄(그 서버의 연결 전부에 적는다). 빈 이름이면 원래대로. */
+  onRenameLinks: (paths: string[], key: "label" | "host", name: string) => void;
   view: ViewPrefs;
   current: string;
   onGo: (path: string) => void;
@@ -96,7 +100,7 @@ const LINK_CHECK = 60000;
 export default function Sidebar(props: Props) {
   const upd = useUpdateState();
   const newVersion = upd.update && (upd.phase === "available" || upd.phase === "downloading") ? upd.update.version : null;
-  const { places, links, onAddLinks, onUnlink, view, current, onGo, onGoNewTab, settingsOpen, onSettings, smart, inbox, onOpenSmart, onEditSmart, onNewSmart, apps, onLaunchApp, onUnpinApp, onAddApp, pinned, onPinHere, onUnpin, onOpenFile, onMovePin, onDupSmart, onDeleteSmart, onNotice } = props;
+  const { places, links, onAddLinks, onUnlink, onRenameLinks, view, current, onGo, onGoNewTab, settingsOpen, onSettings, smart, inbox, onOpenSmart, onEditSmart, onNewSmart, apps, onLaunchApp, onUnpinApp, onAddApp, pinned, onPinHere, onUnpin, onOpenFile, onMovePin, onDupSmart, onDeleteSmart, onNotice } = props;
 
   // ───────── 오른쪽 메뉴 ─────────
   const [menu, setMenu] = useState<CtxMenuState | null>(null);
@@ -257,6 +261,9 @@ export default function Sidebar(props: Props) {
       .catch(() => setKnown([]));
   };
   const suggestions = (known ?? []).filter((k) => !linked.has(norm(k.path)));
+
+  /** 이름을 고치는 중인 연결 줄 — 서버 줄은 서버 이름, 공유 줄은 경로. */
+  const [editing, setEditing] = useState<{ key: "host" | "label"; id: string } | null>(null);
 
   // 연결이 열리는가 — 열 때 · 연결이 바뀔 때 · 1분마다. 모르는 동안(null)은 열린 것처럼 그린다
   const [offline, setOffline] = useState<Set<string> | null>(null);
@@ -445,25 +452,85 @@ export default function Sidebar(props: Props) {
               </h2>
               {[...hosts].map(([host, ls]) => {
                 const down = ls.every((l) => offline?.has(norm(l.path)));
+                const alias = ls.find((l) => l.host)?.host;
+                const paths = ls.map((l) => l.path);
+                const renameHost = () => setEditing({ key: "host", id: host });
                 return (
                   <div key={host} className="link-host">
-                    <div className={"link-server" + (down ? " off" : "")} title={down ? "연결할 수 없음" : undefined}>
+                    {/* 서버 줄 — 누르는 곳이 아니라 묶음 이름이라 두 번 누르기 · 오른쪽 메뉴로만 이름을 바꾼다 */}
+                    <div
+                      className={"link-server" + (down ? " off" : "")}
+                      title={[alias ? host : "", down ? "연결할 수 없음" : "", "두 번 눌러 이름 바꾸기"].filter(Boolean).join("\n")}
+                      onDoubleClick={renameHost}
+                      onContextMenu={(e) =>
+                        openMenu(e, alias ?? host, [
+                          { label: "이름 바꾸기…", hint: "두 번 누르기", run: renameHost, strong: true },
+                          ...(alias ? [{ label: `원래 이름으로 (${host})`, run: () => onRenameLinks(paths, "host", "") }] : []),
+                          { label: "서버 주소 복사", run: () => copyPath(serverOf(ls[0].path) ?? host) },
+                          "sep",
+                          {
+                            label: `이 서버의 연결 모두 제거 (${ls.length}개)`,
+                            run: () => window.confirm(`「${alias ?? host}」 의 연결 ${ls.length}개를 모두 제거할까요? 파일은 지워지지 않습니다.`) && paths.forEach(onUnlink),
+                          },
+                        ])
+                      }
+                    >
                       <PlaceGlyph kind="net" size={14} />
-                      <span>{host}</span>
+                      {editing?.key === "host" && editing.id === host ? (
+                        <NameInput
+                          value={alias ?? host}
+                          onDone={(v) => {
+                            setEditing(null);
+                            if (v != null) onRenameLinks(paths, "host", v.trim() === host ? "" : v);
+                          }}
+                        />
+                      ) : (
+                        <span>{alias ?? host}</span>
+                      )}
                       {down && <em>끊김</em>}
                     </div>
                     <ul>
                       {ls.map((l) => {
                         const off = !!offline?.has(norm(l.path));
+                        const plain = shareOf(l.path) ?? l.name;
+                        const shown = l.label ?? plain;
+                        if (editing?.key === "label" && editing.id === l.path)
+                          return (
+                            <li key={l.path} className="side-row link-rename">
+                              <NameInput
+                                value={shown}
+                                onDone={(v) => {
+                                  setEditing(null);
+                                  if (v != null) onRenameLinks([l.path], "label", v.trim() === plain ? "" : v);
+                                }}
+                              />
+                            </li>
+                          );
+                        const renameShare = () => setEditing({ key: "label", id: l.path });
                         return (
                           <li key={l.path} className="side-row">
                             <button
                               className={"nav-item link-share" + (norm(l.path) === here ? " current" : "") + (off ? " off" : "")}
-                              onContextMenu={(e) => openMenu(e, l.path, [...placeItems(l.path), "sep", { label: "연결에서 제거", run: () => onUnlink(l.path) }])}
-                              title={`${l.path}${off ? "\n연결할 수 없음" : ""}\n가운데 단추 · Ctrl: 새 탭`}
+                              onContextMenu={(e) =>
+                                openMenu(e, shown, [
+                                  ...placeItems(l.path),
+                                  "sep",
+                                  { label: "이름 바꾸기…", hint: "F2", run: renameShare },
+                                  ...(l.label ? [{ label: `원래 이름으로 (${plain})`, run: () => onRenameLinks([l.path], "label", "") }] : []),
+                                  "sep",
+                                  { label: "연결에서 제거", run: () => onUnlink(l.path) },
+                                ])
+                              }
+                              onKeyDown={(e) => {
+                                if (e.key !== "F2") return;
+                                e.preventDefault();
+                                e.stopPropagation();
+                                renameShare();
+                              }}
+                              title={`${l.path}${off ? "\n연결할 수 없음" : ""}\n가운데 단추 · Ctrl: 새 탭 · F2: 이름 바꾸기`}
                               {...nav(l.path)}
                             >
-                              <span>{shareOf(l.path) ?? l.name}</span>
+                              <span>{shown}</span>
                               {off && !down && <span className="count">끊김</span>}
                             </button>
                             <button className="side-x" title="연결에서 제거" aria-label={`${l.name} 연결에서 제거`} onClick={() => onUnlink(l.path)}>
@@ -735,6 +802,39 @@ export default function Sidebar(props: Props) {
         </button>
       </div>
     </nav>
+  );
+}
+
+/** 왼쪽 열 안에서 이름을 고치는 칸 — Enter · 칸 밖을 누르면 정하고(onDone(값)), Esc 면 그만둔다(onDone(null)).
+ *  목록의 이름 바꾸기(Pane 의 rename)와 같은 꼴이다. 키는 목록 · 앱 단축키로 새지 않게 여기서 멈춘다. */
+function NameInput({ value, onDone }: { value: string; onDone: (v: string | null) => void }) {
+  const ref = useRef<HTMLInputElement>(null);
+  const done = useRef(false);
+  useEffect(() => {
+    ref.current?.focus();
+    ref.current?.select();
+  }, []);
+  const finish = (v: string | null) => {
+    if (done.current) return;
+    done.current = true;
+    onDone(v);
+  };
+  return (
+    <input
+      ref={ref}
+      className="rename"
+      defaultValue={value}
+      spellCheck={false}
+      aria-label="보일 이름 (비우면 원래 이름)"
+      onMouseDown={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") finish(ref.current?.value ?? value);
+        if (e.key === "Escape") finish(null);
+      }}
+      onBlur={() => finish(ref.current?.value ?? value)}
+    />
   );
 }
 

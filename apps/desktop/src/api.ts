@@ -70,7 +70,15 @@ export type QueryArgs = {
 };
 
 /** 즐겨찾기 · 위치. `file` 이면 누를 때 그 파일을 연다 (폴더면 들어간다). */
-export type Place = { name: string; path: string; file?: boolean };
+export type Place = {
+  name: string;
+  path: string;
+  file?: boolean;
+  /** 「연결」에서 사용자가 붙인 보일 이름 — 없으면 경로에서 딴다. 2026.11.24 더했다 (사용자 요청 「NAS 이름 변경」). */
+  label?: string;
+  /** 「연결」 서버 줄에 보일 이름 — 같은 서버의 연결에 똑같이 적는다. IP(192.168.0.2)만으로는 어느 NAS 인지 몰랐다. 2026.11.24 */
+  host?: string;
+};
 /** 드라이브 — 용량은 바이트, 모르면 0 (네트워크 · CD). */
 export type Drive = { path: string; label: string; kind: "fixed" | "removable" | "network" | "cd"; total: number; free: number };
 export type Places = { known: Place[]; drives: Drive[] };

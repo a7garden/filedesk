@@ -1994,6 +1994,14 @@ body.resizing-y * {
 .nav-item.link-share {
   padding-left: 28px;
 }
+/* 연결 이름 바꾸기 칸 (2026.11.24) — 서버 줄은 줄 높이(22px) 안에, 공유 줄은 글자 자리(28px 들임)에 맞춰 칸이 생겨도 줄이 움찔하지 않게 */
+.link-server .rename {
+  height: 20px;
+  font-size: 11.5px;
+}
+.side-row.link-rename {
+  padding: 1px 4px 1px 24px;
+}
 .nav-item.link-share.off > span:first-child {
   opacity: 0.55;
 }
