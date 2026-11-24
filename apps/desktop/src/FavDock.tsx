@@ -23,7 +23,8 @@ import { api, type Place, type TagColor, type ViewPrefs } from "./api";
 import { PIN_DROP } from "./App";
 import { FolderGlyph } from "./glyphs";
 import { DocGlyph } from "./shortcut";
-import TagMenu, { TagDot } from "./TagMenu";
+import ContextMenu from "./ContextMenu";
+import { TagDot } from "./TagMenu";
 import { norm, packIconUrl } from "./util";
 
 type Props = {
@@ -281,27 +282,35 @@ export default function FavDock(props: Props) {
         {pinned.length === 0 && <span className="dock-tick empty" />}
         <span className="dock-beckon">즐겨찾기에 추가</span>
       </div>
-      {menu && (
-        <TagMenu
-          x={menu.x}
-          y={menu.y}
-          current={colors.get(norm(menu.path))}
-          onPick={(c) => pickColor(menu.path, c)}
-          onClose={() => setMenu(null)}
-          extra={
-            <button
-              className="tag-clear"
-              role="menuitem"
-              onClick={() => {
-                onUnpin(menu.path);
-                setMenu(null);
+      {/* 2026.11.24 : 색 고르기 + 제거뿐이던 메뉴를 왼쪽 열 즐겨찾기와 같은 메뉴로 (열기 · 새 탭 · 경로 복사 · 옮기기 · 색 · 제거) */}
+      {menu &&
+        (() => {
+          const i = pinned.findIndex((x) => x.path === menu.path);
+          const p = pinned[i];
+          if (!p) return null;
+          return (
+            <ContextMenu
+              onClose={() => setMenu(null)}
+              menu={{
+                x: menu.x,
+                y: menu.y,
+                label: p.name,
+                items: [
+                  { label: "열기", strong: true, run: () => (p.file ? onOpenFile(p.path) : onGo(p.path)) },
+                  ...(p.file ? [] : [{ label: "새 탭에서 열기", hint: "Ctrl+클릭", run: () => onGoNewTab(p.path) }]),
+                  { label: "경로 복사", run: () => void navigator.clipboard.writeText(p.path).catch(() => {}) },
+                  "sep",
+                  { colors: colors.get(norm(p.path)), pick: (c) => pickColor(p.path, c) },
+                  "sep",
+                  { label: "앞으로 옮기기", disabled: i === 0, run: () => onMovePin(i, i - 1) },
+                  { label: "뒤로 옮기기", disabled: i === pinned.length - 1, run: () => onMovePin(i, i + 2) },
+                  "sep",
+                  { label: "즐겨찾기에서 제거", run: () => onUnpin(p.path) },
+                ],
               }}
-            >
-              즐겨찾기에서 제거
-            </button>
-          }
-        />
-      )}
+            />
+          );
+        })()}
     </div>
   );
 }

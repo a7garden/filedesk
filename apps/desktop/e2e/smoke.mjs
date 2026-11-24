@@ -64,7 +64,8 @@ const backup = existsSync(SETTINGS) ? readFileSync(SETTINGS) : null;
 // 메모도 떠 두었다가 되돌린다 — 시험 메모가 사용자 메모 파일에 남지 않게.
 const memoBackup = existsSync(MEMOS) ? readFileSync(MEMOS) : null;
 mkdirSync(join(SETTINGS, ".."), { recursive: true });
-writeFileSync(SETTINGS, JSON.stringify({ session: { tabs: [T], active: 0 }, pinned: [{ name: "시험 폴더", path: T }] }));
+// 판 관리는 0.1.9 부터 기본 끔이다 — 이 시험은 판 접기 · 판 열을 보므로 켠다
+writeFileSync(SETTINGS, JSON.stringify({ session: { tabs: [T], active: 0 }, pinned: [{ name: "시험 폴더", path: T }], view: { editions: true } }));
 
 const app = spawn(EXE, [], {
   // WebView2 데이터 폴더를 따로 둔다 — 사용자가 켜 둔 filedesk 와 같은 폴더를 쓰면
@@ -364,11 +365,13 @@ try {
     check("판 접기 단추 위에서는 내려간다", await until(() => page.locator(".dock-shelf").isHidden(), 1500));
   }
 
-  // 10-6-1. 끌어서 고르기 (2026.11.12) — 줄의 이름 밖(고친 날 칸)에서 누르고 아래 줄까지 끌면 걸친 줄을 모두 고른다
+  // 10-6-1. 끌어서 고르기 (2026.11.12) — 줄 오른쪽 가장자리 여백에서 누르고 아래 줄까지 끌면 걸친 줄을 모두 고른다
+  //   2026.11.24 : 줄의 칸(이름 · 수정일 · 크기)은 어디를 잡든 파일 끌기라, 고르기는 줄 칸 밖 여백에서 시작한다
   {
-    const a = await row("산출물").locator(".cell.date").boundingBox();
+    const ra = await row("산출물").boundingBox();
+    const a = { x: ra.x + ra.width - 3, y: ra.y, height: ra.height };
     const b = await row("하위").locator(".cell.date").boundingBox();
-    await page.mouse.move(a.x + 4, a.y + a.height / 2);
+    await page.mouse.move(a.x, a.y + a.height / 2);
     await page.mouse.down();
     await page.mouse.move(a.x - 40, b.y + b.height / 2, { steps: 8 });
     check("끄는 동안 네모가 보인다", await pane.locator(".marquee").count() === 1);
@@ -385,7 +388,7 @@ try {
   // 연결은 설정에서 켜야 보인다 — NAS 를 안 쓰는 사람에게는 없는 구획이다
   check("연결은 처음에 없다", await page.locator(".link-form").count() === 0);
   await page.locator(".settings-btn").click();
-  await page.locator(".settings label.set-check", { hasText: "왼쪽 열의 연결" }).click();
+  await page.locator(".side-mock li", { hasText: "연결" }).locator("input[role=switch]").check();
   await page.keyboard.press("Escape");
   check("설정에서 켜면 연결 주소 칸이 선다", await until(() => page.locator(".link-form input").count().then((c) => c === 1)));
   await page.locator(".link-form input").fill(join(T, "자료"));

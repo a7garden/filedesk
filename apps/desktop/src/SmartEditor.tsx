@@ -134,7 +134,7 @@ export default function SmartEditor(p: Props) {
           ref={nameRef}
           className="se-name"
           value={name}
-          placeholder={p.isNew ? "새 스마트 폴더 이름" : "이름"}
+          placeholder={p.isNew ? "새 스마트 폴더 이름" : "스마트 폴더 이름"}
           aria-label="이름"
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && save()}
@@ -176,12 +176,12 @@ export default function SmartEditor(p: Props) {
                 </li>
               ))}
               <li className="se-root add">
-                <input value={adding} placeholder="폴더 경로 (D:\work · \\NAS\공유)" spellCheck={false} aria-label="추가할 폴더 경로" onChange={(e) => setAdding(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addRoot(adding)} />
+                <input value={adding} placeholder="폴더 경로 (예: D:\work · \\nas\공유)" spellCheck={false} aria-label="추가할 폴더 경로" onChange={(e) => setAdding(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addRoot(adding)} />
                 <button className="act" onClick={() => addRoot(adding)} disabled={!adding.trim()}>
                   추가
                 </button>
                 <button className="act" onClick={() => addRoot(p.current)} title={p.current}>
-                  지금 폴더
+                  지금 폴더 추가
                 </button>
               </li>
             </ul>

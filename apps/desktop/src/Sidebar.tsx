@@ -3,7 +3,7 @@
 //
 // 목차
 //   [1] 상태 · 불러오기 — 색 개수 · 색인 상태 · 스마트 폴더 개수 · 연결 더하기
-//   [2] 이 PC · 연결 · 색 표시 · 스마트 폴더 · 설정
+//   [2] 이 PC · 즐겨찾기 · 앱 · 연결 · 색 표시 · 스마트 폴더 · 설정
 //
 //   2026.11.11 : 늘 같은 셋(바탕화면 · 다운로드 · 문서)은 세 칸 그림으로 — 고정된 자리라 글 목록으로 읽을 까닭이 없고, 그림 자리를 손이 외운다.
 //                「연결」을 더했다 — NAS · 공유 폴더(\\서버\공유)를 등록해 둔다. 즐겨찾기와 같은 꼴(Place)이고 자리만 다르다.
@@ -31,13 +31,20 @@
 //   2026.11.20 : 주소 칸 · 고르는 판을 왼쪽 열에서 가운데 「연결 추가」 창으로 옮겼다 — 좁은 열 안에서 단추가 넘쳤다. 왼쪽에는 「＋ 연결 추가」 한 줄.
 //   2026.11.12 : 「최근 파일」 밑에 파일 다섯 개를 이름 그대로 늘어놓던 것을 걷었다 — 스마트 폴더로 바꾼 뒤에도 파일이 왼쪽 열에 바로 올라와
 //                구획이 「폴더 목록」이 아니라 「파일 목록」으로 읽혔다. 이제 모든 스마트 폴더가 이름과 개수 한 줄이고, 파일은 누르면 칸에서 본다.
+//   2026.11.24 : 항목마다 오른쪽 메뉴 (사용자 요청) — 스마트 폴더 오른쪽 단추가 곧바로 편집 창을 열었고, 연결 · 즐겨찾기 · 앱은
+//                마우스를 올려야 보이는 작은 × 로만 뺄 수 있었다. 열기 · 새 탭 · 경로 복사 · 편집 · 복제 · 삭제를 메뉴에 모은다.
+//   2026.11.24 : 「즐겨찾기」를 왼쪽 열에도 둔다 (사용자 요청 · 설정 › 보기 › 표시할 항목에서 끈다). 아래 독과 같은 목록이다 —
+//                독은 마우스를 대야 올라와 자주 가는 곳을 늘 보이게 두지 못했다. 제목의 「＋」는 지금 폴더를 더하고, 제목에 끌어 놓아도 더한다.
 // 항목마다 [data-drop] — 파일을 끌어다 놓으면 그 자리로 옮긴다.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { api, appIconUrl, TAG_COLORS, TAG_LABEL, type AppPin, type Drive, type HubStatus, type Place, type Places, type SmartFolder, type TagColor, type ViewPrefs } from "./api";
-import { APP_DROP, LINK_DROP, TAG_DROP } from "./App";
-import { PlaceGlyph } from "./glyphs";
+import ContextMenu, { type CtxEntry, type CtxMenuState } from "./ContextMenu";
+import { api, appIconUrl, TAG_COLORS, TAG_LABEL, type AppPin, type Drive, type HubStatus, type Place, type Places, type SideId, type SmartFolder, type TagColor, type ViewPrefs } from "./api";
+import { APP_DROP, LINK_DROP, PIN_DROP, TAG_DROP } from "./App";
+import { FolderGlyph, PlaceGlyph } from "./glyphs";
+import { DocGlyph } from "./shortcut";
 import { ago, kindTable, remoteOnly, scopeLabel, scopeOf, tzOffset } from "./query";
+import { useUpdateState } from "./updater";
 import { baseName, errText, formatBytes, norm } from "./util";
 
 type Props = {
@@ -62,6 +69,17 @@ type Props = {
   onOpenSmart: (f: SmartFolder) => void;
   onEditSmart: (f: SmartFolder) => void;
   onNewSmart: () => void;
+  /** 즐겨찾기 — 아래 독과 같은 목록. 「＋」는 지금 폴더를 더한다 · 파일은 누르면 연다. */
+  pinned: Place[];
+  onPinHere: () => void;
+  onUnpin: (path: string) => void;
+  onOpenFile: (path: string) => void;
+  onMovePin: (from: number, to: number) => void;
+  /** 스마트 폴더 복제 · 삭제 (오른쪽 메뉴). */
+  onDupSmart: (f: SmartFolder) => void;
+  onDeleteSmart: (id: string) => void;
+  /** 알림 줄 — 경로 복사 같은 짧은 결과. */
+  onNotice: (text: string, tone: "ok" | "warn") => void;
 };
 
 /** 스마트 폴더 개수를 다시 세는 간격(ms). */
@@ -76,7 +94,28 @@ const LOW_SPACE = 0.1;
 const LINK_CHECK = 60000;
 
 export default function Sidebar(props: Props) {
-  const { places, links, onAddLinks, onUnlink, view, current, onGo, onGoNewTab, settingsOpen, onSettings, smart, inbox, onOpenSmart, onEditSmart, onNewSmart, apps, onLaunchApp, onUnpinApp, onAddApp } = props;
+  const upd = useUpdateState();
+  const newVersion = upd.update && (upd.phase === "available" || upd.phase === "downloading") ? upd.update.version : null;
+  const { places, links, onAddLinks, onUnlink, view, current, onGo, onGoNewTab, settingsOpen, onSettings, smart, inbox, onOpenSmart, onEditSmart, onNewSmart, apps, onLaunchApp, onUnpinApp, onAddApp, pinned, onPinHere, onUnpin, onOpenFile, onMovePin, onDupSmart, onDeleteSmart, onNotice } = props;
+
+  // ───────── 오른쪽 메뉴 ─────────
+  const [menu, setMenu] = useState<CtxMenuState | null>(null);
+  const openMenu = (e: React.MouseEvent, label: string, items: CtxEntry[]) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setMenu({ x: e.clientX, y: e.clientY, label, items });
+  };
+  const copyPath = (p: string) =>
+    navigator.clipboard
+      .writeText(p)
+      .then(() => onNotice("경로 복사함", "ok"))
+      .catch((err) => onNotice(errText(err), "warn"));
+  /** 자리(폴더 · 드라이브 · 공유)의 공통 항목 — 열기 · 새 탭에서 열기 · 경로 복사. */
+  const placeItems = (path: string): CtxEntry[] => [
+    { label: "열기", run: () => onGo(path), strong: true },
+    { label: "새 탭에서 열기", hint: "Ctrl+클릭", run: () => onGoNewTab(path) },
+    { label: "경로 복사", run: () => copyPath(path) },
+  ];
 
   // ───────── [1] 상태 · 불러오기 ─────────
 
@@ -256,111 +295,284 @@ export default function Sidebar(props: Props) {
     },
   });
 
+  // 구획마다 한 덩어리 — 설정 › 보기 › 사이드바 의 차례대로 늘어놓는다 (view.sideOrder · 끈 것은 view.sideOff · 즐겨찾기 · 연결 · 스마트 폴더는 제 설정).
+  // 2026.11.24 : 사용자 요청 「사이드바에 둘 구획을 고를 수 있게」.
+  /** 즐겨찾기 한 줄의 메뉴 — 폴더면 자리 항목, 파일이면 열기 · 경로 복사. 차례 옮기기 · 제거. */
+  const favItems = (f: Place, i: number): CtxEntry[] => [
+    ...(f.file ? [{ label: "열기", run: () => onOpenFile(f.path), strong: true }, { label: "경로 복사", run: () => copyPath(f.path) }] : placeItems(f.path)),
+    "sep",
+    { label: "위로 옮기기", disabled: i === 0, run: () => onMovePin(i, i - 1) },
+    { label: "아래로 옮기기", disabled: i === pinned.length - 1, run: () => onMovePin(i, i + 2) },
+    "sep",
+    { label: "즐겨찾기에서 제거", run: () => onUnpin(f.path) },
+  ];
+  const sections: Record<SideId, React.ReactNode> = {
+    pc: (
+      <>
+          {places && (
+            <section>
+              <h2>이 PC</h2>
+              {/* 늘 같은 셋 — 세 칸 그림. 자리가 고정이라 손이 외운다 */}
+              <div className="known-grid">
+                {places.known.map((k) => (
+                  <button key={k.path} className={"known-tile" + (norm(k.path) === here ? " current" : "")} title={k.path} {...nav(k.path)} onContextMenu={(e) => openMenu(e, k.name, placeItems(k.path))}>
+                    <PlaceGlyph kind={k.name === "바탕화면" ? "desktop" : k.name === "다운로드" ? "download" : "docs"} />
+                    <span>{k.name}</span>
+                  </button>
+                ))}
+              </div>
+              <ul className="drive-list">
+                {shownDrives.map((d) => (
+                  <li key={d.path} onContextMenu={(e) => openMenu(e, d.label, placeItems(d.path))}>
+                    {driveRow(d, current, onGo, onGoNewTab)}
+                  </li>
+                ))}
+                {drives.length > DRIVES_SHOWN && (
+                  <li>
+                    <button className="side-empty" aria-expanded={moreDrives} onClick={() => setMoreDrives((v) => !v)}>
+                      {moreDrives ? "접기" : `드라이브 ${drives.length - DRIVES_SHOWN}개 더`}
+                    </button>
+                  </li>
+                )}
+              </ul>
+            </section>
+          )}
+      </>
+    ),
+    favs: (
+      <>
+          {view.sideFavs && (
+            <section>
+              <h2 className="side-head" data-drop={PIN_DROP}>
+                즐겨찾기
+                <button className="side-add" aria-label="지금 폴더를 즐겨찾기에 추가" title="지금 폴더를 즐겨찾기에 추가 (Ctrl+D)" onClick={onPinHere}>
+                  ＋
+                </button>
+              </h2>
+              <ul>
+                {pinned.map((f, i) => {
+                  const ext = f.file ? (/\.([^.\\]+)$/.exec(f.path)?.[1] ?? "").toLowerCase() : "";
+                  return (
+                    <li key={f.path} className="side-row">
+                      {f.file ? (
+                        <button className="nav-item fav-item" title={`${f.path}\n열기`} onClick={() => onOpenFile(f.path)} onContextMenu={(e) => openMenu(e, f.name, favItems(f, i))}>
+                          <DocGlyph ext={ext} path={f.path} />
+                          <span>{f.name}</span>
+                        </button>
+                      ) : (
+                        <button
+                          className={"nav-item fav-item" + (norm(f.path) === here ? " current" : "")}
+                          title={`${f.path}\n가운데 단추 · Ctrl: 새 탭`}
+                          {...nav(f.path)}
+                          onContextMenu={(e) => openMenu(e, f.name, favItems(f, i))}
+                        >
+                          <FolderGlyph />
+                          <span>{f.name}</span>
+                        </button>
+                      )}
+                      <button className="side-x" title="즐겨찾기에서 제거" aria-label={`${f.name} 즐겨찾기에서 제거`} onClick={() => onUnpin(f.path)}>
+                        ×
+                      </button>
+                    </li>
+                  );
+                })}
+                {pinned.length === 0 && (
+                  <li>
+                    <button className="side-empty" data-drop={PIN_DROP} onClick={onPinHere} title="폴더 · 파일을 여기에 끌어 놓아도 추가">
+                      지금 폴더 추가
+                    </button>
+                  </li>
+                )}
+              </ul>
+            </section>
+          )}
+      </>
+    ),
+    apps: (
+      <>
+          {/* 앱 — 자주 여는 프로그램. 2026.11.18 : 사용자 요청. 파일을 찾다가 그 파일을 다룰 앱을 여는 일이 잦다 */}
+          <section>
+            <h2 className="side-head" data-drop={APP_DROP}>
+              앱
+              {/* 빈 목록이면 아래 「＋ 앱 추가」 한 줄이 같은 일을 한다 — 머리에도 ＋ 를 두면 같은 단추가 두 개 (2026.11.24 사용자 지적) */}
+              {apps.length > 0 && (
+                <button className="side-add" aria-label="앱 추가" title="앱 추가 · 실행 파일 · 바로가기를 끌어 놓아도 추가" onClick={onAddApp}>
+                  ＋
+                </button>
+              )}
+            </h2>
+            <ul>
+              {apps.map((a) => (
+                <li key={a.id} className="side-row">
+                  <button
+                    className="nav-item app-item"
+                    title={`${a.name} 열기`}
+                    onClick={() => onLaunchApp(a.id)}
+                    onContextMenu={(e) =>
+                      openMenu(e, a.name, [
+                        { label: "열기", run: () => onLaunchApp(a.id), strong: true },
+                        "sep",
+                        { label: "「앱」에서 빼기", run: () => onUnpinApp(a.id) },
+                      ])
+                    }
+                  >
+                    <img src={appIconUrl(a.icon, 16)} width={16} height={16} alt="" draggable={false} />
+                    <span>{a.name}</span>
+                  </button>
+                  <button className="side-x" title="앱 목록에서 제거" aria-label={`${a.name} 앱 목록에서 제거`} onClick={() => onUnpinApp(a.id)}>
+                    ×
+                  </button>
+                </li>
+              ))}
+              {/* 2026.11.24 : 「앱 고정」 → 「＋ 앱 추가」 (사용자 지적). 명령인지 제목인지 읽히지 않았다 — 「연결 추가」와 같은 꼴로 맞추고 끌어 놓을 자리도 겸한다 */}
+              {apps.length === 0 && (
+                <li>
+                  <button className="side-empty side-add-row" data-drop={APP_DROP} onClick={onAddApp} title="자주 여는 프로그램을 골라 둔다 · 실행 파일 · 바로가기를 끌어 놓아도 추가">
+                    ＋ 앱 추가
+                  </button>
+                </li>
+              )}
+            </ul>
+          </section>
+      </>
+    ),
+    links: (
+      <>
+          {view.links && (
+            <section>
+              <h2 className="side-head" data-drop={LINK_DROP}>
+                연결
+              </h2>
+              {[...hosts].map(([host, ls]) => {
+                const down = ls.every((l) => offline?.has(norm(l.path)));
+                return (
+                  <div key={host} className="link-host">
+                    <div className={"link-server" + (down ? " off" : "")} title={down ? "연결할 수 없음" : undefined}>
+                      <PlaceGlyph kind="net" size={14} />
+                      <span>{host}</span>
+                      {down && <em>끊김</em>}
+                    </div>
+                    <ul>
+                      {ls.map((l) => {
+                        const off = !!offline?.has(norm(l.path));
+                        return (
+                          <li key={l.path} className="side-row">
+                            <button
+                              className={"nav-item link-share" + (norm(l.path) === here ? " current" : "") + (off ? " off" : "")}
+                              onContextMenu={(e) => openMenu(e, l.path, [...placeItems(l.path), "sep", { label: "연결에서 제거", run: () => onUnlink(l.path) }])}
+                              title={`${l.path}${off ? "\n연결할 수 없음" : ""}\n가운데 단추 · Ctrl: 새 탭`}
+                              {...nav(l.path)}
+                            >
+                              <span>{shareOf(l.path) ?? l.name}</span>
+                              {off && !down && <span className="count">끊김</span>}
+                            </button>
+                            <button className="side-x" title="연결에서 제거" aria-label={`${l.name} 연결에서 제거`} onClick={() => onUnlink(l.path)}>
+                              ×
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                );
+              })}
+              {/* 늘 맨 아래 「연결 추가」 — 누르면 연결 창이 뜬다. 폴더를 끌어 놓아도 더한다.
+                  2026.11.20 : 사용자 요청. 주소 칸 · 고르는 판 · 추가 단추가 좁은 왼쪽 열 안에 펼쳐져 단추가 넘쳤다 — 가운데 창으로 옮겼다. */}
+              <button className="side-empty link-add" data-drop={LINK_DROP} onClick={openForm}>
+                ＋ 연결 추가
+              </button>
+            </section>
+          )}
+      </>
+    ),
+    tags: (
+      <>
+          <section>
+          {/* 2026.11.24 : 「색 표시」 머리글을 뗐다 (사용자 지적) — 일곱 색 건반만으로 무엇인지 읽힌다 */}
+            {/* 일곱 건반 — 자리가 Alt+1~7 과 같다. 단 것은 찬 원 밑에 개수, 안 단 것은 빈 고리 */}
+            <div className="tag-keys" role="toolbar" aria-label="색 표시 모아 보기">
+              {TAG_COLORS.map((c, i) => {
+                const n = tagCounts.get(c) ?? 0;
+                return (
+                  <button
+                    key={c}
+                    className={`tag-key tag-${c}` + (n ? " used" : "")}
+                    data-drop={TAG_DROP + c}
+                    aria-label={`${TAG_LABEL[c]} ${n}개`}
+                    title={n ? `${TAG_LABEL[c]} ${n}개 (Alt+${i + 1})` : `${TAG_LABEL[c]} 없음 (Alt+${i + 1})`}
+                    onClick={() => n && window.dispatchEvent(new CustomEvent("fd:tagged", { detail: c }))}
+                  >
+                    <span className="tag-key-dot" />
+                    <span className="tag-key-n">{n || ""}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+      </>
+    ),
+    smart: (
+      <>
+          {view.recent && (
+            <section className="smart-section">
+              <h2 className="side-head">
+                스마트 폴더
+                <button className="side-add" aria-label="새 스마트 폴더" title="새 스마트 폴더" onClick={onNewSmart}>
+                  ＋
+                </button>
+              </h2>
+              <ul>
+                {smart.map((f) => {
+                  const c = counts.get(f.id);
+                  return (
+                    <li key={f.id}>
+                      <button
+                        className="nav-item smart-item"
+                        title={`${f.q}\n${scopeLabel(f.scope)}`}
+                        onClick={() => onOpenSmart(f)}
+                        onContextMenu={(e) =>
+                          openMenu(e, f.name, [
+                            { label: "열기", run: () => onOpenSmart(f), strong: true },
+                            { label: "이름 · 조건 편집…", run: () => onEditSmart(f) },
+                            { label: "복제", run: () => onDupSmart(f) },
+                            "sep",
+                            { label: "삭제", run: () => window.confirm(`스마트 폴더 「${f.name}」 을(를) 삭제할까요? 파일은 지워지지 않습니다.`) && onDeleteSmart(f.id) },
+                          ])
+                        }
+                      >
+                        <SmartGlyph />
+                        <span>{f.name}</span>
+                        {c && <span className="count">{c.more ? `${c.n.toLocaleString("ko-KR")}+` : c.n.toLocaleString("ko-KR")}</span>}
+                      </button>
+                    </li>
+                  );
+                })}
+                {smart.length === 0 && (
+                  <li>
+                    <button className="side-empty" onClick={onNewSmart}>
+                      새 스마트 폴더
+                    </button>
+                  </li>
+                )}
+              </ul>
+              {hub && <p className="side-hint index-line" title={indexTitle(hub)}>{indexLine(hub)}</p>}
+            </section>
+          )}
+      </>
+    ),
+  };
+  const off = new Set(view.sideOff);
+
   return (
     <nav className="side" aria-label="위치">
+      {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
       {/* 창 끌기는 제목 줄 옆 띠에서만. 2026.11.18 : 사용자 지적 — 왼쪽 열 전체가 끌기 자리여서 항목 사이 빈 곳 · 목록 아래를 누르고 끌어도 창이 움직였다 */}
       <div className="side-drag" data-tauri-drag-region aria-hidden="true" />
-      {places && (
-        <section>
-          <h2>이 PC</h2>
-          {/* 늘 같은 셋 — 세 칸 그림. 자리가 고정이라 손이 외운다 */}
-          <div className="known-grid">
-            {places.known.map((k) => (
-              <button key={k.path} className={"known-tile" + (norm(k.path) === here ? " current" : "")} title={k.path} {...nav(k.path)}>
-                <PlaceGlyph kind={k.name === "바탕화면" ? "desktop" : k.name === "다운로드" ? "download" : "docs"} />
-                <span>{k.name}</span>
-              </button>
-            ))}
-          </div>
-          <ul className="drive-list">
-            {shownDrives.map((d) => (
-              <li key={d.path}>{driveRow(d, current, onGo, onGoNewTab)}</li>
-            ))}
-            {drives.length > DRIVES_SHOWN && (
-              <li>
-                <button className="side-empty" aria-expanded={moreDrives} onClick={() => setMoreDrives((v) => !v)}>
-                  {moreDrives ? "접기" : `드라이브 ${drives.length - DRIVES_SHOWN}개 더`}
-                </button>
-              </li>
-            )}
-          </ul>
-        </section>
-      )}
-
-      {/* 앱 — 자주 여는 프로그램. 2026.11.18 : 사용자 요청. 파일을 찾다가 그 파일을 다룰 앱을 여는 일이 잦다 */}
-      <section>
-        <h2 className="side-head" data-drop={APP_DROP}>
-          앱
-          <button className="side-add" aria-label="앱 고정" title="앱 고정" onClick={onAddApp}>
-            ＋
-          </button>
-        </h2>
-        <ul>
-          {apps.map((a) => (
-            <li key={a.id} className="side-row">
-              <button className="nav-item app-item" title={`${a.name} 열기`} onClick={() => onLaunchApp(a.id)}>
-                <img src={appIconUrl(a.icon, 16)} width={16} height={16} alt="" draggable={false} />
-                <span>{a.name}</span>
-              </button>
-              <button className="side-x" title="앱에서 빼기" aria-label={`${a.name} 앱에서 빼기`} onClick={() => onUnpinApp(a.id)}>
-                ×
-              </button>
-            </li>
-          ))}
-          {apps.length === 0 && (
-            <li>
-              <button className="side-empty" onClick={onAddApp}>
-                앱 고정
-              </button>
-            </li>
-          )}
-        </ul>
-      </section>
-
-      {view.links && (
-        <section>
-          <h2 className="side-head" data-drop={LINK_DROP}>
-            연결
-          </h2>
-          {[...hosts].map(([host, ls]) => {
-            const down = ls.every((l) => offline?.has(norm(l.path)));
-            return (
-              <div key={host} className="link-host">
-                <div className={"link-server" + (down ? " off" : "")} title={down ? "연결할 수 없음" : undefined}>
-                  <PlaceGlyph kind="net" size={14} />
-                  <span>{host}</span>
-                  {down && <em>끊김</em>}
-                </div>
-                <ul>
-                  {ls.map((l) => {
-                    const off = !!offline?.has(norm(l.path));
-                    return (
-                      <li key={l.path} className="side-row">
-                        <button
-                          className={"nav-item link-share" + (norm(l.path) === here ? " current" : "") + (off ? " off" : "")}
-                          title={`${l.path}${off ? "\n연결할 수 없음" : ""}\n가운데 단추 · Ctrl: 새 탭`}
-                          {...nav(l.path)}
-                        >
-                          <span>{shareOf(l.path) ?? l.name}</span>
-                          {off && !down && <span className="count">끊김</span>}
-                        </button>
-                        <button className="side-x" title="연결에서 제거" aria-label={`${l.name} 연결에서 제거`} onClick={() => onUnlink(l.path)}>
-                          ×
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            );
-          })}
-          {/* 늘 맨 아래 「연결 추가」 — 누르면 연결 창이 뜬다. 폴더를 끌어 놓아도 더한다.
-              2026.11.20 : 사용자 요청. 주소 칸 · 고르는 판 · 추가 단추가 좁은 왼쪽 열 안에 펼쳐져 단추가 넘쳤다 — 가운데 창으로 옮겼다. */}
-          <button className="side-empty link-add" data-drop={LINK_DROP} onClick={openForm}>
-            ＋ 연결 추가
-          </button>
-        </section>
-      )}
+      {view.sideOrder
+        .filter((id) => !off.has(id))
+        .map((id) => (
+          <Fragment key={id}>{sections[id]}</Fragment>
+        ))}
       {formOpen &&
         createPortal(
           <div className="set-backdrop" onMouseDown={(e) => e.target === e.currentTarget && closeForm()}>
@@ -417,7 +629,7 @@ export default function Sidebar(props: Props) {
                   <div className="link-pick" role="group" aria-label="연결할 곳 고르기">
                     {/* 경로 줄 — 마디마다 눌러 그 자리로. 2026.11.20 : 「‹ 위로 + 끝 두 마디」 → 마디 줄. 창이 넓어 경로 전체가 들어가고,
                         몇 단계 위로 갈 때 ‹ 를 여러 번 누르지 않는다. 맨 앞 서버 마디는 공유 목록, 마지막 마디는 지금 자리(누르지 않는다) */}
-                    <nav className="link-crumbs" aria-label="지금 자리">
+                    <nav className="link-crumbs" aria-label="지금 위치">
                       {crumbsOf(pick).map((c, i, all) =>
                         i === all.length - 1 ? (
                           <span key={c.label + i} aria-current="location" title={c.path ?? pick.server}>
@@ -512,72 +724,13 @@ export default function Sidebar(props: Props) {
           document.body,
         )}
 
-      <section>
-        <h2>색 표시</h2>
-        {/* 일곱 건반 — 자리가 Alt+1~7 과 같다. 단 것은 찬 원 밑에 개수, 안 단 것은 빈 고리 */}
-        <div className="tag-keys" role="toolbar" aria-label="색 표시 모아 보기">
-          {TAG_COLORS.map((c, i) => {
-            const n = tagCounts.get(c) ?? 0;
-            return (
-              <button
-                key={c}
-                className={`tag-key tag-${c}` + (n ? " used" : "")}
-                data-drop={TAG_DROP + c}
-                aria-label={`${TAG_LABEL[c]} ${n}개`}
-                title={n ? `${TAG_LABEL[c]} ${n}개 (Alt+${i + 1})` : `${TAG_LABEL[c]} 없음 (Alt+${i + 1})`}
-                onClick={() => n && window.dispatchEvent(new CustomEvent("fd:tagged", { detail: c }))}
-              >
-                <span className="tag-key-dot" />
-                <span className="tag-key-n">{n || ""}</span>
-              </button>
-            );
-          })}
-        </div>
-      </section>
-
-      {view.recent && (
-        <section className="smart-section">
-          <h2 className="side-head">
-            스마트 폴더
-            <button className="side-add" aria-label="새 스마트 폴더" title="새 스마트 폴더" onClick={onNewSmart}>
-              ＋
-            </button>
-          </h2>
-          <ul>
-            {smart.map((f) => {
-              const c = counts.get(f.id);
-              return (
-                <li key={f.id}>
-                  <button
-                    className="nav-item smart-item"
-                    title={`${f.q}\n${scopeLabel(f.scope)}`}
-                    onClick={() => onOpenSmart(f)}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      onEditSmart(f);
-                    }}
-                  >
-                    <SmartGlyph />
-                    <span>{f.name}</span>
-                    {c && <span className="count">{c.more ? `${c.n.toLocaleString("ko-KR")}+` : c.n.toLocaleString("ko-KR")}</span>}
-                  </button>
-                </li>
-              );
-            })}
-            {smart.length === 0 && (
-              <li>
-                <button className="side-empty" onClick={onNewSmart}>
-                  새 스마트 폴더
-                </button>
-              </li>
-            )}
-          </ul>
-          {hub && <p className="side-hint index-line" title={indexTitle(hub)}>{indexLine(hub)}</p>}
-        </section>
-      )}
-
       <div className="side-foot">
-        <button className="settings-btn" aria-expanded={settingsOpen} title="설정 (Ctrl+,)" onClick={onSettings}>
+        <button
+          className={"settings-btn" + (newVersion ? " has-new" : "")}
+          aria-expanded={settingsOpen}
+          title={newVersion ? `설정 (Ctrl+,) · 새 버전 ${newVersion}` : "설정 (Ctrl+,)"}
+          onClick={onSettings}
+        >
           설정
         </button>
       </div>

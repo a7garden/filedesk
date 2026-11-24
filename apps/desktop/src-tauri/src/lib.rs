@@ -17,13 +17,13 @@
 //!   [8] 설정 (즐겨찾기 · 열어 둔 탭 · 분할 · 열 너비)
 //!   [8-1] 새 파일 (다운로드 · 바탕화면)
 //!   [8-2] 업데이트 — GitHub 릴리즈의 latest.json (tauri-plugin-updater · 화면 쪽 `updater.ts`)
-//!   [9] 아이콘 프로토콜 · 앱 시작
+//!   [9] 아이콘 프로토콜 · 앱 시작 · 새 창 (탭을 창 밖으로 끌어 떼어 낸 창)
 //!   [10] 색인 — 찾기 조건 · 스마트 폴더 · 이름 색인(서비스 · 앱 안 엔진) · 본문 색인 (`index.rs`)
 
 mod index;
 mod undo;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -163,7 +163,12 @@ async fn places() -> CmdResult<Places> {
 #[tauri::command]
 async fn resolve_input(input: String, cwd: String) -> CmdResult<String> {
     // 「C:/a/b」처럼 빗금으로 넣어도 탐색기와 같은 꼴(역빗금)로 맞춘다 — 섞이면 같은 폴더를 다른 경로로 본다.
-    let expanded = fd_shell::places::expand_env(input.trim().trim_matches('"')).replace('/', "\\");
+    let raw = input.trim().trim_matches('"');
+    // 2026.11.24 : 네트워크 주소(`\\nas:445\공유` · `smb://nas/공유`)는 연결 칸과 같은 규칙으로 푼다 — 포트를 떼고 `\\서버\공유` 꼴로.
+    //   서버 이름만(`nas`)은 상대 경로와 헷갈려 여기서는 풀지 않는다.
+    let lower = raw.to_ascii_lowercase();
+    let raw = if raw.starts_with("\\\\") || raw.starts_with("//") || lower.starts_with("smb://") { fd_shell::net::normalize(raw) } else { raw.to_string() };
+    let expanded = fd_shell::places::expand_env(&raw).replace('/', "\\");
     let mut p = PathBuf::from(&expanded);
     if p.is_relative() {
         p = Path::new(&cwd).join(p);
@@ -557,12 +562,30 @@ async fn drag_out(app: AppHandle, window: WebviewWindow, paths: Vec<String>) -> 
 struct WatchState {
     watcher: Mutex<Option<RecommendedWatcher>>,
     dirs: Mutex<HashSet<PathBuf>>,
+    /// 창마다 감시해 달라고 한 폴더. 감시는 이것을 모두 합친 자리다.
+    /// 2026.11.24 : 창이 여럿이 되며(탭을 끌어 떼어 낸 창) 한 창이 부르면 다른 창의 폴더 감시가 풀렸다 — 창별로 받아 합친다.
+    by_window: Mutex<HashMap<String, Vec<String>>>,
 }
 
 /// 열린 탭들의 폴더를 감시한다. 바뀌면 `fs-changed` 로 그 폴더 경로를 알린다 — 화면이 다시 읽는다.
 /// 하위 폴더까지 보지 않는다 (탭이 보는 칸만). NAS 경로는 감시가 안 될 수 있어 실패해도 넘어간다.
 #[tauri::command]
-fn watch_dirs(app: AppHandle, state: tauri::State<'_, WatchState>, dirs: Vec<String>) -> CmdResult<()> {
+fn watch_dirs(app: AppHandle, window: WebviewWindow, state: tauri::State<'_, WatchState>, dirs: Vec<String>) -> CmdResult<()> {
+    state.by_window.lock().unwrap().insert(window.label().to_string(), dirs);
+    rewatch(&app, &state)
+}
+
+/// 닫힌 창의 폴더는 감시에서 뺀다.
+fn unwatch_window(app: &AppHandle, label: &str) {
+    let state = app.state::<WatchState>();
+    if state.by_window.lock().unwrap().remove(label).is_some() {
+        let _ = rewatch(app, &state);
+    }
+}
+
+/// 모든 창이 부탁한 폴더를 합쳐 감시 자리를 맞춘다.
+fn rewatch(app: &AppHandle, state: &WatchState) -> CmdResult<()> {
+    let dirs: Vec<String> = state.by_window.lock().unwrap().values().flatten().cloned().collect::<HashSet<_>>().into_iter().collect();
     let mut guard = state.watcher.lock().unwrap();
     if guard.is_none() {
         let app2 = app.clone();
@@ -938,13 +961,36 @@ fn load_settings(app: AppHandle) -> CmdResult<serde_json::Value> {
     }
 }
 
+/// 설정 파일을 쓰는 일은 한 번에 하나 — 창이 여럿이면 둘이 같은 임시 파일에 겹쳐 쓸 수 있다.
+static SETTINGS_LOCK: Mutex<()> = Mutex::new(());
+
 /// 쓰다 꺼져도 설정이 반쯤 남지 않게 임시 파일에 쓰고 바꿔 끼운다.
 #[tauri::command]
 fn save_settings(app: AppHandle, value: serde_json::Value) -> CmdResult<()> {
-    let p = settings_path(&app)?;
+    let _g = SETTINGS_LOCK.lock().unwrap();
+    write_settings(&app, &value)
+}
+
+fn write_settings(app: &AppHandle, value: &serde_json::Value) -> CmdResult<()> {
+    let p = settings_path(app)?;
     let tmp = p.with_extension("json.tmp");
-    std::fs::write(&tmp, serde_json::to_vec_pretty(&value).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    std::fs::write(&tmp, serde_json::to_vec_pretty(value).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
     std::fs::rename(&tmp, &p).map_err(|e| e.to_string())
+}
+
+/// 설정의 몇 칸만 고쳐 쓴다 — 떼어 낸 창이 즐겨찾기 · 보기 같은 공용 설정을 저장할 때. 열어 둔 탭(session · layout)은 주 창 것이라 건드리지 않는다.
+#[tauri::command]
+fn save_prefs(app: AppHandle, value: serde_json::Value) -> CmdResult<()> {
+    let _g = SETTINGS_LOCK.lock().unwrap();
+    let p = settings_path(&app)?;
+    let mut cur = std::fs::read_to_string(&p).ok().and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok()).unwrap_or(serde_json::json!({}));
+    let (Some(obj), Some(patch)) = (cur.as_object_mut(), value.as_object()) else { return Err("설정 꼴이 아님".into()) };
+    for (k, v) in patch {
+        if !matches!(k.as_str(), "session" | "layout" | "split") {
+            obj.insert(k.clone(), v.clone());
+        }
+    }
+    write_settings(&app, &cur)
 }
 
 // ───────────────────────────── [8-1] 새 파일 ─────────────────────────────
@@ -1009,7 +1055,12 @@ async fn open_url(window: WebviewWindow, url: String) -> CmdResult<()> {
 ///   창은 숨긴 채 만들고(tauri.conf.json `visible: false`), 지난 화면 색의 바탕(styles.css `--paper`)을 칠한 뒤 바로 보인다.
 fn show_main(app: &tauri::App) {
     let Some(w) = app.get_webview_window("main") else { return };
-    let theme = settings_path(app.handle())
+    show_painted(app.handle(), &w);
+}
+
+/// 창을 지난 화면 색 바탕으로 칠하고 보인다 — 주 창 · 떼어 낸 창이 같이 쓴다.
+fn show_painted(app: &AppHandle, w: &WebviewWindow) {
+    let theme = settings_path(app)
         .ok()
         .and_then(|p| std::fs::read_to_string(p).ok())
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
@@ -1024,12 +1075,46 @@ fn show_main(app: &tauri::App) {
     let _ = w.show();
 }
 
+/// 떼어 낸 창의 번호 — 창 이름 `w-<번호>` (capabilities/default.json 의 `w-*`).
+static NEXT_WINDOW: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+
+/// 새 창을 연다 — 칸의 탭을 창 밖으로 끌어 놓았을 때. 그 탭의 폴더 하나로 열고, 놓은 자리(화면 좌표 · 물리 픽셀)에 창 왼쪽 위를 둔다.
+/// 2026.11.24 : 사용자 요청 「나눈 칸을 잡고 밖으로 끌면 창이 하나 더 생기게」. 모니터 두 대에 폴더를 나눠 놓는 일.
+#[tauri::command]
+async fn open_window(app: AppHandle, path: String, x: i32, y: i32, width: f64, height: f64) -> CmdResult<()> {
+    let label = format!("w-{}", NEXT_WINDOW.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+    let url = format!("index.html?path={}", percent_encode(&path));
+    let w = tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App(url.into()))
+        .title("filedesk")
+        .inner_size(width.max(640.0), height.max(400.0))
+        .min_inner_size(640.0, 400.0)
+        .decorations(false)
+        .visible(false)
+        .position(0.0, 0.0)
+        .build()
+        .map_err(|e| e.to_string())?;
+    let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+    show_painted(&app, &w);
+    let _ = w.set_focus();
+    Ok(())
+}
+
+/// 주소 query 에 넣을 글 — 영숫자 밖은 모두 %XX (경로의 \ · 공백 · 한글).
+fn percent_encode(s: &str) -> String {
+    s.bytes().map(|b| if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(WatchState::default())
         .manage(index::IndexHub::default())
+        .on_window_event(|w, ev| {
+            if let tauri::WindowEvent::Destroyed = ev {
+                unwatch_window(w.app_handle(), w.label());
+            }
+        })
         .setup(|app| {
             show_main(app);
             std::thread::spawn(refresh_skill);
@@ -1112,6 +1197,8 @@ pub fn run() {
             open_url,
             load_settings,
             save_settings,
+            save_prefs,
+            open_window,
             recent_files,
             index::parse_query,
             index::query_files,

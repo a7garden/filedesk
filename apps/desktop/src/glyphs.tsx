@@ -334,3 +334,12 @@ export function Chevron({ open }: { open: boolean }) {
     </svg>
   );
 }
+
+/** 끌기 손잡이 — 점 두 줄 세 칸. 설정 「사이드바」 · 「종류」의 줄 차례 (dragSort). 2026.11.24 */
+export function GripGlyph() {
+  return (
+    <svg width="8" height="14" viewBox="0 0 8 14" aria-hidden="true">
+      {[2, 7, 12].map((y) => [2, 6].map((x) => <circle key={`${x}-${y}`} cx={x} cy={y} r="1.2" fill="currentColor" />))}
+    </svg>
+  );
+}

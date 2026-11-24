@@ -12,6 +12,7 @@
 //       2026.11.11 : 따로 있던 「점검」 보기를 지우고 목록에 겹쳤다 — 같은 폴더를 다른 표로 두 번 그렸고, 목록과 견줄 수 없었다
 //   [3] 고르기 (클릭 · Ctrl · Shift · 키보드 · 끌어서 네모로)
 //       2026.11.12 : 끌어서 고르기(marquee.ts) — 빈 곳, 목록이면 줄의 이름 · 아이콘 밖에서 누르고 끈다. 이름 · 아이콘을 잡고 끌면 전처럼 앱 밖으로 끌기
+//       2026.11.24 : 줄은 어느 칸을 잡든 파일 끌기. 끌어서 고르기는 목록 빈 곳 · 줄 좌우 여백에서
 //       2026.11.11 : 설정 「폴더 열기」가 한 번 누르기면 폴더는 누르고 뗄 때 들어간다 (끌기 · Ctrl · Shift 는 그대로 고르기)
 //   [4] 동작 (열기 · 이름 바꾸기 · 휴지통 · 복사/잘라내기/붙여넣기 · 새 폴더 · 오른쪽 메뉴 · 새 판 · 메모 · 색 표시 · 즐겨찾기)
 //       색 표시는 Finder 꼬리표처럼 일곱 색 하나 — 이름 곁 점, 줄에 올리면 나오는 「색」 단추나 Alt+1~7 (Alt+0 지우기)
@@ -75,6 +76,8 @@ const Viewer = lazy(() => import("./Viewer"));
 
 type Props = {
   tab: Tab;
+  /** 탭에 보일 이름 — 폴더가 아닌 모아 보기(스마트 폴더 · 색 표시 · 모든 드라이브 찾기)면 그 이름, 아니면 null (폴더 이름). */
+  onTitle?: (title: string | null) => void;
   /** 보이는가 — 제 칸의 지금 탭. */
   visible: boolean;
   /** 나눠 볼 때 칸 영역 안 자리(left · top · width · height). 안 나눴으면 null. */
@@ -152,6 +155,23 @@ function loadError(text: string): LoadError {
 }
 
 const joinPath = (dir: string, name: string) => (dir.endsWith("\\") ? dir + name : `${dir}\\${name}`);
+/** 이름을 바꾼 뒤 이만큼(ms)은 다시 읽은 목록에 옛 이름이 와도 새 이름으로 읽는다 — NAS 디렉터리 캐시(기본 10초)보다 조금 길게. */
+const RENAME_HOLD = 15000;
+/** 정렬 기준 — 오른쪽 메뉴 「정렬 기준」의 차례. */
+const SORT_KEYS: [SortKey, string][] = [
+  ["name", "이름"],
+  ["modified", "수정일"],
+  ["kind", "종류"],
+  ["size", "크기"],
+];
+/** 열 머리를 누를 때의 다음 정렬 — 같은 열이면 방향만 뒤집고, 새 열이면 수정일 · 크기는 최신 · 큰 것부터(탐색기와 같다), 이름 · 종류는 가나다순.
+ *  2026.11.24 : 수정일 머리를 처음 누르면 오래된 것부터 떠 「수정일로 정렬이 안 된다」로 읽혔다 (사용자 지적). */
+const nextSort = (s: Sort, key: SortKey): Sort => (s.key === key ? { key, asc: !s.asc } : { key, asc: key === "name" || key === "kind" });
+/** 이름 바뀐 줄 — 경로 · 이름 · 확장자만 새로. 종류 글(셸 종류 이름)은 다시 읽을 때 따라온다. */
+function renamedEntry<T extends Entry>(e: T, to: string, name: string): T {
+  const dot = name.lastIndexOf(".");
+  return { ...e, path: to, name, ext: e.isDir ? e.ext : dot > 0 ? name.slice(dot + 1).toLowerCase() : "" };
+}
 const verLabel = (v: number[]) => (v.length ? `v${v.join(".")}` : "");
 /** 판 수 — 꼴만 다른 파일(pptx · pdf)은 한 판으로 센다 (판 목록 창과 같은 셈). */
 const editionCount = (g: DocGroup) => new Set(g.files.map(editionKey)).size;
@@ -318,6 +338,20 @@ export default function Pane(p: Props) {
     setColors(new Map(notes.filter((m) => m.color).map((m) => [norm(m.path), m.color as TagColor])));
   }, []);
 
+  /** 이 칸에서 바꾼 이름 — 잠시 동안 다시 읽은 목록에 덧입힌다 ([4] commitRename). */
+  const renamedRef = useRef<{ from: string; to: string; name: string; at: number }[]>([]);
+  /** 바꾼 이름을 목록에 입힌다 — 옛 이름이 있고 새 이름이 없을 때만 (캐시가 풀린 뒤의 목록은 손대지 않는다). */
+  const withRenames = useCallback(<T extends Entry>(list: T[]): T[] => {
+    const now = Date.now();
+    renamedRef.current = renamedRef.current.filter((r) => now - r.at < RENAME_HOLD);
+    let out = list;
+    for (const r of renamedRef.current) {
+      if (!out.some((e) => samePath(e.path, r.from)) || out.some((e) => samePath(e.path, r.to))) continue;
+      out = out.map((e) => (samePath(e.path, r.from) ? renamedEntry(e, r.to, r.name) : e));
+    }
+    return out;
+  }, []);
+
   const load = useCallback(
     async (keepSel: boolean) => {
       const seq = ++loadSeq.current;
@@ -326,7 +360,7 @@ export default function Pane(p: Props) {
         // 판 관리를 끄면 문서 묶음을 읽지 않는다 — 묶음이 비면 판 줄 · 문제 줄 · 판 메뉴가 모두 빠지고 파일마다 한 줄이 된다.
         const docsP = p.view.editions ? api.docGroups(path).catch(() => [] as DocGroup[]) : Promise.resolve([] as DocGroup[]);
         const restP = Promise.all([docsP, api.memosIn(path).catch(() => [])]);
-        const list = await listP;
+        const list = withRenames(await listP);
         if (seq !== loadSeq.current) return;
         // 묶음이 곧 오면 한 번에 그린다 — 따로 그리면 줄이 한 번 접히며 움직인다. 늦으면 목록부터 (큰 폴더).
         const quick = await Promise.race([restP, new Promise<null>((r) => window.setTimeout(() => r(null), 120))]);
@@ -368,7 +402,7 @@ export default function Pane(p: Props) {
             .catch(() => {});
       }
     },
-    [path, p.showHidden, p.view.editions, applyNotes],
+    [path, p.showHidden, p.view.editions, applyNotes, withRenames],
   );
 
   // 상태 표시는 목록을 그린 뒤 따로 묻는다 — 표시 처리기(TortoiseSVN 등)가 느려도 목록은 바로 뜨게.
@@ -704,7 +738,7 @@ export default function Pane(p: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 종류 설정이 바뀌면 kindOf 가 다른 답을 낸다
     [kind, colorOnly, colors, p.view.kinds],
   );
-  /** 설정 「찾기에서 뺄 확장자」에 걸려 빠지는가. 찾기 칸 · 스마트 폴더로 찾은 것에만 — 색 표시 · 새 파일은 사용자가 고른 모음이라 그대로 둔다.
+  /** 설정 「찾기에서 제외할 확장자」에 걸려 빠지는가. 찾기 칸 · 스마트 폴더로 찾은 것에만 — 색 표시 · 새 파일은 사용자가 고른 모음이라 그대로 둔다.
    *  찾는 말에 그 확장자를 적었으면(.lnk · 확장자:lnk) 빼지 않는다 — 바로가기를 찾는데 바로가기가 빠지면 안 된다. */
   const skipSet = useMemo(() => new Set(p.view.findSkip), [p.view.findSkip]);
   const skipped = useCallback(
@@ -730,8 +764,19 @@ export default function Pane(p: Props) {
         if (deep.scope === "tag" || deep.scope === "recent" || deep.scope === "smart" || isAll(deep.scope)) return dir;
         return samePath(dir, path) ? "" : dir.slice(path.replace(/\\$/, "").length + 1);
       };
+      // 모아 보기(스마트 폴더 · 색 표시 · 새 파일)에서는 찾기 칸이 그 결과 안을 추린다 — 찾기 범위(하위 폴더 · 모든 드라이브)는 찾는 말이 곧 deep.q 라 다시 거르지 않는다.
+      // 2026.11.24 : 스마트 폴더를 연 채 찾기 칸에 적어도 목록이 그대로였다 (사용자 지적). 이 폴더 목록과 같게 이름 · 메모 · 조건으로 거른다.
+      const q = isFind(deep.scope) ? "" : filter.trim().toLowerCase();
+      const terms = q.split(/\s+/).filter(Boolean);
+      const within = (e: Entry) => {
+        if (!q) return true;
+        const memo = memoOf(e.path);
+        const hay = `${e.name} ${memo ?? ""}`.toLowerCase();
+        if (spec) return matches(spec, e, hay, memo, colors.get(norm(e.path)));
+        return terms.every((t) => hay.includes(t));
+      };
       // 자리와 본문 글을 따로 둔다 — 자리는 앞을 줄이고(가까운 폴더가 남게) 본문 글은 뒤를 줄인다 (entryRow 「.where」)
-      return sortEntries((deep.items ?? []).filter((e) => passes(e) && !skipped(e)), sort, p.view.dirsFirst).map(
+      return sortEntries((deep.items ?? []).filter((e) => passes(e) && !skipped(e) && within(e)), sort, p.view.dirsFirst).map(
         (e): Row => ({ kind: "entry", e, depth: 0, where: rel(e.path) || undefined, snip: (e as Found).snippet ? `…${(e as Found).snippet}…` : undefined }),
       );
     }
@@ -912,6 +957,10 @@ export default function Pane(p: Props) {
 
   const startRename = (fp: string) => setRenaming(fp);
 
+  // 2026.11.24 : 이름을 바꿔도 목록에 옛 이름이 남았다 (사용자 지적). 까닭 둘 —
+  //   · 찾기 · 스마트 폴더 · 색 모아 보기의 줄은 폴더 목록이 아니라 찾은 결과(deep.items)라, 폴더를 다시 읽어도 바뀌지 않았다.
+  //   · NAS(SMB)는 Windows 가 폴더 목록을 몇 초 붙잡아 두어(디렉터리 캐시), 바꾼 바로 뒤에 다시 읽으면 옛 이름이 온다.
+  //   그래서 바꾼 줄을 그 자리에서 고쳐 쓰고, 잠시 동안은 다시 읽은 목록에 옛 이름이 와도 새 이름으로 바꿔 읽는다 ([1] withRenames).
   const commitRename = async (e: Entry, value: string) => {
     setRenaming(null);
     const v = value.trim();
@@ -919,7 +968,17 @@ export default function Pane(p: Props) {
     try {
       const r = await api.rename(e.path, v);
       if (r === "done") {
-        pendingFocus.current = { path: joinPath(parentOf(e.path) ?? path, v) };
+        const to = joinPath(parentOf(e.path) ?? path, v);
+        renamedRef.current.push({ from: e.path, to, name: v, at: Date.now() });
+        const swap = <T extends Entry>(x: T): T => (samePath(x.path, e.path) ? renamedEntry(x, to, v) : x);
+        setEntries((list) => list && list.map(swap));
+        setDeep((d) => (d?.items ? { ...d, items: d.items.map(swap) } : d));
+        setSel((s) => new Set([...s].map((x) => (samePath(x, e.path) ? to : x))));
+        setFocus((f) => (f && samePath(f, e.path) ? to : f));
+        setAnchor((a) => (a && samePath(a, e.path) ? to : a));
+        // 열린 탭 · 즐겨찾기 · 연결이 그 폴더(또는 그 안)를 가리키면 함께 고친다 (App)
+        window.dispatchEvent(new CustomEvent("fd:renamed", { detail: { from: e.path, to } }));
+        pendingFocus.current = { path: to };
         load(true);
       }
     } catch (err) {
@@ -1096,6 +1155,16 @@ export default function Pane(p: Props) {
       { label: "붙여넣기", hint: "Ctrl+V", run: paste },
       "sep",
       { label: "보기", children: STEPS.map((l, i) => ({ label: l, checked: stepOf(p.view) === i, run: () => p.zoom(() => i) })) },
+      // 2026.11.24 : 사용자 요청 「수정일 기준 정렬」. 열 머리를 눌러야만 바뀌어(격자 보기는 머리 줄 단추) 탐색기처럼 메뉴에서 고르는 길을 더했다
+      {
+        label: "정렬 기준",
+        children: [
+          ...SORT_KEYS.map(([k, l]) => ({ label: l, checked: sort.key === k, run: () => setSort((s) => (s.key === k ? s : { key: k, asc: k === "name" || k === "kind" })) })),
+          "sep" as const,
+          { label: sort.key === "modified" ? "최신순" : sort.key === "size" ? "큰 순" : "내림차순", checked: !sort.asc, run: () => setSort((s) => ({ ...s, asc: false })) },
+          { label: sort.key === "modified" ? "오래된 순" : sort.key === "size" ? "작은 순" : "오름차순", checked: sort.asc, run: () => setSort((s) => ({ ...s, asc: true })) },
+        ],
+      },
       { label: p.split ? "나눠 보기 끄기" : "나눠 보기", hint: "Ctrl+\\", run: p.onToggleSplit },
       { label: "새로 고침", hint: "F5", run: () => load(true) },
       "sep",
@@ -1185,9 +1254,27 @@ export default function Pane(p: Props) {
     if (parent) p.onGo(parent);
   };
 
+  /** 머리 경로 자리에 보일 모아 보기 이름 — 폴더 밖에서 모은 것(스마트 폴더 · 색 표시 · 새 파일 · 모든 드라이브)만.
+   *  하위 폴더 · 본문 찾기는 이 폴더 안이라 경로를 그대로 둔다. */
+  const virtualAt = useMemo(() => {
+    if (!deep) return null;
+    const onExit = () => setDeep(null);
+    if (deep.scope === "smart") return { root: "스마트 폴더", label: deep.smart?.name || deep.q, onExit };
+    if (deep.scope === "tag") return { root: "색 표시", label: deep.q, onExit };
+    if (deep.scope === "recent") return { root: "새 파일", label: deep.q, onExit };
+    if (isAll(deep.scope)) return { root: "모든 드라이브", label: `「${deep.q}」 찾기`, onExit };
+    return null;
+  }, [deep]);
+  // 탭 이름도 모아 보기 이름으로 — 2026.11.24 : 스마트 폴더를 눌러도 탭에 앞 폴더 이름이 남았다 (사용자 지적)
+  const viewTitle = virtualAt ? virtualAt.label : null;
+  useEffect(() => {
+    p.onTitle?.(viewTitle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewTitle]);
+
   // ───────── [5] 끌기 ─────────
 
-  /** space: 목록 줄의 이름 · 아이콘 밖을 눌렀다 — 끌면 앱 밖으로 끌기가 아니라 끌어서 고르기다 (탐색기 자세히 보기와 같다). */
+  /** space: 목록 줄의 칸 밖(좌우 여백)을 눌렀다 — 끌면 앱 밖으로 끌기가 아니라 끌어서 고르기다. */
   const press = useRef<{ x: number; y: number; entry: Entry; wasSelected: boolean; mods: boolean; second: boolean; space: boolean } | null>(null);
   /** 한 번 누르기로 폴더에 들어간 때. 두 번 누르기가 손에 익은 사람의 둘째 누르기는 새 폴더의 줄에 떨어진다 —
    *  막지 않으면 그 줄(폴더면 한 단계 더 · 파일이면 열기)까지 간다. */
@@ -1246,7 +1333,9 @@ export default function Pane(p: Props) {
       setFocus(e.path);
       setAnchor(e.path);
     } else if (!wasSelected) selectOnly(e.path);
-    const space = !isGrid && !(ev.target as HTMLElement).closest(".label, .glyph, img");
+    // 2026.11.24 : 이름 · 아이콘만 파일을 끌고 수정일 · 크기 칸은 끌어서 고르기였다 — 줄 어디를 잡든 파일을 끄게 바꿨다 (사용자 지적 「날짜 쪽을 끌면 박스 선택이 되어 불편」).
+    //   끌어서 고르기는 목록 아래 빈 곳 · 줄 좌우 가장자리 여백에서 시작한다.
+    const space = !isGrid && ev.target === ev.currentTarget;
     press.current = { x: ev.clientX, y: ev.clientY, entry: e, wasSelected, mods: ev.ctrlKey || ev.shiftKey, second: ev.detail >= 2, space };
   };
 
@@ -1430,7 +1519,7 @@ export default function Pane(p: Props) {
       {key ? (
         <button
           className={"col-btn" + (sort.key === key ? " sorted" : "")}
-          onClick={() => setSort((s) => ({ key, asc: s.key === key ? !s.asc : true }))}
+          onClick={() => setSort((s) => nextSort(s, key))}
         >
           {label}
           {sort.key === key && <span className="sort-mark">{sort.asc ? "↑" : "↓"}</span>}
@@ -1441,7 +1530,7 @@ export default function Pane(p: Props) {
       {i > 0 && (
         <span
           className="resizer"
-          title="너비 조절 · 두 번 눌러 기본값"
+          title="너비 조절 · 두 번 눌러 처음대로"
           onMouseDown={(e) => startResize(e, i)}
           onDoubleClick={() => p.setCols(p.cols.map((w, j) => (j === i ? DEFAULT_COLS[i] : w)))}
           aria-hidden="true"
@@ -1491,6 +1580,8 @@ export default function Pane(p: Props) {
             <span className="long">문서 본문까지</span>
             <span className="short">본문</span>
           </button>
+          {/* 2026.11.24 : Tab 으로 범위를 돌리는 줄 몰랐다 (사용자 지적) — 마우스를 올려야 보이는 title 말고 늘 보이게 */}
+          <kbd className="scope-key" title="Tab · Shift+Tab: 범위 바꾸기">Tab</kbd>
         </span>
       )}
       <span className="filter-box">
@@ -1498,21 +1589,26 @@ export default function Pane(p: Props) {
         ref={filterRef}
         className={"filter" + (deep ? " deep" : "")}
         value={filter}
-        placeholder={isFind(deep?.scope) ? `${FIND_LABEL[deep!.scope as FindScope]} 찾기` : "찾기"}
-        aria-label={isFind(deep?.scope) ? `${FIND_LABEL[deep!.scope as FindScope]} 찾기` : "이 폴더에서 찾기"}
+        placeholder={isFind(deep?.scope) ? `${FIND_LABEL[deep!.scope as FindScope]} 찾기` : deep ? "결과 안에서 찾기" : "찾기"}
+        aria-label={isFind(deep?.scope) ? `${FIND_LABEL[deep!.scope as FindScope]} 찾기` : deep ? "결과 안에서 찾기" : "이 폴더에서 찾기"}
+        aria-keyshortcuts="Control+F"
         title={
           "Ctrl+F: 이 폴더에서 찾기\nTab · Shift+Tab: 범위 바꾸기 (이 폴더 → 하위 폴더까지 → 모든 드라이브)\n" +
           "Shift+Enter: 하위 폴더까지 · Alt+Enter: 모든 드라이브 · Ctrl+Enter: 문서 본문까지 켜고 끄기\n" +
-          "조건: 수정:오늘 · 수정:3일 · 수정:>30일 · 크기:>10MB · 확장자:pdf · 종류:문서 · 색:빨강 · 메모:있음 · -뺄말"
+          "조건: 수정:오늘 · 수정:3일 · 수정:>30일 · 크기:>10MB · 확장자:pdf · 종류:문서 · 색:빨강 · 메모:있음 · -제외할말"
         }
         spellCheck={false}
         onChange={(e) => setFilter(e.target.value)}
         onKeyDown={(e) => {
           e.stopPropagation();
           if (e.key === "Escape") {
+            // 모아 보기 안에서 추리던 말만 지운다 — 한 번에 모아 보기까지 닫으면 스마트 폴더를 다시 눌러야 한다
+            const keep = !!deep && !isFind(deep.scope) && !!filter;
             setFilter("");
-            setDeep(null);
-            (e.target as HTMLInputElement).blur();
+            if (!keep) {
+              setDeep(null);
+              (e.target as HTMLInputElement).blur();
+            }
           }
           // 2026.11.13 : Ctrl+Enter 는 켜기 → 켜고 끄기 · Shift / Alt+Enter 는 켜 둔 본문 찾기를 끄지 않는다 (범위 단추와 같게)
           if (e.key === "Tab" && !e.ctrlKey && !e.altKey && canCycle()) {
@@ -1533,15 +1629,17 @@ export default function Pane(p: Props) {
           }
         }}
       />
+      {/* 2026.11.24 : 제목 줄 「Ctrl+K」처럼 단축키를 칸 안에 적는다 (사용자 요청). 적기 시작하거나 칸에 들어가면 걷힌다 */}
+      {!filter && <kbd className="filter-key">Ctrl+F</kbd>}
       {filter && (
         <button
           className="filter-clear"
           aria-label="찾는 말 지우기"
           title="지우기 (Esc)"
           onClick={() => {
-            // Esc 와 같게 범위까지 거둔다 — 말만 지우면 하위 폴더 · 드라이브 찾기가 빈 말로 남는다
+            // Esc 와 같게 범위까지 거둔다 — 말만 지우면 하위 폴더 · 드라이브 찾기가 빈 말로 남는다. 모아 보기 안에서 추린 말이면 말만
             setFilter("");
-            setDeep(null);
+            if (!deep || isFind(deep.scope)) setDeep(null);
             filterRef.current?.focus();
           }}
         >
@@ -1968,12 +2066,28 @@ export default function Pane(p: Props) {
       <AddressBar
         ref={addrRef}
         path={path}
-        canBack={p.tab.back.length > 0}
+        virtual={virtualAt}
+        canBack={!!virtualAt || p.tab.back.length > 0}
         canFwd={p.tab.fwd.length > 0}
-        canUp={parentOf(path) != null}
-        onBack={p.onBack}
+        canUp={!!virtualAt || parentOf(path) != null}
+        // 모아 보기 중의 뒤로 · 위로는 모아 보기를 끝내고 보던 폴더로 — 탐색기의 검색 결과와 같다
+        onBack={virtualAt ? virtualAt.onExit : p.onBack}
         onFwd={p.onFwd}
-        onUp={up}
+        onUp={virtualAt ? virtualAt.onExit : up}
+        onCrumbMenu={(e, at) =>
+          setCtx({
+            x: e.clientX,
+            y: e.clientY,
+            label: baseName(at) || at,
+            items: [
+              { label: "열기", strong: true, run: () => (virtualAt ? virtualAt.onExit() : p.onGo(at)) },
+              { label: "새 탭에서 열기", run: () => p.onOpenTab(at) },
+              { label: "경로 복사", run: () => copyPaths([at]) },
+              "sep",
+              { label: "즐겨찾기에 추가", hint: "Ctrl+D", run: () => p.onPin([{ path: at, isDir: true }]) },
+            ],
+          })
+        }
         onSubmit={go}
         right={right}
       />
@@ -2035,7 +2149,7 @@ export default function Pane(p: Props) {
               </button>
             </span>
           )}
-          {/* 설정 「찾기에서 뺄 확장자」로 빠진 것 — 범위 칩 바로 곁. 누르면 이번 찾기에서만 다시 보인다.
+          {/* 설정 「찾기에서 제외할 확장자」로 빠진 것 — 범위 칩 바로 곁. 누르면 이번 찾기에서만 다시 보인다.
               2026.11.20 : 바닥 줄 단추 → 여기. 눈이 찾기 칸에 있는 동안 「빠진 것이 있다」를 놓쳐 「없다」로 잘못 알 수 있었다.
               빠진 동안은 점선 테두리(덜 보인다), 다시 보이는 동안은 실선 — 색이 아니라 모양으로 가른다 */}
           {skipExts.length > 0 && (
@@ -2043,11 +2157,11 @@ export default function Pane(p: Props) {
               className={"skip-chip" + (skipOff ? " shown" : "")}
               aria-pressed={skipOff}
               onClick={() => setSkipOff((v) => !v)}
-              title={skipOff ? "다시 빼기 · 설정 › 목록 › 찾기에서 뺄 확장자" : "이번 찾기에서 보기 · 설정 › 목록 › 찾기에서 뺄 확장자"}
+              title={skipOff ? "다시 제외 · 설정 › 목록 › 찾기에서 제외할 확장자" : "이번 찾기에서 보기 · 설정 › 목록 › 찾기에서 제외할 확장자"}
             >
               {skipExts.slice(0, 2).join(" · ")}
               {skipExts.length > 2 && ` 외 ${skipExts.length - 2}`}
-              {skipOff ? " 보이는 중" : ` ${skippedCount.toLocaleString("ko-KR")}개 뺌`}
+              {skipOff ? " 보이는 중" : ` ${skippedCount.toLocaleString("ko-KR")}개 제외`}
             </button>
           )}
           {/* 조건 칩 — 찾기 칸의 `열쇠:값` 을 읽는 말로. × 로 그 조건만 뗀다 */}
@@ -2157,7 +2271,7 @@ export default function Pane(p: Props) {
       {isGrid && (
         <div className="grid-sort" role="toolbar" aria-label="정렬">
           {(["name", "modified", "kind", "size"] as SortKey[]).map((k) => (
-            <button key={k} className={"col-btn" + (sort.key === k ? " sorted" : "")} onClick={() => setSort((s) => ({ key: k, asc: s.key === k ? !s.asc : true }))}>
+            <button key={k} className={"col-btn" + (sort.key === k ? " sorted" : "")} onClick={() => setSort((s) => nextSort(s, k))}>
               {{ name: "이름", modified: "수정일", size: "크기", kind: "종류" }[k]}
               {sort.key === k && <span className="sort-mark">{sort.asc ? "↑" : "↓"}</span>}
             </button>

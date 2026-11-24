@@ -18,6 +18,12 @@ type Props = {
   onSubmit: (input: string) => Promise<string | null>;
   /** 머리 오른쪽 (거르기 · 보기 바꾸기). */
   right?: React.ReactNode;
+  /** 폴더가 아닌 모아 보기(스마트 폴더 · 색 표시 · 모든 드라이브 찾기) — 경로 조각 대신 「묶음 / 이름」을 보인다.
+   *  2026.11.24 : NAS 를 보다가 스마트 폴더를 누르면 머리에 NAS 경로가 그대로 남아, 지금 무엇을 보는지 알 수 없었다 (사용자 지적).
+   *  앞 조각을 누르면 모아 보기를 끝내고 보던 폴더로 돌아간다. */
+  virtual?: { root: string; label: string; onExit: () => void } | null;
+  /** 경로 조각 오른쪽 메뉴 (열기 · 새 탭 · 경로 복사). 2026.11.24 */
+  onCrumbMenu?: (e: React.MouseEvent, path: string) => void;
 };
 
 const AddressBar = forwardRef<AddressHandle, Props>(function AddressBar(p, ref) {
@@ -43,7 +49,7 @@ const AddressBar = forwardRef<AddressHandle, Props>(function AddressBar(p, ref) 
   // 2026.11.13 : 자리에 맞춰 접는다 — 끝 조각 넷(lvl 4)에서 시작해 넘치면 하나씩 줄이고, 그래도 넘치면 드라이브까지 접어 「… / 지금 폴더」만.
   //   좁은 칸(나눠 보기)에서 조각마다 글자가 깎여 「( . L/ 1/」 같은 부스러기가 남거나, 지금 폴더 이름이 사라졌다 (사용자 지적).
   //   지금 폴더 이름은 접지 않는다 — 그마저 넘치면 말줄임.
-  const all = segments(p.path);
+  const all = p.virtual ? [{ label: p.virtual.root, path: "" }, { label: p.virtual.label, path: "" }] : segments(p.path);
   const [lvl, setLvl] = useState(4);
   const more = { label: "…", path: "" };
   const segs =
@@ -58,7 +64,7 @@ const AddressBar = forwardRef<AddressHandle, Props>(function AddressBar(p, ref) 
     ro.observe(el);
     return () => ro.disconnect();
   }, [editing]);
-  useLayoutEffect(() => setLvl(4), [p.path, width]);
+  useLayoutEffect(() => setLvl(4), [p.path, width, p.virtual?.label]);
   useLayoutEffect(() => {
     const el = crumbs.current;
     if (!el || lvl < 0) return;
@@ -102,11 +108,17 @@ const AddressBar = forwardRef<AddressHandle, Props>(function AddressBar(p, ref) 
       ) : (
         <div ref={crumbs} className="crumbs" onClick={(e) => e.target === e.currentTarget && edit()} title="눌러서 경로 입력 (Ctrl+L)">
           {segs.map((s, i) => (
-            <span key={s.path || "more"} className="crumb-wrap">
+            <span key={(s.path || s.label) + i} className="crumb-wrap">
               <button
-                className={"crumb" + (i === segs.length - 1 ? " here" : "")}
-                title={s.path || p.path}
-                onClick={() => (s.path ? p.onSubmit(s.path) : edit())}
+                className={"crumb" + (i === segs.length - 1 ? " here" : "") + (p.virtual ? " virtual" : "")}
+                title={p.virtual ? (i === 0 ? `모아 보기 끝내기 · ${p.path} 로 돌아가기` : p.virtual.label) : s.path || p.path}
+                onClick={() => (p.virtual ? i === 0 && p.virtual.onExit() : s.path ? p.onSubmit(s.path) : edit())}
+                onContextMenu={(e) => {
+                  const at = p.virtual ? p.path : s.path || (i === segs.length - 1 ? p.path : "");
+                  if (!at || !p.onCrumbMenu) return;
+                  e.preventDefault();
+                  p.onCrumbMenu(e, at);
+                }}
               >
                 {s.label}
               </button>

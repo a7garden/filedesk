@@ -25,7 +25,7 @@ export type PaletteItem = {
   /** 줄 앞 그림 (앱). */
   icon?: string;
   run: () => void;
-  /** Shift+Enter 로 하는 다른 일 — 앱을 왼쪽 열에 고정. */
+  /** Shift+Enter 로 하는 다른 일 — 앱을 사이드바에 고정. */
   alt?: { label: string; run: () => void };
 };
 
@@ -185,7 +185,7 @@ export default function Palette({
           {shown.length === 0 && <li className="pal-empty">결과 없음</li>}
         </ul>
         <div className="pal-foot">
-          {pinApps ? "↑↓ 고르기 · Enter 왼쪽 열에 고정 · Esc 닫기" : `↑↓ 고르기 · Enter ${shown[at]?.group === "앱" ? "열기" : "실행"}${shown[at]?.alt ? ` · Shift+Enter ${shown[at].alt!.label}` : ""} · Esc 닫기`}
+          {pinApps ? "↑↓ 고르기 · Enter 사이드바에 고정 · Esc 닫기" : `↑↓ 고르기 · Enter ${shown[at]?.group === "앱" ? "열기" : "실행"}${shown[at]?.alt ? ` · Shift+Enter ${shown[at].alt!.label}` : ""} · Esc 닫기`}
         </div>
       </div>
     </div>

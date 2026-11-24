@@ -24,10 +24,13 @@ use crate::RawHwnd;
 
 /// 적은 주소를 `\\서버` 또는 `\\서버\공유\…` 로. 네트워크 주소로 읽을 수 없으면 그대로 (드라이브 경로 등).
 /// `192.168.0.2` · `nas` · `smb://nas/공유` · `//nas/공유` · `\\nas\공유\` 가 모두 된다.
+/// 2026.11.24 : 포트를 붙여 적으면(`192.168.0.2:445` · `smb://nas:445/공유`) 서버 이름이 `192.168.0.2:445` 로 남아 늘 연결에 실패했다 (사용자 지적).
+///   Windows 의 공유 폴더(SMB)는 UNC 경로에 포트를 적을 자리가 없고 늘 445 로 붙는다 — 서버 이름 뒤 `:숫자` 는 뗀다.
+///   NAS 관리 화면 주소(`http://nas:5000`)를 그대로 붙여 넣어도 같은 서버의 공유 폴더로 읽는다.
 pub fn normalize(input: &str) -> String {
     let s = input.trim().trim_matches('"').trim();
     let lower = s.to_ascii_lowercase();
-    let body = if lower.starts_with("smb://") || lower.starts_with("file://") {
+    let body = if ["smb://", "file://", "http://", "https://"].iter().any(|p| lower.starts_with(p)) {
         &s[s.find("//").unwrap_or(0) + 2..]
     } else if s.starts_with("\\\\") || s.starts_with("//") {
         &s[2..]
@@ -36,16 +39,26 @@ pub fn normalize(input: &str) -> String {
     } else {
         return s.to_string();
     };
-    let parts: Vec<&str> = body.split(['\\', '/']).filter(|p| !p.is_empty()).collect();
+    let mut parts: Vec<&str> = body.split(['\\', '/']).filter(|p| !p.is_empty()).collect();
     if parts.is_empty() {
         return s.to_string();
     }
+    parts[0] = strip_port(parts[0]);
     format!("\\\\{}", parts.join("\\"))
 }
 
-/// 드라이브 문자 · 상대 경로가 아닌 「서버 이름만」 적은 꼴인가 — `192.168.0.2` · `nas` · `nas.local` · `nas\공유`.
+/// `nas:445` → `nas`. 콜론 뒤가 숫자일 때만 뗀다 (드라이브 문자 `D:` 는 여기까지 오지 않는다).
+fn strip_port(host: &str) -> &str {
+    match host.rsplit_once(':') {
+        Some((h, port)) if !h.is_empty() && !port.is_empty() && port.chars().all(|c| c.is_ascii_digit()) => h,
+        _ => host,
+    }
+}
+
+/// 드라이브 문자 · 상대 경로가 아닌 「서버 이름만」 적은 꼴인가 — `192.168.0.2` · `nas` · `nas.local` · `nas\공유` · `nas:445`.
 fn looks_like_host(s: &str) -> bool {
-    let head = s.split(['\\', '/']).next().unwrap_or("");
+    let head = strip_port(s.split(['\\', '/']).next().unwrap_or(""));
+    // `D:` 처럼 한 글자 뒤 콜론은 드라이브다 — strip_port 는 숫자 포트만 떼므로 여기서 콜론이 남는다
     !head.is_empty()
         && !head.contains(':')
         && head.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
@@ -286,6 +299,13 @@ mod tests {
         assert_eq!(normalize("//nas/공유/"), "\\\\nas\\공유");
         assert_eq!(normalize("192.168.0.2\\docs"), "\\\\192.168.0.2\\docs");
         assert_eq!(normalize("D:\\문서"), "D:\\문서");
+        // 포트는 뗀다 — SMB 는 늘 445
+        assert_eq!(normalize("192.168.0.2:445"), "\\\\192.168.0.2");
+        assert_eq!(normalize("192.168.0.2:5000\\docs"), "\\\\192.168.0.2\\docs");
+        assert_eq!(normalize("smb://nas:445/공유/하위"), "\\\\nas\\공유\\하위");
+        assert_eq!(normalize("\\\\nas:139\\공유"), "\\\\nas\\공유");
+        assert_eq!(normalize("http://192.168.0.2:5000/"), "\\\\192.168.0.2");
+        assert_eq!(normalize("D:"), "D:");
         assert_eq!(normalize("문서"), "문서");
         assert!(is_server_only("\\\\192.168.0.2"));
         assert!(!is_server_only("\\\\192.168.0.2\\docs"));

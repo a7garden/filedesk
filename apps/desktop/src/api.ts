@@ -197,6 +197,14 @@ export type ViewPrefs = {
   /** 왼쪽 열에 「연결」(NAS · 공유 폴더)을 보인다. 2026.11.12 더했다 — NAS 를 쓰지 않는 사람에게는 늘 빈 구획이었다.
    *  처음에는 끄고, 이미 연결을 둔 사람은 켠 채로 읽는다 (App readSettings). */
   links: boolean;
+  /** 왼쪽 열에 「즐겨찾기」(자주 가는 폴더 · 파일)를 보인다. 아래 즐겨찾기 독과 같은 목록이다.
+   *  2026.11.24 사용자 요청 — 독은 마우스를 대야 올라와 자주 가는 곳을 늘 보이게 두지 못했다. 처음에는 켠다. */
+  sideFavs: boolean;
+  /** 왼쪽 열 구획 차례. 2026.11.24 사용자 요청 — 둘 구획 · 차례를 사람이 고른다 (설정 › 보기 › 사이드바). */
+  sideOrder: SideId[];
+  /** 왼쪽 열에서 끈 구획 — 이 PC · 앱 · 색 표시. 즐겨찾기 · 연결 · 스마트 폴더는 제 설정(sideFavs · links · recent)으로 켜고 끈다
+   *  (지난 판 설정과 맞추려고 그 셋은 그대로 둔다). */
+  sideOff: SideId[];
   /** 크기 — `kb` 탐색기처럼 늘 KB / `auto` 알맞은 단위 (MB · GB). */
   sizeUnit: "kb" | "auto";
   /** 찾기 결과에서 늘 빼는 확장자 (점 없이 소문자 · 예: lnk). 이 폴더 안 거르기 · 색 표시 · 새 파일 모아 보기에는 먹지 않는다.
@@ -205,8 +213,12 @@ export type ViewPrefs = {
   findSkip: string[];
 };
 export type ColKey = "ver" | "date" | "size" | "kind";
+/** 왼쪽 열 구획 — 이 PC · 즐겨찾기 · 앱 · 연결 · 색 표시 · 스마트 폴더. */
+export type SideId = "pc" | "favs" | "apps" | "links" | "tags" | "smart";
+export const SIDE_IDS: SideId[] = ["pc", "favs", "apps", "links", "tags", "smart"];
+export const SIDE_LABEL: Record<SideId, string> = { pc: "이 PC (드라이브)", favs: "즐겨찾기", apps: "앱", links: "연결 (NAS · 공유 폴더)", tags: "색 표시", smart: "스마트 폴더" };
 export const DEFAULT_VIEW: ViewPrefs = { mode: "list", dense: false, size: 1, icons: "shell", iconPack: "", thumbs: true, namePeek: true, overlays: true, hiddenCols: ["kind"], kinds: DEFAULT_KINDS, folderClick: "double",
-  sort: { key: "name", asc: true }, dirsFirst: true, editions: false, foldStart: true, sizeUnit: "kb", recent: true, links: false, findSkip: ["lnk", "url", "tmp", "crdownload"] };
+  sort: { key: "name", asc: true }, dirsFirst: true, editions: false, foldStart: true, sizeUnit: "kb", recent: true, links: false, sideFavs: true, sideOrder: ["pc", "favs", "apps", "links", "tags", "smart"], sideOff: [], findSkip: ["lnk", "url", "tmp", "crdownload"] };
 
 export type Theme = "system" | "light" | "dark";
 
@@ -254,6 +266,10 @@ export const api = {
   newEdition: (path: string, today: string) => invoke<string>("new_edition", { path, today }),
   loadSettings: () => invoke<Partial<Settings> | null>("load_settings"),
   saveSettings: (value: Settings) => invoke<void>("save_settings", { value }),
+  /** 공용 설정만 고쳐 쓴다 — 떼어 낸 창. 열어 둔 탭(session · layout)은 주 창 것이라 건드리지 않는다. */
+  savePrefs: (value: Partial<Settings>) => invoke<void>("save_prefs", { value }),
+  /** 새 창을 `path` 하나로 연다 — 탭을 창 밖으로 끌어 놓았을 때. x · y 는 창 왼쪽 위 (화면 물리 픽셀). */
+  openWindow: (path: string, x: number, y: number, width: number, height: number) => invoke<void>("open_window", { path, x, y, width, height }),
   recentFiles: (paths: string[], days: number) => invoke<Entry[]>("recent_files", { paths, days }),
   /** 색 표시. null 이면 뗀다. */
   setColor: (path: string, color: TagColor | null) => invoke<Memo | null>("set_color", { path, color }),

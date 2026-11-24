@@ -182,25 +182,24 @@ button:disabled {
 .upd.warn {
   color: var(--warn);
 }
-/* 2026.11.12 : 테두리 알약 → 흐린 글자 + 점 하나. 알림일 뿐 판단할 일이 아닌데, 주소 줄의 「문제 문서」와 같은 알약이라 강조를 나눠 가졌다 */
+/* 2026.11.12 : 테두리 알약 → 흐린 글자 + 점 하나. 알림일 뿐 판단할 일이 아닌데, 주소 줄의 「문제 문서」와 같은 알약이라 강조를 나눠 가졌다
+   2026.11.24 : 흐린 글자 → 강조색 알약. 흐린 글자는 탭 이름과 섞여, 설정을 열어 보기 전에는 새 버전이 있는 줄 몰랐다 (사용자 지적) */
 .upd.new {
   gap: 6px;
-  color: var(--muted);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
 }
 .upd.new::before {
   content: "";
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--accent);
+  background: currentColor;
 }
 .upd.new:hover,
 .upd.new[aria-expanded="true"] {
-  color: var(--ink);
-}
-.upd.new:hover,
-.upd.new[aria-expanded="true"] {
-  background: var(--sel);
+  filter: brightness(1.08);
 }
 .upd-wrap {
   position: relative;
@@ -676,7 +675,8 @@ button:disabled {
 .path-input {
   flex: 1;
   min-width: 0;
-  height: 32px;
+  /* 2026.11.24 : 32 → 34. 경로 조각 줄(.crumbs)과 같은 높이 — 다르면 주소를 고치러 들어갈 때마다 머리 줄이 2px 출렁였다 */
+  height: 34px;
   padding: 0 10px;
   border: 0;
   border-radius: 6px;
@@ -1530,13 +1530,16 @@ button.side-empty:hover {
   width: auto;
   height: 1px;
 }
+/* .hot — 제목 줄 틈에 올려도 아래 줄이 함께 밝아진다 (App 의 hotBar) */
 .divider:hover::after,
+.divider.hot::after,
 .divider.pulling::after {
   left: 1px;
   width: 3px;
   background: var(--focus);
 }
 .divider.across:hover::after,
+.divider.across.hot::after,
 .divider.across.pulling::after {
   left: 0;
   width: auto;
@@ -1603,6 +1606,7 @@ body.resizing-y * {
   background: var(--line);
 }
 .tabs-gap:hover::after,
+.tabs-gap.hot::after,
 .tabs-gap.pulling::after {
   left: 1px;
   width: 3px;
@@ -1662,6 +1666,16 @@ body.resizing-y * {
   font-weight: 600;
   pointer-events: none;
   white-space: nowrap;
+}
+/* 창 밖으로 끌었다 — 놓으면 새 창. 2026.11.24 */
+.tab-ghost.out {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16), inset 0 0 0 1.5px var(--accent);
+}
+.tab-ghost em {
+  margin-left: 8px;
+  font-style: normal;
+  font-weight: 500;
+  color: var(--accent);
 }
 
 /* ── 종류 · 색 거르기 ──
@@ -2067,7 +2081,8 @@ body.resizing-y * {
 }
 /* 연결 추가 창 — 2026.11.20 : 사용자 요청. 좁은 왼쪽 열 안에서 펼치던 주소 칸 · 고르는 판을 가운데 창으로 옮겼다 (단추가 넘쳤다).
    왼쪽 열에는 「＋ 연결 추가」 한 줄만 남고, 폴더를 그 줄에 끌어 놓아도 더한다 */
-.side-empty.link-add.drop-hover {
+.side-empty.link-add.drop-hover,
+.side-empty.side-add-row.drop-hover {
   background: var(--sel);
   color: var(--accent);
 }
@@ -2127,6 +2142,12 @@ body.resizing-y * {
 }
 .link-dialog .link-form input:focus {
   box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+/* 2026.11.24 : 주소 칸(32)과 「열기」(.act 24)의 높이가 달라 단추가 칸 가운데에 떠 보였다. 곁의 단추는 칸 높이를 따른다 */
+.link-addr .act {
+  flex: none;
+  height: 32px;
+  padding: 0 14px;
 }
 .link-dialog .link-pick {
   min-height: 0;
@@ -2611,6 +2632,17 @@ body.resizing-y * {
   background: var(--hover);
   color: var(--ink);
 }
+/* 새 버전이 있으면 「설정」 옆에 강조색 점 — 설정 › 업데이트에 설치 단추가 있다 */
+.settings-btn.has-new::after {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 5px;
+  vertical-align: 2px;
+  border-radius: 50%;
+  background: var(--accent);
+}
 .set-backdrop {
   position: fixed;
   inset: 0;
@@ -2796,7 +2828,7 @@ body.resizing-y * {
   color: var(--warn);
 }
 
-/* 종류 편집 — 한 줄: 색 · 이름 · 확장자 칩(남는 너비, 넘치면 줄바꿈) · 위 · 아래 · 빼기.
+/* 종류 편집 — 한 줄: 손잡이 · 색 · 이름 · 확장자 칩(남는 너비, 넘치면 줄바꿈) · 빼기. 2026.11.24 : 위 · 아래 단추 → 손잡이 끌기.
    칩은 종류 색을 왼쪽 가는 띠로만 — 칩마다 색을 칠하면 줄 전체가 시끄럽다. 끌어 놓을 줄은 바탕과 테두리로 */
 .kind-edit {
   display: grid;
@@ -2805,7 +2837,7 @@ body.resizing-y * {
 }
 .kind-edit-row {
   display: grid;
-  grid-template-columns: 26px 104px minmax(0, 1fr) auto;
+  grid-template-columns: 16px 28px 104px minmax(0, 1fr) auto;
   align-items: start;
   gap: 8px;
   padding: 4px;
@@ -2853,7 +2885,7 @@ body.resizing-y * {
   cursor: grab;
   user-select: none;
 }
-/* 끌어 옮기지 않는 칩 (설정 「찾기에서 뺄 확장자」) — 종류 색 띠 없이 */
+/* 끌어 옮기지 않는 칩 (설정 「찾기에서 제외할 확장자」) — 종류 색 띠 없이 */
 .ext-chip.plain {
   box-shadow: inset 0 0 0 1px var(--line);
   cursor: default;
@@ -2896,13 +2928,10 @@ body.resizing-y * {
   font: 12px/1 ui-monospace, "Cascadia Mono", Consolas, monospace;
   pointer-events: none;
 }
-.kind-edit.dragging,
-.kind-edit.dragging * {
-  cursor: grabbing !important;
-}
+/* 2026.11.24 : 줄 안 칸은 모두 28 — 색 칸 26 · 이름 칸 28 · 단추 24 가 위에 붙어 서서 아랫선이 셋으로 갈렸다 */
 .kind-swatch {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border: 0;
   border-radius: 6px;
@@ -2918,6 +2947,8 @@ body.resizing-y * {
 }
 .kind-edit-acts {
   display: flex;
+  align-items: center;
+  height: 28px;
   gap: 2px;
 }
 .kind-edit-acts .icon-btn {
@@ -3216,7 +3247,9 @@ body.resizing-y * {
 }
 
 /* 오른쪽 메뉴 (ContextMenu) — 떠 있는 메뉴와 같은 겉모양에 단축키 글 · 하위 메뉴 화살 · 단추 줄 · 색 점 줄.
-   2026.11.13 : 셸 메뉴 대신 filedesk 가 그린다. 셸 메뉴는 맨 아래 「더 보기」. */
+   2026.11.13 : 셸 메뉴 대신 filedesk 가 그린다. 셸 메뉴는 맨 아래 「더 보기」.
+   2026.11.24 : 여백을 한 격자로 맞췄다 — 메뉴 4 + 항목 4 + 체크 칸 20 + 4 = 글자 시작 32px (색 점도 32px) ·
+   오른쪽 글 끝 16px · 줄 높이 28px · 구분선은 6px 들여 위아래 4px. 어긋나면 줄마다 글 시작이 들쭉날쭉해 보인다. */
 .ctx-menu {
   position: fixed;
   z-index: 60;
@@ -3234,9 +3267,9 @@ body.resizing-y * {
 .ctx-item {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   height: 28px;
-  padding: 0 10px 0 4px;
+  padding: 0 12px 0 4px;
   border-radius: 5px;
   font-size: 12.5px;
   text-align: left;
@@ -3274,22 +3307,32 @@ body.resizing-y * {
   white-space: nowrap;
 }
 .ctx-hint {
-  margin-left: 18px;
+  margin-left: 16px;
   font-size: 11.5px;
   color: var(--muted);
   white-space: nowrap;
 }
 .ctx-more {
-  margin-left: 10px;
+  margin-left: 8px;
   color: var(--muted);
 }
-/* 단추 줄 — 잘라내기 · 복사 · 이름 바꾸기 · 휴지통. 그림만 두고 이름 · 단축키는 올리면 보인다 */
+/* 단추 줄 — 잘라내기 · 복사 · 이름 바꾸기 · 휴지통. 그림만 두고 이름 · 단축키는 올리면 보인다.
+   아래 선은 구분선(pop-sep)과 같은 들여쓰기 · 같은 위아래 틈으로 그린다 — 테두리로 그리면 양끝까지 닿아 구분선과 길이가 다르다 */
 .ctx-quick {
+  position: relative;
   display: flex;
   gap: 2px;
-  padding: 2px 2px 4px;
-  margin-bottom: 2px;
-  border-bottom: 1px solid var(--line);
+  padding-bottom: 5px;
+  margin-bottom: 4px;
+}
+.ctx-quick::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 0;
+  height: 1px;
+  background: var(--line);
 }
 .ctx-quick button {
   flex: 1;
@@ -3307,16 +3350,18 @@ body.resizing-y * {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 6px 4px 28px;
+  height: 28px;
+  padding: 0 0 0 28px;
 }
 .ctx-colors .tag-swatch {
   width: 18px;
   height: 18px;
 }
 .ctx-colors .ctx-clear {
+  /* × 가 단축키 · 화살 글의 오른쪽 끝(16px) 근처에 오도록 단추를 줄 끝에 붙인다 */
   margin-left: auto;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   border-radius: 5px;
   color: var(--muted);
   font-size: 15px;
@@ -4156,6 +4201,40 @@ body.resizing-y * {
   background: var(--sel);
 }
 /* 「×」 — 찾는 말이 있을 때 칸에 올리거나 칸에 들어가 있으면 보인다. 늘 띄우면 짧은 칸에서 글자를 가린다 */
+/* 찾기 칸 안 단축키 — 제목 줄 「Ctrl+K」(.tb-palette kbd)와 같은 꼴. 칸에 들어가면 걷어 적는 글과 겹치지 않게 (2026.11.24) */
+.filter-key {
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  pointer-events: none;
+}
+.filter-box:focus-within .filter-key {
+  display: none;
+}
+.filter-box:has(.filter-key) .filter {
+  padding-right: 52px;
+}
+.filter-box:focus-within:has(.filter-key) .filter {
+  padding-right: 10px;
+}
+/* 범위 단추 끝 「Tab」 — 누르는 단추가 아니라 알림이라 테두리 없이 흐리게 */
+.scope-key {
+  align-self: center;
+  margin: 0 4px 0 2px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--hover);
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+}
 .filter-box:has(.filter-clear) .filter {
   padding-right: 26px;
 }
@@ -4274,8 +4353,10 @@ body.resizing-y * {
 .cs-row:last-child {
   border-bottom: 1px solid var(--line);
 }
+/* 2026.11.24 : 조건 줄의 첫 줄 높이는 28 (붙은 단추 줄 · 입력 칸 · 점 단추 모두). 이름 · × 를 그 가운데에 맞춘다 —
+   전에는 입력 칸 26 · 점 단추 26 · 붙은 단추 줄 28 이 섞여 줄마다 이름 높이가 달라 보였다 */
 .cs-label {
-  padding-top: 4px;
+  line-height: 28px;
   font-size: 12.5px;
   font-weight: 600;
   color: var(--ink-2);
@@ -4290,6 +4371,7 @@ body.resizing-y * {
 .cs-x {
   width: 24px;
   height: 24px;
+  margin-top: 2px;
   border-radius: 12px;
   color: var(--faint);
   font-size: 15px;
@@ -4333,7 +4415,7 @@ body.resizing-y * {
 .cs-sub input,
 .cs-unit,
 .cs-text {
-  height: 26px;
+  height: 28px;
   padding: 0 8px;
   border: 0;
   border-radius: 6px;
@@ -4360,9 +4442,9 @@ body.resizing-y * {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 26px;
-  padding: 0 9px;
-  border-radius: 13px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 14px;
   font-size: 12.5px;
   color: var(--ink-2);
   box-shadow: inset 0 0 0 1px var(--line);
@@ -4529,6 +4611,11 @@ body.resizing-y * {
 .se-root.add input:focus {
   background: var(--raise);
   box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+/* 2026.11.24 : 경로 칸(28) 곁의 「추가」 · 「지금 폴더 추가」(.act 24)를 칸 높이에 맞춘다 */
+.se-root.add .act {
+  flex: none;
+  height: 28px;
 }
 
 /* 왼쪽 「스마트 폴더」 */
@@ -4913,4 +5000,194 @@ body.resizing-y * {
     grid-template-columns: 1fr;
     grid-template-rows: 40% 1fr;
   }
+}
+
+/* 끌기 손잡이 — 줄 왼쪽 점 여섯 개 (dragSort · 설정 「사이드바」 · 「종류」). 평소에는 흐리고, 줄에 올리면 진해진다.
+   끄는 동안 줄 하나만 떠오르고 나머지는 160ms 로 비켜선다 — 움직임은 이것 하나. 2026.11.24 */
+.grip {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 28px;
+  border-radius: 4px;
+  color: var(--faint);
+  cursor: grab;
+  touch-action: none;
+}
+[data-sort-item]:hover > .grip,
+.grip:focus-visible {
+  color: var(--ink-2);
+}
+.grip:focus-visible {
+  outline: 1.5px solid var(--focus);
+  outline-offset: 1px;
+}
+.sorting,
+.sorting * {
+  cursor: grabbing !important;
+  user-select: none;
+}
+.sorting > [data-sort-item] {
+  transition: transform 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+.sorting > [data-sort-item][data-lifted] {
+  position: relative;
+  z-index: 2;
+  transition: none;
+  background: var(--raise);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.16), inset 0 0 0 1px var(--line);
+}
+@media (prefers-reduced-motion: reduce) {
+  .sorting > [data-sort-item] {
+    transition: none;
+  }
+}
+
+/* 켜고 끄는 스위치 — 네이티브 체크 칸에 겉만 입힌다 (role="switch"). 켜면 강조색 · 손잡이가 오른쪽 */
+.switch {
+  appearance: none;
+  flex: none;
+  position: relative;
+  width: 28px;
+  height: 16px;
+  margin: 0;
+  border-radius: 8px;
+  background: var(--faint);
+  cursor: pointer;
+  transition: background 120ms;
+}
+.switch::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: transform 120ms;
+}
+.switch:checked {
+  background: var(--accent);
+}
+.switch:checked::before {
+  transform: translateX(12px);
+}
+.switch:focus-visible {
+  outline: 1.5px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* 설정 › 사이드바 — 사이드바를 줄여 그린 판 (SideLayout · 2026.11.24).
+   판은 사이드바와 같은 면(--side) · 같은 머리 글꼴. 켠 구획은 든 것의 윤곽을 흐린 선으로 그리고, 끈 구획은 이름 한 줄로 접는다 —
+   켜고 끈 차이를 색이 아니라 높이로 읽는다. 오른쪽 스위치는 줄마다 같은 세로선에 선다 */
+.side-mock {
+  list-style: none;
+  width: min(100%, 280px);
+  margin: 0;
+  padding: 6px;
+  border-radius: 10px;
+  background: var(--side);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.side-mock-sec {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 6px;
+  padding: 4px 8px 8px 2px;
+  border-radius: 7px;
+}
+.side-mock-sec + .side-mock-sec {
+  margin-top: 2px;
+}
+.side-mock-sec > .switch {
+  margin-top: 6px;
+}
+.side-mock-body {
+  display: grid;
+  min-width: 0;
+  padding-top: 6px;
+}
+.side-mock-name {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+.side-mock-sec:not(.off) .side-mock-name {
+  color: var(--ink-2);
+}
+.side-mock-sec.off {
+  padding-bottom: 4px;
+}
+.side-mock-sec.off .side-mock-name {
+  color: var(--faint);
+  font-weight: 500;
+}
+.side-mock-off {
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.side-mock-sub {
+  margin-top: 1px;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 윤곽 — 사이드바 줄 높이를 줄여(28 → 10) 꼴만. 앞의 작은 네모가 그림 자리 */
+.side-sketch {
+  display: grid;
+  gap: 5px;
+  margin-top: 7px;
+}
+.sk-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 6px;
+}
+.sk-lead {
+  flex: none;
+  width: 7px;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--faint);
+  opacity: 0.7;
+}
+.sk-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--faint);
+  opacity: 0.5;
+}
+.sk-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  margin-bottom: 2px;
+}
+.sk-tiles span {
+  height: 16px;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px var(--line);
+  background: var(--paper);
+}
+.sk-dots {
+  display: flex;
+  gap: 6px;
+}
+.sk-dots span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--faint);
+  opacity: 0.6;
 }

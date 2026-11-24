@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "주 창 권한 — 이벤트 · 끌어다 놓기 이벤트 · 창 틀 색(화면 색) · 직접 그린 제목 줄(끌기 · 최소화 · 최대화 · 닫기) · 업데이트",
-  "windows": ["main"],
+  "description": "주 창 · 떼어 낸 창(w-*) 권한 — 이벤트 · 끌어다 놓기 이벤트 · 창 틀 색(화면 색) · 직접 그린 제목 줄(끌기 · 최소화 · 최대화 · 닫기) · 업데이트",
+  "windows": ["main", "w-*"],
   "permissions": [
     "core:default",
     "core:window:allow-set-theme",

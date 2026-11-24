@@ -15,20 +15,24 @@
 //   [5] 단축키 (Ctrl+T · W · Tab · 1~9 · H · \ · K 명령 팔레트)
 //   [6] 명령 팔레트 — 자리 · 명령 목록을 세운다
 //   [7] 그리기 — 칸 자리 셈 · 탭 줄 · 칸 사이 줄 · 놓을 자리 덮개
+//   2026.11.24 : 창을 여럿 둔다 — 탭을 창 밖으로 끌어 놓으면 그 폴더로 새 창이 뜬다 (사용자 요청). 열어 둔 탭은 주 창(`main`)만 저장하고,
+//                떼어 낸 창(`w-<번호>`)은 즐겨찾기 · 보기 같은 공용 설정만 저장한다. 공용 설정은 저장할 때마다 다른 창에 알려(fd-prefs) 같이 맞춘다.
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { api, appIconUrl, DEFAULT_VIEW, TAG_LABEL, type AppInfo, type AppPin, type Drive, type Place, type Places, type SavedNode, type Settings, type SmartFolder, type SmartScope, type TagColor, type Theme, type ViewPrefs } from "./api";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { api, appIconUrl, DEFAULT_VIEW, SIDE_IDS, TAG_LABEL, type SideId, type AppInfo, type AppPin, type Drive, type Place, type Places, type SavedNode, type Settings, type SmartFolder, type SmartScope, type TagColor, type Theme, type ViewPrefs } from "./api";
 import Palette, { type FindScope, type PaletteItem } from "./Palette";
 import { newSmartId, scopeLabel, scopeOf, validSmart } from "./query";
 import SmartEditor from "./SmartEditor";
+import ContextMenu, { type CtxMenuState } from "./ContextMenu";
 import FavDock from "./FavDock";
 import Pane from "./Pane";
 import { atStep, LAST_STEP, STEPS, stepOf } from "./SizeLadder";
 import SettingsPanel from "./SettingsPanel";
 import Sidebar from "./Sidebar";
 import TitleBar from "./TitleBar";
-import { useAutoUpdate } from "./updater";
+import { useAutoUpdate, useUpdateState } from "./updater";
 import { applyTheme, baseName, DEFAULT_COLS, DEFAULT_KINDS, errText, type KindDef, norm, parseExts, setIconPack, setKinds, type Sort, type SortKey } from "./util";
 
 export type Tab = { id: number; path: string; back: string[]; fwd: string[] };
@@ -37,6 +41,14 @@ let nextId = 1;
 const newTab = (path: string): Tab => ({ id: nextId++, path, back: [], fwd: [] });
 
 const START = "C:\\";
+
+/** 이 창 이름 — 주 창 `main` · 탭을 끌어 떼어 낸 창 `w-<번호>` (Rust open_window). */
+const WIN = getCurrentWindow().label;
+const IS_MAIN = WIN === "main";
+/** 떼어 낸 창이 처음 열 폴더 (주소의 ?path=). */
+const OPEN_PATH = new URLSearchParams(window.location.search).get("path");
+/** 창끼리 공용 설정을 맞추는 이벤트 이름. */
+const PREFS_EVENT = "fd-prefs";
 
 
 /** 처음 쓸 때 즐겨찾기 — 비워 둔다. Ctrl+D 로 지금 폴더(또는 고른 항목)를 더하면 설정에 저장된다.
@@ -117,6 +129,10 @@ function withDefaults(s: Partial<Settings> | null): Settings {
       namePeek: s?.view?.namePeek !== false,
       overlays: s?.view?.overlays !== false,
       links: typeof s?.view?.links === "boolean" ? s.view.links : Array.isArray(s?.links) && s.links.length > 0,
+      sideFavs: s?.view?.sideFavs !== false,
+      // 모르는 이름은 버리고, 빠진 구획(새 판에서 더한 것)은 끝에 잇는다
+      sideOrder: [...new Set([...(Array.isArray(s?.view?.sideOrder) ? s.view.sideOrder : []).filter((x): x is SideId => SIDE_IDS.includes(x as SideId)), ...SIDE_IDS])],
+      sideOff: Array.isArray(s?.view?.sideOff) ? s.view.sideOff.filter((x): x is SideId => x === "pc" || x === "apps" || x === "tags") : [],
       sizeUnit: s?.view?.sizeUnit === "auto" ? "auto" : "kb",
       kinds: validKinds(s?.view?.kinds),
       findSkip: Array.isArray(s?.view?.findSkip) ? parseExts(s.view.findSkip.filter((x) => typeof x === "string").join(" ")) : DEFAULT_VIEW.findSkip,
@@ -208,8 +224,8 @@ type Edge = "left" | "right" | "top" | "bottom";
 /** 놓을 자리 — `g` 칸(열쇠)의 탭 줄 `at` 번째 앞 · 그 칸 가운데(끝에 붙이기) · 그 칸 가장자리(그쪽으로 나눠 새 칸). */
 type Slot = { g: number; kind: "strip"; at: number } | { g: number; kind: "pane" } | { g: number; kind: "edge"; edge: Edge };
 
-/** 탭 끌기 상태. */
-type TabDrag = { id: number; x0: number; y0: number; on: boolean; x: number; y: number; to: Slot | null };
+/** 탭 끌기 상태. sx · sy 는 화면 좌표(CSS px) · out 은 창 밖으로 나갔는가 (놓으면 새 창). */
+type TabDrag = { id: number; x0: number; y0: number; on: boolean; x: number; y: number; to: Slot | null; sx: number; sy: number; out: boolean };
 
 /** 탭을 `to` 자리로 옮긴다. 먼저 제 칸에서 빼고(비면 접는다) 그다음 넣는다 — 같은 열쇠가 두 칸에 잠깐이라도 있으면 빼기가 둘 다 지운다. */
 function moveTab(root: LayoutNode, id: number, to: Slot): LayoutNode {
@@ -363,8 +379,24 @@ export default function App() {
   /** 알림 한 줄 — 지금 칸 위에 뜬다. 해낸 일은 ok, 실패 · 취소는 warn. */
   const [notice, setNotice] = useState<{ text: string; tone: "ok" | "warn" } | null>(null);
   const [drag, setDrag] = useState<TabDrag | null>(null);
+  /** 탭 오른쪽 메뉴. 2026.11.24 — 탭에는 메뉴가 없어 닫기 · 새 창은 단추 · 끌기로만 했다. */
+  const [tabMenu, setTabMenu] = useState<CtxMenuState | null>(null);
+  /** 탭 이름 — 칸이 모아 보기(스마트 폴더 등)를 띄우면 그 이름. 없으면 폴더 이름. */
+  const [tabTitles, setTabTitles] = useState<Map<number, string>>(new Map());
+  const setTabTitle = useCallback((id: number, title: string | null) => {
+    setTabTitles((m) => {
+      if ((m.get(id) ?? null) === title) return m;
+      const n = new Map(m);
+      if (title) n.set(id, title);
+      else n.delete(id);
+      return n;
+    });
+  }, []);
   /** 끄는 중인 칸 사이 줄(나눔 path) — 제목 줄 틈을 잡아 끌어도 아래 줄이 함께 굵어지게. */
   const [pulling, setPulling] = useState<string | null>(null);
+  /** 마우스가 올라간 칸 사이 줄 — 제목 줄 틈과 아래 줄이 한 줄로 함께 밝아지게.
+   *  2026.11.24 : 둘이 따로 밝아져 위(탭 줄 틈)와 아래(칸 사이)에 선이 두 번 그려졌다 (사용자 지적). */
+  const [hotBar, setHotBar] = useState<string | null>(null);
   const [view, setView] = useState<ViewPrefs>(DEFAULT_VIEW);
   const [start, setStart] = useState("");
   /** 스마트 폴더 — 왼쪽 열 · 명령 팔레트. 2026.11.12 더했다. */
@@ -377,6 +409,16 @@ export default function App() {
   const [paletteApps, setPaletteApps] = useState(false);
   const panesRef = useRef<HTMLDivElement>(null);
   useAutoUpdate();
+  // 새 버전을 찾으면 판마다 한 번 알림 줄에 알린다 — 제목 줄 알약만으로는 지나치기 쉽다.
+  // 2026.11.24 : 사용자 지적 「설정에 들어가지 않으면 업데이트가 있는 걸 알 방법이 없다」.
+  const upd = useUpdateState();
+  const announced = useRef("");
+  useEffect(() => {
+    const v = upd.phase === "available" && !upd.dismissed ? upd.update?.version : undefined;
+    if (!v || announced.current === v) return;
+    announced.current = v;
+    setNotice({ text: `새 버전 ${v} 있음 · 제목 줄 「새 버전」에서 설치`, tone: "ok" });
+  }, [upd.phase, upd.update, upd.dismissed]);
 
   // 종류 표는 아이콘처럼 설정을 받지 않는 곳도 보므로 그리기 전에 넣는다 (같은 목록이면 다시 세우지 않는다).
   setKinds(view.kinds);
@@ -509,14 +551,15 @@ export default function App() {
       setSmart(s.smart ?? []);
       setPinnedApps(s.apps ?? []);
       setSideW(s.sideW ?? SIDE_W);
-      const dl = s.start || s.session.tabs.length ? START : ((await placesP)?.known.find((k) => k.name === "다운로드")?.path ?? START);
+      const dl = !IS_MAIN || s.start || s.session.tabs.length ? START : ((await placesP)?.known.find((k) => k.name === "다운로드")?.path ?? START);
       // 시작 폴더를 정했으면 그 폴더 하나로 연다 — 지난 탭 · 나눠 보기는 버린다 (설정 「시작 폴더」)
-      const restored = s.start ? [newTab(s.start)] : s.session.tabs.length ? s.session.tabs.map(newTab) : [newTab(dl)];
+      // 떼어 낸 창은 받은 폴더 하나로 연다 — 지난 탭은 주 창 것이다
+      const restored = !IS_MAIN ? [newTab(OPEN_PATH || START)] : s.start ? [newTab(s.start)] : s.session.tabs.length ? s.session.tabs.map(newTab) : [newTab(dl)];
       setTabs(restored);
       const ids = restored.map((t) => t.id);
       const want = ids[Math.min(s.session.active, ids.length - 1)];
-      let tree = !s.start && s.layout ? restoreLayout(s.layout, ids) : null;
-      if (!tree && !s.start && s.split) {
+      let tree = IS_MAIN && !s.start && s.layout ? restoreLayout(s.layout, ids) : null;
+      if (!tree && IS_MAIN && !s.start && s.split) {
         // 지난 판 설정 — 좌우 두 칸. 오른쪽 칸 탭은 `from` 부터 끝까지, `from` 이 없으면 `right` 탭 하나.
         const right = ids[s.split.right];
         const rightIds = right == null || right === want ? [] : s.split.from != null ? ids.slice(s.split.from) : [right];
@@ -537,9 +580,19 @@ export default function App() {
   }, []);
 
   // 설정 저장 — 바뀐 뒤 잠깐 기다렸다가 한 번에 (열 너비 · 칸 너비를 끄는 동안 수십 번 쓰지 않게).
+  //   공용 설정이 바뀌었으면 저장한 뒤 다른 창에 알린다 — 받는 창은 제 것과 다를 때만 입힌다 (같으면 그치므로 서로 되알리기가 돌지 않는다).
+  const prefsJson = useRef("");
   useEffect(() => {
     if (!loaded) return;
+    const prefs = { pinned, links, cols, showHidden, theme, view, start, smart, apps: pinnedApps, sideW };
+    const json = JSON.stringify(prefs);
+    const changed = json !== prefsJson.current;
+    prefsJson.current = json;
     const t = window.setTimeout(() => {
+      const told = () => {
+        if (changed) void emit(PREFS_EVENT, { from: WIN, prefs });
+      };
+      if (!IS_MAIN) return void api.savePrefs(prefs).then(told).catch(() => {});
       // 칸 차례(왼쪽 · 위부터)대로 탭을 잇는다 — 배치는 칸마다 탭 수만 적는다.
       const ls = leavesOf(root);
       const order = ls.flatMap((g) => g.ids);
@@ -547,24 +600,37 @@ export default function App() {
       const cur = (ls.find((l) => l.key === focus) ?? ls[0]).cur;
       api
         .saveSettings({
-          pinned,
-          links,
-          cols,
-          showHidden,
-          theme,
+          ...prefs,
           session: { tabs: order.map((id) => tabs.find((x) => x.id === id)?.path ?? START), active: idx(cur) },
           split: null,
           layout: ls.length > 1 ? saveLayout(root) : null,
-          view,
-          start,
-          smart,
-          apps: pinnedApps,
-          sideW,
         })
+        .then(told)
         .catch(() => {});
     }, 500);
     return () => window.clearTimeout(t);
   }, [loaded, tabs, root, focus, pinned, links, cols, showHidden, theme, view, start, smart, pinnedApps, sideW]);
+  // 다른 창이 공용 설정을 바꿨다 — 같이 맞춘다.
+  useEffect(() => {
+    const un = listen<{ from: string; prefs: Settings }>(PREFS_EVENT, (ev) => {
+      const { from, prefs } = ev.payload;
+      if (from === WIN || JSON.stringify(prefs) === prefsJson.current) return;
+      const s = withDefaults(prefs);
+      setPinned(s.pinned);
+      setLinks(s.links);
+      setCols(s.cols);
+      setShowHidden(s.showHidden);
+      setTheme(s.theme);
+      setView(s.view);
+      setStart(s.start);
+      setSmart(s.smart ?? []);
+      setPinnedApps(s.apps ?? []);
+      setSideW(s.sideW ?? SIDE_W);
+    });
+    return () => {
+      un.then((f) => f());
+    };
+  }, []);
 
   // ───────── [1-1] 스마트 폴더 ─────────
 
@@ -577,6 +643,14 @@ export default function App() {
     setSmartEdit(null);
     window.setTimeout(() => openSmart(f), 0);
   }, [openSmart]);
+  /** 스마트 폴더 복제 — 바로 아래에 「이름 복사본」으로. */
+  const dupSmart = useCallback((f: SmartFolder) => {
+    setSmart((xs) => {
+      const i = xs.findIndex((x) => x.id === f.id);
+      const copy = { ...f, id: newSmartId(), name: `${f.name} 복사본` };
+      return [...xs.slice(0, i + 1), copy, ...xs.slice(i + 1)];
+    });
+  }, []);
   const deleteSmart = useCallback((id: string) => {
     setSmart((xs) => xs.filter((x) => x.id !== id));
     setSmartEdit(null);
@@ -653,6 +727,25 @@ export default function App() {
       n.splice(Math.max(0, Math.min(n.length, to > from ? to - 1 : to)), 0, x);
       return n;
     });
+  }, []);
+
+  // 칸에서 이름을 바꾸면 그 폴더(또는 그 안)를 가리키던 탭 · 뒤로 기록 · 즐겨찾기 · 연결을 새 이름으로 옮긴다.
+  // 2026.11.24 : 폴더 이름을 바꾸면 그 폴더를 연 탭이 「찾을 수 없음」으로 바뀌고 즐겨찾기가 끊겼다 (사용자 지적 「이름을 바꿨는데 반영이 안 된다」).
+  useEffect(() => {
+    const on = (ev: Event) => {
+      const { from, to } = (ev as CustomEvent<{ from: string; to: string }>).detail;
+      const f = norm(from);
+      const move = (p: string) => {
+        const n = norm(p);
+        return n === f ? to : n.startsWith(f + "\\") ? to + p.slice(from.length) : p;
+      };
+      setTabs((ts) => ts.map((t) => ({ ...t, path: move(t.path), back: t.back.map(move), fwd: t.fwd.map(move) })));
+      const movePlaces = (ps: Place[]) => (ps.some((x) => move(x.path) !== x.path) ? ps.map((x) => (move(x.path) === x.path ? x : { ...x, path: move(x.path), name: norm(x.path) === f ? baseName(to) : x.name })) : ps);
+      setPinned(movePlaces);
+      setLinks(movePlaces);
+    };
+    window.addEventListener("fd:renamed", on);
+    return () => window.removeEventListener("fd:renamed", on);
   }, []);
 
   // ───────── [2] 탭 · 나눠 보기 ─────────
@@ -808,6 +901,27 @@ export default function App() {
   const dragRef = useRef<TabDrag | null>(null);
   dragRef.current = drag;
 
+  /** 탭을 새 창으로 뗀다 — 창 밖에 놓은 자리(화면 좌표)에 그 폴더로 새 창을 열고 이 창에서는 닫는다.
+   *  2026.11.24 : 사용자 요청. 이 창의 마지막 탭이면 뗄 것이 없다 — 창 자체를 옮기면 된다. */
+  const detach = (id: number, sx: number, sy: number) => {
+    const t = tabs.find((x) => x.id === id);
+    if (!t) return;
+    if (tabs.length < 2) return setNotice({ text: "마지막 탭은 새 창으로 뗄 수 없음", tone: "warn" });
+    const r = window.devicePixelRatio || 1;
+    // 새 창 크기는 그 탭이 있던 칸 크기(+ 왼쪽 열 · 제목 줄)를 따르되 너무 작지 않게. 잡은 탭이 새 창의 탭 자리 근처에 오게 왼쪽 위를 조금 비킨다
+    const box = laid.leaves.find((x) => x.leaf.ids.includes(id));
+    const pw = panesRef.current?.clientWidth ?? 960;
+    const ph = panesRef.current?.clientHeight ?? 640;
+    const w = box ? toPx(minus(box.r.x1, box.r.x0), pw) + sideW : 960;
+    const h = box ? toPx(minus(box.r.y1, box.r.y0), ph) + 40 : 640;
+    api
+      .openWindow(t.path, Math.round((sx - sideW - 60) * r), Math.round((sy - 16) * r), Math.max(800, Math.round(w)), Math.max(500, Math.round(h)))
+      .then(() => closeTab(id))
+      .catch((e) => setNotice({ text: errText(e), tone: "warn" }));
+  };
+  const detachRef = useRef(detach);
+  detachRef.current = detach;
+
   useEffect(() => {
     if (!drag) return;
     const where = (id: number, x: number, y: number): Slot | null => {
@@ -850,12 +964,15 @@ export default function App() {
       setDrag((d) => {
         if (!d) return d;
         const on = d.on || Math.hypot(m.clientX - d.x0, m.clientY - d.y0) > 6;
-        return { ...d, on, x: m.clientX, y: m.clientY, to: on ? where(d.id, m.clientX, m.clientY) : null };
+        // 단추를 누른 채 창 밖으로 나가도 웹 화면이 마우스를 붙잡고 있어 움직임이 계속 온다 — 창 밖이면 놓을 때 새 창으로 뗀다
+        const out = on && (m.clientX < 0 || m.clientY < 0 || m.clientX > window.innerWidth || m.clientY > window.innerHeight);
+        return { ...d, on, out, x: m.clientX, y: m.clientY, sx: m.screenX, sy: m.screenY, to: on && !out ? where(d.id, m.clientX, m.clientY) : null };
       });
     };
     const up = () => {
       const d = dragRef.current;
-      if (d?.on && d.to) placeTab(d.id, d.to);
+      if (d?.on && d.out) detachRef.current(d.id, d.sx, d.sy);
+      else if (d?.on && d.to) placeTab(d.id, d.to);
       setDrag(null);
     };
     window.addEventListener("mousemove", move);
@@ -1095,7 +1212,7 @@ export default function App() {
         hint: pinned ? "고정됨" : undefined,
         icon: appIconUrl(a.icon, 16),
         run: pinOnly ? pin : () => launchApp(a.id),
-        alt: pinOnly || pinned ? undefined : { label: "왼쪽 열에 고정", run: pin },
+        alt: pinOnly || pinned ? undefined : { label: "사이드바에 고정", run: pin },
       };
     });
   };
@@ -1133,8 +1250,11 @@ export default function App() {
 
   // ───────── [7] 그리기 ─────────
 
+  /** 즐겨찾기의 파일을 연다 (왼쪽 열 · 독). 폴더 바로가기면 그 폴더로 간다. */
+  const openPinnedFile = (p: string) => api.openItem(p).then((to) => to && navigate(active.id, to)).catch((e) => setNotice({ text: errText(e), tone: "warn" }));
+
   const dropTo = drag?.on ? drag.to : null;
-  const dragTip = `\n칸 가장자리로 끌어 나눠 보기 (최대 ${MAX_PANES}칸)`;
+  const dragTip = `\n칸 가장자리로 끌어 나눠 보기 (최대 ${MAX_PANES}칸) · 창 밖으로 끌어 새 창`;
 
   /** 칸 하나의 탭 줄. 위 가장자리에 닿은 칸은 제목 줄에서 제 칸 너비만큼(`style`) 차지해 제 칸 바로 위에 서고,
    *  아래쪽 칸은 제 칸 맨 위에 선다(`inPane`). */
@@ -1170,18 +1290,36 @@ export default function App() {
                 (drag?.on && drag.id === id ? " dragging" : "") +
                 (dropTo?.kind === "strip" && dropTo.g === g && dropTo.at === i ? " drop-before" : "")
               }
-              title={t.path + dragTip}
+              title={(tabTitles.get(id) ? `${tabTitles.get(id)}
+` : "") + t.path + dragTip}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                const others = leaf.ids.filter((x) => x !== id);
+                setTabMenu({
+                  x: e.clientX,
+                  y: e.clientY,
+                  label: baseName(t.path),
+                  items: [
+                    { label: "새 탭", hint: "Ctrl+T", run: () => openTab(t.path, true, g) },
+                    { label: "새 창으로 열기", disabled: tabs.length < 2, run: () => detachRef.current(id, e.screenX + 40, e.screenY + 40) },
+                    { label: "경로 복사", run: () => void navigator.clipboard.writeText(t.path).then(() => setNotice({ text: "경로 복사함", tone: "ok" })) },
+                    "sep",
+                    { label: "탭 닫기", hint: "Ctrl+W", disabled: tabs.length < 2, run: () => closeTab(id) },
+                    { label: "다른 탭 닫기", disabled: others.length === 0, run: () => others.forEach((x) => closeTab(x)) },
+                  ],
+                });
+              }}
               onMouseDown={(e) => {
                 if (e.button === 1) {
                   e.preventDefault();
                   closeTab(id);
                 } else if (e.button === 0 && !(e.target as HTMLElement).closest("button")) {
                   showTab(id);
-                  setDrag({ id, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, on: false, to: null });
+                  setDrag({ id, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, on: false, to: null, sx: e.screenX, sy: e.screenY, out: false });
                 }
               }}
             >
-              <span className="tab-name">{baseName(t.path)}</span>
+              <span className="tab-name">{tabTitles.get(id) ?? baseName(t.path)}</span>
               {tabs.length > 1 && (
                 <button className="tab-close" aria-label="탭 닫기" onMouseDown={(e) => e.stopPropagation()} onClick={() => closeTab(id)}>
                   ×
@@ -1210,8 +1348,10 @@ export default function App() {
       out.push(
         <div
           key={`gap-${x.leaf.key}`}
-          className={"tabs-gap" + (bar && pulling === bar.path ? " pulling" : "")}
+          className={"tabs-gap" + (bar && pulling === bar.path ? " pulling" : "") + (bar && hotBar === bar.path ? " hot" : "")}
           aria-hidden="true"
+          onMouseEnter={() => bar && setHotBar(bar.path)}
+          onMouseLeave={() => setHotBar(null)}
           onMouseDown={bar && startDivider(bar)}
           onDoubleClick={bar && evenDivider(bar)}
         />,
@@ -1263,6 +1403,14 @@ export default function App() {
           onOpenSmart={openSmart}
           onEditSmart={(f) => setSmartEdit({ folder: f, isNew: false })}
           onNewSmart={() => setSmartEdit({ folder: { id: newSmartId(), name: "", q: "", scope: { kind: "all" } }, isNew: true })}
+          pinned={pinned}
+          onPinHere={() => pinMany([{ path: active.path, isDir: true }])}
+          onUnpin={unpin}
+          onOpenFile={openPinnedFile}
+          onMovePin={movePin}
+          onDupSmart={dupSmart}
+          onDeleteSmart={deleteSmart}
+          onNotice={(text, tone) => setNotice({ text, tone })}
           apps={pinnedApps}
           onLaunchApp={launchApp}
           onUnpinApp={unpinApp}
@@ -1275,8 +1423,8 @@ export default function App() {
           className="side-resize"
           role="separator"
           aria-orientation="vertical"
-          aria-label="왼쪽 열 너비"
-          title="너비 조절 · 두 번 눌러 기본값"
+          aria-label="사이드바 너비"
+          title="너비 조절 · 두 번 눌러 처음대로"
           onMouseDown={(e) => {
             if (e.button !== 0) return;
             e.preventDefault();
@@ -1323,6 +1471,7 @@ export default function App() {
                   onBack={() => navigate(t.id, "", "back")}
                   onFwd={() => navigate(t.id, "", "fwd")}
                   onOpenTab={(p) => openTab(p, false, key)}
+                  onTitle={(x) => setTabTitle(t.id, x)}
                 />
               );
             })}
@@ -1330,13 +1479,15 @@ export default function App() {
           {laid.bars.map((b) => (
             <div
               key={`bar-${b.path}`}
-              className={"divider" + (b.dir === "col" ? " across" : "") + (pulling === b.path ? " pulling" : "")}
+              className={"divider" + (b.dir === "col" ? " across" : "") + (pulling === b.path ? " pulling" : "") + (hotBar === b.path ? " hot" : "")}
               role="separator"
               aria-orientation={b.dir === "row" ? "vertical" : "horizontal"}
               aria-label={b.dir === "row" ? "칸 너비" : "칸 높이"}
               style={boxOf(b.r)}
               onMouseDown={startDivider(b)}
               onDoubleClick={evenDivider(b)}
+              onMouseEnter={() => setHotBar(b.path)}
+              onMouseLeave={() => setHotBar(null)}
             />
           ))}
           {dropBox && (
@@ -1356,7 +1507,7 @@ export default function App() {
           onMovePin={movePin}
           onGo={(p) => navigate(active.id, p)}
           onGoNewTab={(p) => openTab(p)}
-          onOpenFile={(p) => api.openItem(p).then((to) => to && navigate(active.id, to)).catch((e) => setNotice({ text: errText(e), tone: "warn" }))}
+          onOpenFile={openPinnedFile}
         />
       </div>
       {paletteOpen && <Palette items={paletteApps ? appItems(true) : [...paletteItems(), ...appItems(false)]} pinApps={paletteApps} onSearch={searchInPane} onClose={() => setPaletteOpen(false)} />}
@@ -1390,9 +1541,11 @@ export default function App() {
           onClose={() => setSettingsOpen(false)}
         />
       )}
+      {tabMenu && <ContextMenu menu={tabMenu} onClose={() => setTabMenu(null)} />}
       {drag?.on && (
-        <div className="tab-ghost" style={{ left: drag.x + 12, top: drag.y + 8 }} aria-hidden="true">
+        <div className={"tab-ghost" + (drag.out ? " out" : "")} style={{ left: Math.min(drag.x, window.innerWidth - 180) + 12, top: Math.min(drag.y, window.innerHeight - 40) + 8 }} aria-hidden="true">
           {baseName(tabs.find((t) => t.id === drag.id)?.path ?? "")}
+          {drag.out && <em>{tabs.length > 1 ? "새 창으로 열기" : "마지막 탭"}</em>}
         </div>
       )}
     </div>

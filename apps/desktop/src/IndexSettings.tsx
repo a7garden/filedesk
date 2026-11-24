@@ -167,7 +167,7 @@ export default function IndexSettings({ current }: { current: string }) {
             <button className="act" onClick={() => run("exclude", () => api.indexExclude(exclude.split("\n")), "제외 폴더 저장됨")}>
               저장
             </button>
-            <button className="link-btn" onClick={() => setExclude((x) => (x.trim() ? `${x.trim()}\n${current}` : current))} title={current}>
+            <button className="act" onClick={() => setExclude((x) => (x.trim() ? `${x.trim()}\n${current}` : current))} title={current}>
               지금 폴더 추가
             </button>
           </div>

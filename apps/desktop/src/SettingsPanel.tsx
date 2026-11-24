@@ -1,8 +1,8 @@
 // 설정 — 왼쪽 아래 「설정」 · Ctrl+, · 명령 팔레트로 연다.
 //
 // 목차 (한 장으로 이어진다 · 왼쪽 목차는 지금 읽는 자리를 따라간다)
-//   보기       크기 사다리 · 보일 열 · 숨김 파일 · 격자 미리보기
-//   목록       기본 정렬 · 폴더를 위에 · 판 접어 시작 · 찾기에서 뺄 확장자(2026.11.20) · 판 관리(2026.11.16 · 기본 끔) · 고친 날 · 크기 꼴
+//   보기       크기 사다리 · 보일 열 · 숨김 파일 · 격자 미리보기 · 사이드바 구획(SideLayout · 2026.11.24)
+//   목록       기본 정렬 · 폴더를 위에 · 판 접어 시작 · 찾기에서 제외할 확장자(2026.11.20) · 판 관리(2026.11.16 · 기본 끔) · 고친 날 · 크기 꼴
 //   열기       폴더 열기(두 번 · 한 번 누르기) · 시작 폴더
 //   화면 색     시스템 · 밝게 · 어둡게 — 작은 창 그림으로 고른다
 //   아이콘      Windows · filedesk · 아이콘 팩 — 같은 파일 몇 개가 셋에서 어떻게 보이는지 나란히
@@ -20,8 +20,10 @@
 import { useEffect, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { api, DEFAULT_VIEW, iconUrl, type ColKey, type Entry, type SkillAgent, type SkillStatus, type Theme, type ViewPrefs } from "./api";
-import { FileGlyph, FolderGlyph } from "./glyphs";
+import { FileGlyph, FolderGlyph, GripGlyph } from "./glyphs";
+import { moveTo, useDragSort } from "./dragSort";
 import IndexSettings from "./IndexSettings";
+import SideLayout from "./SideLayout";
 import SizeLadder from "./SizeLadder";
 import UpdateCard from "./UpdateCard";
 import { useUpdateState } from "./updater";
@@ -99,6 +101,20 @@ export default function SettingsPanel(props: Props) {
     return () => window.removeEventListener("keydown", esc, true);
   }, [onClose]);
 
+  // 마지막 구획 밑 여백 — 끝 구획이 짧아도 그 머리가 본문 맨 위까지 올라오게.
+  // 2026.11.24 : 「업데이트」가 짧아 바로 위 「에이전트 스킬」 머리가 위로 올라오기 전에 바닥에 닿았고, 바닥이면 마지막 구획을 고르는 규칙 때문에
+  //   목차가 「에이전트 스킬」을 한 번도 가리키지 않았다 (사용자 지적). 목차를 눌러도 그 구획이 맨 위에 서지 못했다.
+  const [tail, setTail] = useState(0);
+  useEffect(() => {
+    const el = body.current;
+    const last = el?.querySelector<HTMLElement>(`#set-${SECTIONS[SECTIONS.length - 1].id}`);
+    if (!el || !last) return;
+    const ro = new ResizeObserver(() => setTail(Math.max(0, el.clientHeight - last.offsetHeight - 48)));
+    ro.observe(el);
+    ro.observe(last);
+    return () => ro.disconnect();
+  }, []);
+
   // 목차가 지금 읽는 구획을 따라간다 — 본문 위 끝에서 96px 안으로 머리가 올라온 마지막 구획 (목차를 눌러 옮긴 구획과 같게).
   useEffect(() => {
     const el = body.current;
@@ -117,7 +133,18 @@ export default function SettingsPanel(props: Props) {
     el.addEventListener("scroll", on, { passive: true });
     return () => el.removeEventListener("scroll", on);
   }, []);
-  const jump = (id: SectionId) => body.current?.querySelector(`#set-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  // 목차를 누르면 그 구획 머리를 맨 위에. 2026.11.24 : 구획은 보일 때 그려(content-visibility) 그 전에는 어림 높이(420px)라,
+  //   부드럽게 한 번 옮기면 지나는 구획이 실제 높이로 바뀌며 엉뚱한 자리에 멈췄다 — 그린 뒤 몇 번 다시 맞춘다.
+  const jump = (id: SectionId) => {
+    const t = body.current?.querySelector<HTMLElement>(`#set-${id}`);
+    if (!t) return;
+    let n = 0;
+    const step = () => {
+      t.scrollIntoView({ block: "start" });
+      if (++n < 5) requestAnimationFrame(step);
+    };
+    step();
+  };
 
   useEffect(() => {
     if (!view.iconPack) return setPackMap(null);
@@ -259,8 +286,14 @@ export default function SettingsPanel(props: Props) {
                 {check("격자에서 그림 · PDF · 영상의 내용 미리보기", view.thumbs, (thumbs) => setView((v) => ({ ...v, thumbs })))}
                 {check("격자에서 잘린 이름 펼쳐 보기", view.namePeek, (namePeek) => setView((v) => ({ ...v, namePeek })))}
                 {check("아이콘에 SVN · OneDrive 상태 표시", view.overlays, (overlays) => setView((v) => ({ ...v, overlays })))}
-                {check("왼쪽 열의 스마트 폴더 (최근 파일 · 저장한 조건)", view.recent, (recent) => setView((v) => ({ ...v, recent })))}
-                {check("왼쪽 열의 연결 (NAS · 공유 폴더)", view.links, (links) => setView((v) => ({ ...v, links })))}
+              </div>
+            </div>
+            {/* 사이드바 구획 — 줄여 그린 사이드바 위에서 끌어 차례 · 스위치로 켜고 끄기. 2026.11.24 사용자 요청 */}
+            <div className="set-line">
+              <span className="set-label">사이드바</span>
+              <div>
+                <SideLayout view={view} setView={setView} />
+                <p className="muted set-hint">손잡이를 끌어 순서 변경 · 끈 구획은 사이드바에서 숨김</p>
               </div>
             </div>
           </section>
@@ -301,15 +334,15 @@ export default function SettingsPanel(props: Props) {
               </div>
             </div>
             <div className="set-line">
-              <span className="set-label">찾기에서 뺄 확장자</span>
+              <span className="set-label">찾기에서 제외할 확장자</span>
               <div>
                 <SkipExts exts={view.findSkip} set={(findSkip) => setView((v) => ({ ...v, findSkip }))} />
                 <p className="muted set-hint">
-                  하위 폴더 · 모든 드라이브 · 스마트 폴더 결과에서 뺌
+                  하위 폴더 · 모든 드라이브 · 스마트 폴더 결과에서 제외
                   {view.findSkip.join(" ") !== DEFAULT_VIEW.findSkip.join(" ") && " · "}
                   {view.findSkip.join(" ") !== DEFAULT_VIEW.findSkip.join(" ") && (
                     <button className="link-btn" onClick={() => setView((v) => ({ ...v, findSkip: DEFAULT_VIEW.findSkip }))}>
-                      처음 값으로
+                      처음대로
                     </button>
                   )}
                 </p>
@@ -451,8 +484,11 @@ export default function SettingsPanel(props: Props) {
 
           <section id="set-skill" aria-labelledby="h-skill">
             <h3 id="h-skill">에이전트 스킬</h3>
+            <p className="set-note">
+              Claude Code · Codex 같은 코딩 에이전트가 filedesk 명령줄(fd.exe)을 쓰게 하는 안내서.
+            </p>
             <p className="muted set-note">
-              코딩 에이전트용 filedesk 명령줄(fd) 사용법 · 파일 찾기 · 판 정리 · 메모 · 색 표시 · 휴지통
+              설치하면 에이전트가 드라이브를 직접 읽지 않고 색인으로 파일 · 문서 본문을 찾고, 판 정리 · 메모 · 색 표시 · 휴지통을 앱과 같은 규칙으로 처리. 파일을 바꾸는 일은 계획을 먼저 보이고, 지우기는 휴지통으로만.
             </p>
             {skill == null ? (
               <p className="set-path">확인 중…</p>
@@ -472,8 +508,8 @@ export default function SettingsPanel(props: Props) {
                       <tr key={a.id} title={a.file}>
                         <td>{a.name}</td>
                         <td>
-                          {a.installed ? (old ? `설치됨 (${a.installed}): 앱은 ${skill.current}` : `설치됨 (${a.installed})`) : "설치 안 됨"}
-                          {!a.detected && <span className="muted"> · 에이전트를 찾지 못함</span>}
+                          {a.installed ? (old ? `이전 버전 ${a.installed} · 다시 설치 필요` : `설치됨 · ${a.installed}`) : "설치 안 됨"}
+                          {!a.detected && <span className="muted"> · 이 PC 에 없음</span>}
                         </td>
                         <td>
                           <span className="set-acts">
@@ -495,11 +531,12 @@ export default function SettingsPanel(props: Props) {
             ) : (
               <p className="set-path">감지한 에이전트 없음</p>
             )}
-            {skill && !skill.hasCli && <p className="muted set-note">설치 파일(setup.exe)로 설치한 앱에서만 가능</p>}
+            {skill && !skill.hasCli && <p className="muted set-note">설치 파일로 설치한 앱에서만 설치 가능 (fd.exe 가 앱 옆에 있어야 함)</p>}
             {skillMsg && <p className="set-note">{skillMsg}</p>}
-            {skillMissing.length > 0 && <p className="muted set-note">감지 못 함: {skillMissing.map((a) => a.name).join(" · ")}</p>}
+            {skillMissing.length > 0 && <p className="muted set-note">이 PC 에 없는 에이전트: {skillMissing.map((a) => a.name).join(" · ")}</p>}
+            <p className="muted set-note">설치한 스킬은 앱을 시작할 때 이 버전에 맞춰 저절로 갱신.</p>
             <p className="muted set-note">
-              목록에 없는 에이전트는 명령줄 <code>fd skill install --dir &lt;스킬 폴더&gt;</code> 로 설치하거나, <code>fd skill show</code> 가 내는 본문을 그 에이전트의 지침 파일에 붙인다.
+              목록에 없는 에이전트: 명령줄 <code>fd skill install --dir &lt;스킬 폴더&gt;</code> 로 설치하거나, <code>fd skill show</code> 본문을 그 에이전트의 지침 파일에 붙여 넣기.
             </p>
           </section>
 
@@ -508,6 +545,7 @@ export default function SettingsPanel(props: Props) {
             <h3 id="h-update">업데이트</h3>
             <UpdateCard version={version} />
           </section>
+          <div aria-hidden="true" style={{ height: tail }} />
         </div>
       </div>
     </div>
@@ -545,7 +583,7 @@ function MiniWindow({ theme }: { theme: Theme }) {
   );
 }
 
-/** 찾기에서 뺄 확장자 — 종류 편집과 같은 칩. 칸에 적고 Enter · 빈칸 · 쉼표로 더한다 (.lnk · *.lnk 도 받는다). 2026.11.20 더했다. */
+/** 찾기에서 제외할 확장자 — 종류 편집과 같은 칩. 칸에 적고 Enter · 빈칸 · 쉼표로 더한다 (.lnk · *.lnk 도 받는다). 2026.11.20 더했다. */
 function SkipExts({ exts, set }: { exts: string[]; set: (x: string[]) => void }) {
   const [text, setText] = useState("");
   const add = () => {
@@ -554,7 +592,7 @@ function SkipExts({ exts, set }: { exts: string[]; set: (x: string[]) => void })
     setText("");
   };
   return (
-    <div className="ext-chips" role="list" aria-label="찾기에서 뺄 확장자">
+    <div className="ext-chips" role="list" aria-label="찾기에서 제외할 확장자">
       {exts.map((x) => (
         <span key={x} className="ext-chip plain" role="listitem">
           {x}
@@ -568,7 +606,7 @@ function SkipExts({ exts, set }: { exts: string[]; set: (x: string[]) => void })
         spellCheck={false}
         value={text}
         placeholder="+ 확장자"
-        aria-label="찾기에서 뺄 확장자 추가"
+        aria-label="찾기에서 제외할 확장자 추가"
         onChange={(e) => setText(e.target.value)}
         onBlur={add}
         onKeyDown={(e) => {
@@ -583,7 +621,7 @@ function SkipExts({ exts, set }: { exts: string[]; set: (x: string[]) => void })
   );
 }
 
-/** 종류 편집 — 한 줄에 종류 하나: 색 · 이름 · 확장자 칩 · 순서 · 빼기. 바꾸는 즉시 목록에 쓴다.
+/** 종류 편집 — 한 줄에 종류 하나: 손잡이 · 색 · 이름 · 확장자 칩 · 빼기. 바꾸는 즉시 목록에 쓴다.
  *  확장자는 칩 하나가 하나 — 칩을 다른 종류 줄로 끌어 옮기고, × 로 빼고, 줄 끝 칸에 적어 더한다 (빈칸 · 쉼표로 여럿).
  *  2026.11.11 : 한 줄 글 칸이던 것을 칩으로. 글 칸에서는 「pptx 를 발표에서 문서로」가 두 칸을 고치는 일이었다.
  *  끌기는 마우스 움직임으로 짠다 — Tauri 가 창 밖 파일 끌기를 받으려고 웹 끌기(HTML5 DnD)를 막아 두었다. */
@@ -593,13 +631,8 @@ function KindsEditor({ kinds, set }: { kinds: KindDef[]; set: (k: KindDef[]) => 
   const owner = new Map<string, string>();
   for (const k of kinds) for (const x of k.exts) if (!owner.has(x)) owner.set(x, k.id);
   const put = (i: number, patch: Partial<KindDef>) => set(kinds.map((k, j) => (j === i ? { ...k, ...patch } : k)));
-  const move = (i: number, d: -1 | 1) => {
-    const j = i + d;
-    if (j < 0 || j >= kinds.length) return;
-    const n = [...kinds];
-    [n[i], n[j]] = [n[j], n[i]];
-    set(n);
-  };
+  // 줄 차례 — 손잡이를 끌어 옮긴다 (겹치는 확장자는 위 종류가 가진다). 2026.11.24 : ↑ ↓ 단추를 걷었다
+  const sort = useDragSort<HTMLDivElement>(kinds.length, (from, to) => set(moveTo(kinds, from, to)));
   const addKind = () => {
     const id = `k${Date.now().toString(36)}`;
     set([...kinds, { id, label: "새 종류", exts: [], color: KIND_PALETTE[kinds.length % KIND_PALETTE.length] }]);
@@ -642,10 +675,13 @@ function KindsEditor({ kinds, set }: { kinds: KindDef[]; set: (k: KindDef[]) => 
 
   return (
     <>
-      <p className="muted set-note">확장자는 끌어서 다른 종류로 이동</p>
-      <div className={"kind-edit" + (drag?.on ? " dragging" : "")} role="list">
+      <p className="muted set-note">손잡이를 끌어 순서 변경 (확장자가 겹치면 위 종류 우선) · 확장자는 끌어서 다른 종류로 이동</p>
+      <div className={"kind-edit" + (drag?.on || sort.dragging ? " sorting" : "")} role="list" ref={sort.list}>
         {kinds.map((k, i) => (
-          <div className={"kind-edit-row" + (drag?.on && drag.over === k.id && drag.from !== k.id ? " drop" : "")} role="listitem" key={k.id} data-kind-row={k.id}>
+          <div className={"kind-edit-row" + (drag?.on && drag.over === k.id && drag.from !== k.id ? " drop" : "")} role="listitem" key={k.id} data-kind-row={k.id} {...sort.item(i)}>
+            <button className="grip" {...sort.handle(i, k.label)}>
+              <GripGlyph />
+            </button>
             <input type="color" className="kind-swatch" value={k.color} aria-label={`${k.label} 색`} onChange={(e) => put(i, { color: e.target.value })} />
             <input
               className="kind-name"
@@ -694,12 +730,6 @@ function KindsEditor({ kinds, set }: { kinds: KindDef[]; set: (k: KindDef[]) => 
               />
             </div>
             <span className="kind-edit-acts">
-              <button className="icon-btn" aria-label="위로" title="위로 (겹치는 확장자는 위 종류 우선)" disabled={i === 0} onClick={() => move(i, -1)}>
-                ↑
-              </button>
-              <button className="icon-btn" aria-label="아래로" title="아래로" disabled={i === kinds.length - 1} onClick={() => move(i, 1)}>
-                ↓
-              </button>
               <button className="icon-btn" aria-label={`${k.label} 삭제`} title="종류 삭제 (확장자는 「기타」로)" onClick={() => set(kinds.filter((_, j) => j !== i))}>
                 ×
               </button>
