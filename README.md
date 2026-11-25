@@ -55,7 +55,7 @@ bun tauri build --no-bundle    # 실행 파일: target/release/filedesk.exe
 
 릴리즈 · 업데이트 (docket 과 같은 틀): `tauri.conf.json` 의 `version` 을 올리고 `CHANGELOG.md` 에 `## <판>` 구획을 쓴 뒤 `v<판>` 태그를 밀면
 GitHub Actions(`.github/workflows/release.yml`)가 서명한 설치 파일(NSIS) · `latest.json` 을 릴리즈에 올린다. 설치된 앱은 켤 때 · 한 시간마다 그것을 보고
-제목 줄에 「새 판」을 알린다 (설치는 사용자가 누른다). 서명 키는 `~/.tauri/filedesk.key` (저장소 비밀 `TAURI_SIGNING_PRIVATE_KEY`) — 잃으면 이미 깐 앱이 새 판을 못 받는다.
+새 판이 있으면 묻지 않고 받아 설치한다 (설치기가 앱을 끄고 새 판을 다시 켠다 · 탭은 돌아온다. 설치 파일 없이 켠 exe 는 알리기만 한다). 서명 키는 `~/.tauri/filedesk.key` (저장소 비밀 `TAURI_SIGNING_PRIVATE_KEY`) — 잃으면 이미 깐 앱이 새 판을 못 받는다.
 키와 그 암호는 이 PC 밖(암호 관리기 등)에 한 부 더 둔다. 그래도 잃었으면 새 키를 만들어(`bun tauri signer generate`) `tauri.conf.json` 의 공개 키 · 저장소 비밀을 바꾸고,
 이미 깐 PC 에는 새 설치 파일을 사람이 한 번 직접 깔게 알린다 — 그 뒤로는 다시 저절로 받는다.
 로컬에서 설치 파일까지: `TAURI_SIGNING_PRIVATE_KEY="$(cat ~/.tauri/filedesk.key)" bun tauri build --config src-tauri/tauri.release.json` (fd.exe 를 함께 넣는다).

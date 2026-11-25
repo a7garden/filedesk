@@ -63,6 +63,22 @@ fn rename_and_copy_through_shell() {
     std::fs::remove_dir_all(&d).unwrap();
 }
 
+/// 같은 폴더에 붙여넣으면 탐색기처럼 사본 이름으로 붙는다 — 거절 · 묻는 창 없이 (2026.11.25).
+#[test]
+fn copy_into_same_folder_makes_copy_name() {
+    let d = temp_dir("samecopy");
+    let a = d.join("보고서.txt");
+    std::fs::write(&a, b"hello").unwrap();
+    let (a_s, d_s) = (a.to_string_lossy().into_owned(), d.to_string_lossy().into_owned());
+    let r = run_sta(move || (ops::transfer(0, &[a_s.clone()], &d_s, false).unwrap(), ops::transfer(0, &[a_s], &d_s, false).unwrap()));
+    assert_eq!(r, (Outcome::Done, Outcome::Done));
+    let mut names: Vec<String> = std::fs::read_dir(&d).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+    names.sort();
+    assert_eq!(names.len(), 3, "원본과 사본 둘: {names:?}");
+    assert!(names.iter().filter(|n| n.starts_with("보고서 - ")).count() == 2, "사본 이름: {names:?}");
+    std::fs::remove_dir_all(&d).unwrap();
+}
+
 #[test]
 fn resolves_shortcut() {
     // 시작 메뉴에 늘 있는 바로가기 하나로 본다. 없으면 건너뛴다.

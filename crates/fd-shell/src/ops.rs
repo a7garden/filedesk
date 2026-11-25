@@ -4,7 +4,7 @@
 
 use windows::Win32::System::Com::{CLSCTX_ALL, CoCreateInstance};
 use windows::Win32::UI::Shell::{
-    FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOCONFIRMMKDIR, FOF_WANTNUKEWARNING, FOFX_RECYCLEONDELETE, FileOperation,
+    FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOCONFIRMMKDIR, FOF_RENAMEONCOLLISION, FOF_WANTNUKEWARNING, FOFX_RECYCLEONDELETE, FileOperation,
     IFileOperation,
 };
 use windows::core::HSTRING;
@@ -62,19 +62,35 @@ pub fn recycle(owner: RawHwnd, paths: &[String]) -> Result<Outcome> {
     perform(&op)
 }
 
-/// 복사 또는 이동. 이름이 겹치면 셸이 「바꾸기 · 건너뛰기 · 비교」 창을 띄운다.
+/// 복사 또는 이동. 다른 폴더에서 온 것은 이름이 겹치면 셸이 「바꾸기 · 건너뛰기 · 비교」 창을 띄운다.
+/// 같은 폴더 안으로 복사하면 탐색기처럼 「이름 - 복사본」으로 붙이고, 같은 폴더 안으로 옮기기는 하지 않는다 (제자리).
+/// 2026.11.25 : 같은 폴더에서 Ctrl+C · Ctrl+V 하면 셸이 같은 이름이 있다며 바로 거절했다 — 그 묶음만 FOF_RENAMEONCOLLISION 으로 따로 돌린다.
+///   한 작업에 함께 걸면 다른 폴더에서 온 파일도 묻지 않고 사본 이름이 되어, 바꾸기 · 건너뛰기를 고를 수 없게 된다.
 pub fn transfer(owner: RawHwnd, paths: &[String], dest_dir: &str, mv: bool) -> Result<Outcome> {
-    let op = new_op(owner, FOF_ALLOWUNDO.0 | FOF_NOCONFIRMMKDIR.0)?;
-    let arr = item_array(paths)?;
+    let key = |p: &str| p.replace('/', "\\").trim_end_matches('\\').to_lowercase();
+    let dest_key = key(dest_dir);
+    let (same, other): (Vec<String>, Vec<String>) =
+        paths.iter().cloned().partition(|p| std::path::Path::new(p).parent().is_some_and(|d| key(&d.to_string_lossy()) == dest_key));
     let dest = shell_item(dest_dir)?;
-    unsafe {
-        if mv {
-            op.MoveItems(&arr, &dest)?;
-        } else {
-            op.CopyItems(&arr, &dest)?;
+    let mut outcome = Outcome::Done;
+    for (group, flags) in [(other, 0), (if mv { Vec::new() } else { same }, FOF_RENAMEONCOLLISION.0)] {
+        if group.is_empty() {
+            continue;
+        }
+        let op = new_op(owner, FOF_ALLOWUNDO.0 | FOF_NOCONFIRMMKDIR.0 | flags)?;
+        let arr = item_array(&group)?;
+        unsafe {
+            if mv {
+                op.MoveItems(&arr, &dest)?;
+            } else {
+                op.CopyItems(&arr, &dest)?;
+            }
+        }
+        if perform(&op)? == Outcome::Aborted {
+            outcome = Outcome::Aborted;
         }
     }
-    perform(&op)
+    Ok(outcome)
 }
 
 /// 지난 판을 `history_dir`(`이전판/`)로 옮긴다. 폴더가 없으면 만든다. 한 번의 작업이라 탐색기 Ctrl+Z 로 함께 되돌아간다.
