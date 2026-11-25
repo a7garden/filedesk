@@ -944,12 +944,17 @@ fn image_mime(file: &str) -> Option<&'static str> {
     })
 }
 
-/// `raw:` 로 화면에 내주는 꼴 — 그림과 파워포인트. 파워포인트는 화면이 zip 을 풀어 쪽을 그린다 (Viewer · pptx.ts).
+/// `raw:` 로 화면에 내주는 꼴 — 그림 · 파워포인트 · 한글. 파워포인트는 화면이 zip 을 풀어(Viewer · pptx.ts), 한글은 rhwp 가(HwpView) 쪽을 그린다.
 /// 2026.11.25 : 파워포인트 미리보기를 더했다. 아이콘 팩(image_mime)에는 넣지 않는다 — 그쪽은 그림만 받는다.
 fn raw_mime(file: &str) -> Option<&'static str> {
     image_mime(file).or_else(|| {
         let ext = Path::new(file).extension()?.to_string_lossy().to_lowercase();
-        matches!(ext.as_str(), "pptx" | "pptm" | "ppsx").then_some("application/vnd.openxmlformats-officedocument.presentationml.presentation")
+        match ext.as_str() {
+            "pptx" | "pptm" | "ppsx" => Some("application/vnd.openxmlformats-officedocument.presentationml.presentation"),
+            // 한글 미리보기(HwpView · rhwp)가 바이트를 받아 읽는다 — 2026.11.25
+            "hwp" | "hwpx" => Some("application/octet-stream"),
+            _ => None,
+        }
     })
 }
 
@@ -1219,7 +1224,7 @@ pub fn run() {
         .register_asynchronous_uri_scheme_protocol("fdicon", |_ctx, req, responder| {
             let key = percent_decode(req.uri().path().trim_start_matches('/'));
             // 아이콘 팩(`pack:<그림 파일 경로>`) — 사용자가 고른 폴더의 그림을 그대로 준다.
-            // 앱 안 그림 보기 · 마크다운 속 그림(`raw:<경로>`)도 같다. 그림 꼴과 파워포인트만 (화면이 아무 파일이나 읽어 가지 않게 · raw_mime).
+            // 앱 안 그림 보기 · 마크다운 속 그림(`raw:<경로>`)도 같다. 그림 꼴 · 파워포인트 · 한글만 (화면이 아무 파일이나 읽어 가지 않게 · raw_mime).
             // 큰 사진(수십 MB)을 읽는 동안 다른 요청이 막히지 않게 따로 읽는다.
             if let Some(file) = key.strip_prefix("pack:").or_else(|| key.strip_prefix("raw:")).map(str::to_owned) {
                 std::thread::spawn(move || {

@@ -24,7 +24,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: blob: http://fdicon.localhost https:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost http://fdicon.localhost"
+      "csp": "default-src 'self'; img-src 'self' data: blob: http://fdicon.localhost https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' ipc: http://ipc.localhost http://fdicon.localhost"
     }
   },
   "bundle": {

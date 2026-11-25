@@ -74,11 +74,13 @@ export const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "jfif", "gif", "webp", 
 export const SHEET_EXTS = new Set(["xlsx", "xlsm", "xlsb", "xls", "ods"]);
 /** 파워포인트 — 쪽을 HTML 로 미리 본다 (pptx.ts). 옛 꼴 ppt 는 zip 이 아니라 기본 앱으로. 2026.11.25 */
 export const SLIDE_EXTS = new Set(["pptx", "pptm", "ppsx"]);
+/** 한글 — 쪽을 SVG 로 미리 본다 (HwpView · rhwp). 옛 꼴 hwp 도 읽는다. 2026.11.25 */
+export const HWP_EXTS = new Set(["hwp", "hwpx"]);
 
-export type ViewKind = "text" | "image" | "sheet" | "slides";
+export type ViewKind = "text" | "image" | "sheet" | "slides" | "hwp";
 export function viewKind(ext: string): ViewKind | null {
   const x = ext.toLowerCase();
-  return TEXT_EXTS.has(x) ? "text" : IMAGE_EXTS.has(x) ? "image" : SHEET_EXTS.has(x) ? "sheet" : SLIDE_EXTS.has(x) ? "slides" : null;
+  return TEXT_EXTS.has(x) ? "text" : IMAGE_EXTS.has(x) ? "image" : SHEET_EXTS.has(x) ? "sheet" : SLIDE_EXTS.has(x) ? "slides" : HWP_EXTS.has(x) ? "hwp" : null;
 }
 
 /** 엑셀 시트 하나 (fd-core sheet::Sheet). */

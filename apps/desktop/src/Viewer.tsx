@@ -10,7 +10,7 @@
 //   [5] 그림 — 맞춤 ↔ 원래 크기 · ←/→ 같은 폴더의 그림
 //   [6] 표(csv · tsv) — 칸을 골라 고치기 · 찾기 · 바꾸기 · 줄 더하기 · 지우기 · 되돌리기 (2026.11.25)
 //   [7] 엑셀 — 시트를 표([6])로 읽기만 한다 · 아래 시트 탭 (2026.11.25)
-//   파워포인트는 SlidesView.tsx — 쪽을 HTML 로 그린다 (pptx.ts)
+//   파워포인트는 SlidesView.tsx — 쪽을 HTML 로 그린다 (pptx.ts) · 한글은 HwpView.tsx — 쪽을 SVG 로 그린다 (rhwp)
 //
 // 2026.11.11 : 처음 만들었다. 저장 단추를 두지 않고 입력이 멈추면 쓴다(docket 메모와 같게) — Ctrl+S 는 바로 쓴다.
 // 읽은 인코딩 · 줄끝 그대로 쓰고(fd-core textfile), 연 사이 밖에서 바뀌었으면 덮지 않고 묻는다.
@@ -28,6 +28,7 @@ import "@atomic-editor/editor/styles.css";
 import { api, type Entry } from "./api";
 import { findKit, openFind } from "./editorFind";
 import SlidesView from "./SlidesView";
+import HwpView from "./HwpView";
 import { errText, formatBytes, parentOf } from "./util";
 import {
   ENCODING_LABEL,
@@ -257,6 +258,8 @@ export default function Viewer(p: Props) {
         <SheetView key={p.target.path} path={p.target.path} liveModified={p.liveModified} setInfo={setInfo} findRef={findRef} />
       ) : kind === "slides" ? (
         <SlidesView key={p.target.path} path={p.target.path} liveModified={p.liveModified} setInfo={setInfo} findRef={findRef} active={p.active} zoom={zoom} />
+      ) : kind === "hwp" ? (
+        <HwpView key={p.target.path} path={p.target.path} liveModified={p.liveModified} setInfo={setInfo} findRef={findRef} active={p.active} zoom={zoom} />
       ) : kind === "image" ? (
         <ImageView target={p.target} siblings={p.siblings} setInfo={setInfo} onPick={p.onPick} active={p.active} zoom={zoom} setZoom={setZoom} />
       ) : null}
