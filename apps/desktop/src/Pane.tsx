@@ -194,8 +194,22 @@ export default function Pane(p: Props) {
   const errorRef = useRef(error);
   errorRef.current = error;
   const [sort, setSort] = useState<Sort>(p.view.sort);
-  // 설정에서 기본 정렬을 바꾸면 열린 탭도 따라간다 — 설정 창에서 고른 결과를 바로 보게.
-  useEffect(() => setSort(p.view.sort), [p.view.sort.key, p.view.sort.asc]);
+  /** 새 파일 · 날짜 조건 스마트 폴더가 잠깐 고친 날 순으로 바꾸기 전의 정렬. 모아 보기를 끝내면 이것으로 돌린다. */
+  const sortBefore = useRef<Sort | null>(null);
+  // 정렬은 앱 전체에 하나다 — 어느 탭에서 고르든 설정에 남고 열린 탭 · 새 탭 · 다시 켠 앱이 모두 따라간다.
+  // 2026.11.25 : 사용자 요청 「정렬 기준이 계속 바뀐다」. 전에는 열 머리로 고른 정렬이 그 탭에서만 가서 새 탭 · 다시 켤 때마다 기본 정렬로 돌아갔다.
+  // 모아 보기 중인 칸은 고친 날 순을 지키고 끝낸 뒤 돌아갈 정렬만 바꾼다.
+  useEffect(() => {
+    if (sortBefore.current) sortBefore.current = p.view.sort;
+    else setSort(p.view.sort);
+  }, [p.view.sort.key, p.view.sort.asc]);
+  /** 사람이 고른 정렬 — 설정에 남긴다. 모아 보기 안에서 골랐으면 그 고름이 이기도록 돌아갈 정렬을 버린다. */
+  const pickSort = (f: (s: Sort) => Sort) => {
+    const next = f(sort);
+    sortBefore.current = null;
+    setSort(next);
+    p.setView((v) => (v.sort.key === next.key && v.sort.asc === next.asc ? v : { ...v, sort: next }));
+  };
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [focus, setFocus] = useState<string | null>(null);
   const [anchor, setAnchor] = useState<string | null>(null);
@@ -650,7 +664,6 @@ export default function Pane(p: Props) {
     [],
   );
   /** 새 파일 모아 보기 — 왼쪽 「새 파일」이 지금 칸에 띄운다. 기록이라 최근 것부터 보이게 정렬을 고친 날 내림으로 바꾸고, 끝내면 원래 정렬로 돌린다. */
-  const sortBefore = useRef<Sort | null>(null);
   const showRecent = useCallback(
     (dirs: string[], days: number) => {
       setDeep({ scope: "recent", q: `최근 ${days}일`, items: null, truncated: false, scanned: 0 });
@@ -1266,10 +1279,10 @@ export default function Pane(p: Props) {
       {
         label: "정렬 기준",
         children: [
-          ...SORT_KEYS.map(([k, l]) => ({ label: l, checked: sort.key === k, run: () => setSort((s) => (s.key === k ? s : { key: k, asc: k === "name" || k === "kind" })) })),
+          ...SORT_KEYS.map(([k, l]) => ({ label: l, checked: sort.key === k, run: () => pickSort((s) => (s.key === k ? s : { key: k, asc: k === "name" || k === "kind" })) })),
           "sep" as const,
-          { label: sort.key === "modified" ? "최신순" : sort.key === "size" ? "큰 순" : "내림차순", checked: !sort.asc, run: () => setSort((s) => ({ ...s, asc: false })) },
-          { label: sort.key === "modified" ? "오래된 순" : sort.key === "size" ? "작은 순" : "오름차순", checked: sort.asc, run: () => setSort((s) => ({ ...s, asc: true })) },
+          { label: sort.key === "modified" ? "최신순" : sort.key === "size" ? "큰 순" : "내림차순", checked: !sort.asc, run: () => pickSort((s) => ({ ...s, asc: false })) },
+          { label: sort.key === "modified" ? "오래된 순" : sort.key === "size" ? "작은 순" : "오름차순", checked: sort.asc, run: () => pickSort((s) => ({ ...s, asc: true })) },
         ],
       },
       { label: p.split ? "나눠 보기 끄기" : "나눠 보기", hint: "Ctrl+\\", run: p.onToggleSplit },
@@ -1626,7 +1639,7 @@ export default function Pane(p: Props) {
       {key ? (
         <button
           className={"col-btn" + (sort.key === key ? " sorted" : "")}
-          onClick={() => setSort((s) => nextSort(s, key))}
+          onClick={() => pickSort((s) => nextSort(s, key))}
         >
           {label}
           {sort.key === key && <span className="sort-mark">{sort.asc ? "↑" : "↓"}</span>}
@@ -2381,7 +2394,7 @@ export default function Pane(p: Props) {
       {isGrid && (
         <div className="grid-sort" role="toolbar" aria-label="정렬">
           {(["name", "modified", "kind", "size"] as SortKey[]).map((k) => (
-            <button key={k} className={"col-btn" + (sort.key === k ? " sorted" : "")} onClick={() => setSort((s) => nextSort(s, k))}>
+            <button key={k} className={"col-btn" + (sort.key === k ? " sorted" : "")} onClick={() => pickSort((s) => nextSort(s, k))}>
               {{ name: "이름", modified: "수정일", size: "크기", kind: "종류" }[k]}
               {sort.key === k && <span className="sort-mark">{sort.asc ? "↑" : "↓"}</span>}
             </button>

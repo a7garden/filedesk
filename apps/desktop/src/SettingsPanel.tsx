@@ -304,7 +304,7 @@ export default function SettingsPanel(props: Props) {
               <span className="set-label">정렬</span>
               <div>
                 {choice<SortKey>(
-                  "기본 정렬",
+                  "정렬 기준",
                   [
                     ["name", "이름"],
                     ["modified", "수정일"],
@@ -323,7 +323,7 @@ export default function SettingsPanel(props: Props) {
                   view.sort.asc ? "asc" : "desc",
                   (d) => setView((v) => ({ ...v, sort: { ...v.sort, asc: d === "asc" } })),
                 )}
-                <p className="muted set-hint">새 탭의 기본 정렬</p>
+                <p className="muted set-hint">모든 탭에 같다. 목록의 열 머리 · 「정렬 기준」 메뉴로 고른 것도 여기에 남는다</p>
               </div>
             </div>
             <div className="set-line">
