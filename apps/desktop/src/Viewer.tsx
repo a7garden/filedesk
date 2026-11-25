@@ -1,7 +1,9 @@
 // 앱 안 보기 — 목록 자리를 덮고 파일 하나를 연다. 닫으면(Esc · 마우스 뒤로) 그 줄로 돌아간다.
 //
 // 목차
-//   [1] 틀 — 머리(이름 · 꼴 · 상태 · 기본 앱으로 · 닫기) · 단축키
+//   [1] 틀 — 머리(이름 · 꼴 · 상태 · 확대 · 크게 보기 · 기본 앱으로) · 단축키
+//       확대 · 축소: Ctrl+= · Ctrl+- · Ctrl+0 · Ctrl+휠 — 모든 보기가 같은 배율(zoom)을 받는다 (글은 글자 크기, 표는 칸, 그림 · 쪽은 크기)
+//       크게 보기(F11): 나눈 칸을 그대로 둔 채 이 보기만 왼쪽 열 오른쪽 전체를 덮는다. Esc 는 먼저 크게 보기를 푼다 (2026.11.25)
 //   [2] 글 — 불러오기 · 멈추면 저장 · 밖에서 바뀐 것
 //   [3] 마크다운 — 옵시디언처럼 렌더된 채로 고친다 (@atomic-editor/editor · oxb 편집기의 바탕). 그림 · 링크는 문서 폴더 기준
 //   [4] 글 파일(txt · log) — 기호를 그리지 않는 고정폭 편집기
@@ -64,6 +66,14 @@ type Props = {
   guardRef?: React.MutableRefObject<() => Promise<boolean>>;
 };
 
+/** 확대 단계 — 브라우저와 비슷한 눈금. */
+const ZOOMS = [0.5, 0.67, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3];
+/** 지금 배율에서 `k` 칸 (+1 확대 · -1 축소). 눈금 사이의 값(그림 맞춤에서 시작)이면 가까운 다음 눈금으로. */
+function stepZoom(z: number, k: number): number {
+  if (k > 0) return ZOOMS.find((v) => v > z + 0.001) ?? ZOOMS[ZOOMS.length - 1];
+  return [...ZOOMS].reverse().find((v) => v < z - 0.001) ?? ZOOMS[0];
+}
+
 /** 찾기 · 바꾸기 열기 (Viewer 가 들고 본문이 단다). `replace` 면 바꿀 칸부터. */
 type FindRef = React.MutableRefObject<((replace: boolean) => void) | null>;
 
@@ -80,6 +90,24 @@ export default function Viewer(p: Props) {
   const isMd = MD_EXTS.has(p.target.ext.toLowerCase());
   /** 머리 가운데 칸 — 글은 인코딩 · 저장 상태, 그림은 크기 · 차례. 아래 본문이 채운다. */
   const [info, setInfo] = useState<React.ReactNode>(null);
+  /** 확대 배율 — 1 이 기본(글은 기본 글자 크기, 그림은 맞춤 · 원래 크기, 쪽은 칸 너비). 파일을 옮겨도(그림 ← →) 남는다. */
+  const [zoom, setZoom] = useState(1);
+  const zoomBy = (k: number) => setZoom((z) => stepZoom(z, k));
+  /** 크게 보기 — 나눈 칸 · 다른 탭 위를 덮는다. 2026.11.25 사용자 요청: 칸을 합치지 않고 미리보기만 크게. */
+  const [max, setMax] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  // Ctrl+휠 — 웹뷰 자체 확대는 꺼져 있어(zoomHotkeysEnabled) 막지 않으면 굴리기만 된다. passive 로는 막을 수 없어 직접 단다.
+  useEffect(() => {
+    const el = root.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      zoomBy(e.deltaY < 0 ? 1 : -1);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
   /** 열기 실패 같은 알림. 칸의 알림 줄(.msg)은 이 보기 밑에 깔려 보이지 않아 여기서 띄운다. 2026.11.11 리뷰에서 고쳤다. */
   const [note, setNote] = useState("");
   useEffect(() => setNote(""), [p.target.path]);
@@ -138,10 +166,19 @@ export default function Viewer(p: Props) {
       if (e.key === "Escape") {
         e.preventDefault();
         if (note) setNote("");
+        else if (max) setMax(false);
         else close();
       } else if (e.ctrlKey && !e.altKey && lk === "s") {
         e.preventDefault();
         void flush.current();
+      } else if (e.ctrlKey && !e.altKey && !e.shiftKey && (e.key === "=" || e.key === "+" || e.key === "-" || e.key === "0")) {
+        // 표의 줄 더하기 · 지우기는 Ctrl+Shift+= · Ctrl+Shift+- 라 겹치지 않는다
+        e.preventDefault();
+        if (e.key === "0") setZoom(1);
+        else zoomBy(e.key === "-" ? -1 : 1);
+      } else if (e.key === "F11") {
+        e.preventDefault();
+        setMax((v) => !v);
       }
     };
     // 마우스 뒤로 단추는 폴더 이력보다 먼저 받아 보기를 닫는다 (App 은 같은 창의 나중 처리기)
@@ -162,7 +199,13 @@ export default function Viewer(p: Props) {
 
   const folder = parentOf(p.target.path) ?? "";
   return (
-    <div className="viewer" role="region" aria-label={`${p.target.name} 보기`}>
+    <div
+      ref={root}
+      className={"viewer" + (max ? " max" : "")}
+      role="region"
+      aria-label={`${p.target.name} 보기`}
+      style={{ "--zoom": zoom } as React.CSSProperties}
+    >
       <div className="viewer-head">
         <button className="viewer-back" onClick={close} title={`${folder} 목록으로 · Esc`}>
           <span aria-hidden="true">←</span>
@@ -172,6 +215,20 @@ export default function Viewer(p: Props) {
           {p.target.name}
         </span>
         <span className="viewer-info">{info}</span>
+        <span className="viewer-zoom" role="group" aria-label="확대">
+          <button type="button" onClick={() => zoomBy(-1)} disabled={zoom <= ZOOMS[0]} aria-label="축소" title="축소 · Ctrl+- · Ctrl+휠">
+            −
+          </button>
+          <button type="button" className="viewer-zoom-pct" onClick={() => setZoom(1)} title="원래 배율로 · Ctrl+0">
+            {Math.round(zoom * 100)}%
+          </button>
+          <button type="button" onClick={() => zoomBy(1)} disabled={zoom >= ZOOMS[ZOOMS.length - 1]} aria-label="확대" title="확대 · Ctrl+= · Ctrl+휠">
+            +
+          </button>
+        </span>
+        <button className="viewer-act" onClick={() => setMax((v) => !v)} aria-pressed={max} title={max ? "칸 안으로 되돌리기 · F11 · Esc" : "이 보기만 크게 · F11"}>
+          {max ? "칸으로" : "크게 보기"}
+        </button>
         <button className="viewer-act" onClick={external} title="기본 앱으로 열기">
           기본 앱으로 열기
         </button>
@@ -199,9 +256,9 @@ export default function Viewer(p: Props) {
       ) : kind === "sheet" ? (
         <SheetView key={p.target.path} path={p.target.path} liveModified={p.liveModified} setInfo={setInfo} findRef={findRef} />
       ) : kind === "slides" ? (
-        <SlidesView key={p.target.path} path={p.target.path} liveModified={p.liveModified} setInfo={setInfo} findRef={findRef} active={p.active} />
+        <SlidesView key={p.target.path} path={p.target.path} liveModified={p.liveModified} setInfo={setInfo} findRef={findRef} active={p.active} zoom={zoom} />
       ) : kind === "image" ? (
-        <ImageView target={p.target} siblings={p.siblings} setInfo={setInfo} onPick={p.onPick} active={p.active} />
+        <ImageView target={p.target} siblings={p.siblings} setInfo={setInfo} onPick={p.onPick} active={p.active} zoom={zoom} setZoom={setZoom} />
       ) : null}
     </div>
   );
@@ -523,8 +580,25 @@ function PlainEditor({ value, readOnly, onChange, findRef }: { value: string; re
 
 // ───────── [5] 그림 ─────────
 
-function ImageView(p: { target: ViewTarget; siblings: Entry[]; setInfo: (n: React.ReactNode) => void; onPick: (t: ViewTarget) => void; active: boolean }) {
+function ImageView(p: {
+  target: ViewTarget;
+  siblings: Entry[];
+  setInfo: (n: React.ReactNode) => void;
+  onPick: (t: ViewTarget) => void;
+  active: boolean;
+  /** 보기 배율 — 1 이면 맞춤 · 원래 크기 그대로, 아니면 원래 크기의 배율. */
+  zoom: number;
+  setZoom: (z: number) => void;
+}) {
   const [fit, setFit] = useState(true);
+  const stage = useRef<HTMLDivElement>(null);
+  /** 맞춤일 때 그림이 원래 크기의 몇 배로 그려지나 — 맞춤에서 확대하면 거기서부터 키운다 (2026.11.25). */
+  const fitScale = () => {
+    const el = stage.current;
+    if (!el || !dims) return 1;
+    return Math.min(1, (el.clientWidth - 32) / dims.w, (el.clientHeight - 32) / dims.h);
+  };
+  const zoomed = p.zoom !== 1;
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
   const [broken, setBroken] = useState(false);
   const images = useMemo(() => p.siblings.filter((e) => !e.isDir && IMAGE_EXTS.has(e.ext.toLowerCase())), [p.siblings]);
@@ -568,7 +642,7 @@ function ImageView(p: { target: ViewTarget; siblings: Entry[]; setInfo: (n: Reac
       else if (e.key === "ArrowLeft" || e.key === "PageUp") step(-1);
       else if (e.key === "Home" && images.length) p.onPick(images[0]);
       else if (e.key === "End" && images.length) p.onPick(images[images.length - 1]);
-      else if (e.key === " " || e.key === "0") setFit((v) => !v);
+      else if (e.key === " " || e.key === "0") p.zoom !== 1 ? p.setZoom(1) : setFit((v) => !v);
       else return;
       e.preventDefault();
     };
@@ -583,8 +657,14 @@ function ImageView(p: { target: ViewTarget; siblings: Entry[]; setInfo: (n: Reac
       </div>
     );
   return (
-    <div className={"image-stage" + (fit ? " fit" : " actual")} onClick={() => setFit((v) => !v)} title={fit ? "눌러서 원래 크기 · Space" : "눌러서 화면에 맞춤 · Space"}>
+    <div
+      ref={stage}
+      className={"image-stage" + (zoomed ? " zoomed" : fit ? " fit" : " actual")}
+      onClick={() => (zoomed ? p.setZoom(1) : setFit((v) => !v))}
+      title={zoomed ? "눌러서 배율 풀기 · Ctrl+0" : fit ? "눌러서 원래 크기 · Space" : "눌러서 화면에 맞춤 · Space"}
+    >
       <img
+        style={zoomed && dims ? { width: dims.w * (fit ? fitScale() : 1) * p.zoom, height: dims.h * (fit ? fitScale() : 1) * p.zoom } : undefined}
         key={p.target.path}
         src={rawUrl(p.target.path, p.target.modified)}
         alt={p.target.name}
@@ -843,8 +923,9 @@ function TableView(p: {
     else if (ctrl && e.key.toLowerCase() === "z") step(!e.shiftKey);
     else if (ctrl && e.key.toLowerCase() === "y") step(false);
     else if (ctrl && e.key.toLowerCase() === "c" && sel) void navigator.clipboard.writeText(rows[sel.r]?.cells[sel.c]?.v ?? "");
-    else if (ctrl && (k === "+" || k === "=")) addRow();
-    else if (ctrl && k === "-") delRow();
+    // 2026.11.25 : Ctrl+= · Ctrl+- 는 확대 · 축소(보기 전체)에 주고 줄은 Ctrl+Shift 로 옮겼다 — 엑셀의 줄 넣기도 Ctrl+Shift++ 다
+    else if (ctrl && e.shiftKey && (e.code === "Equal" || k === "+" || k === "=")) addRow();
+    else if (ctrl && e.shiftKey && (e.code === "Minus" || k === "_" || k === "-")) delRow();
     // 고른 칸에서 바로 치면 그 칸을 비우고 고치기 시작 (엑셀과 같다). 고칠 칸을 이 키를 받는 중에 바로 띄우고 초점을 옮겨
     //   글자가 그 칸에 들어가게 한다 — 한글은 조합 중이라 키가 「Process」로 오고 글자를 알 수 없다. 막지 않는다(preventDefault 없이).
     else if (sel && !e.ctrlKey && !e.altKey && !e.metaKey && (k.length === 1 || k === "Process")) {
@@ -980,7 +1061,7 @@ function TableView(p: {
       <div className="table-hint">
         {p.readOnly
           ? `${sheet ? "읽기 전용 미리보기 · 고치기는 기본 앱으로 · " : ""}Ctrl+F 찾기 · Ctrl+C 칸 복사`
-          : "두 번 누르기 · Enter · 바로 치기로 고치기 · Ctrl+F 찾기 · Ctrl+H 바꾸기 · Ctrl++ 줄 더하기 · Ctrl+- 줄 지우기 · Ctrl+Z 되돌리기"}
+          : "두 번 누르기 · Enter · 바로 치기로 고치기 · Ctrl+F 찾기 · Ctrl+H 바꾸기 · Ctrl+Shift++ 줄 더하기 · Ctrl+Shift+- 줄 지우기 · Ctrl+Z 되돌리기 · Ctrl+휠 확대"}
       </div>
       {(said || sheet?.note || body.length > TABLE_MAX_ROWS) && (
         <div className="viewer-bar" role="note">

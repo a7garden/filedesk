@@ -21,6 +21,8 @@ type Props = {
   setInfo: (n: React.ReactNode) => void;
   findRef: React.MutableRefObject<((replace: boolean) => void) | null>;
   active: boolean;
+  /** 보기 배율 — 1 이면 칸 너비에 맞춘 크기. 크게 하면 옆으로 넘쳐 굴린다. */
+  zoom: number;
 };
 
 /** 못 옮긴 것의 이름 (pptx.ts 의 warnings). */
@@ -88,7 +90,7 @@ export default function SlidesView(p: Props) {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  const scale = width > 0 ? width / size.w : 0;
+  const scale = width > 0 ? (width / size.w) * p.zoom : 0;
 
   // 지금 보이는 쪽 — 머리에 「3 / 24쪽」
   useEffect(() => {

@@ -154,10 +154,10 @@ try {
   check("표: Ctrl+Z 로 모두 바꾸기를 되돌린다", await until(() => read("명단.csv").includes("사과 두 개"), 4000), JSON.stringify(read("명단.csv")));
   // 줄 더하기 · 지우기
   await cellAt(1, 0).click();
-  await page.keyboard.press("Control+=");
-  check("표: Ctrl++ 로 아래에 빈 줄", await until(() => read("명단.csv").split("\r\n")[2] === ",,", 4000), JSON.stringify(read("명단.csv")));
-  await page.keyboard.press("Control+-");
-  check("표: Ctrl+- 로 그 줄을 지운다", await until(() => !read("명단.csv").includes("\r\n,,\r\n") && read("명단.csv").split("\r\n").length === 5, 4000), JSON.stringify(read("명단.csv")));
+  await page.keyboard.press("Control+Shift+Equal");
+  check("표: Ctrl+Shift++ 로 아래에 빈 줄", await until(() => read("명단.csv").split("\r\n")[2] === ",,", 4000), JSON.stringify(read("명단.csv")));
+  await page.keyboard.press("Control+Shift+Minus");
+  check("표: Ctrl+Shift+- 로 그 줄을 지운다", await until(() => !read("명단.csv").includes("\r\n,,\r\n") && read("명단.csv").split("\r\n").length === 5, 4000), JSON.stringify(read("명단.csv")));
   // Esc 는 고른 칸을 풀고 보기는 닫지 않는다
   await page.keyboard.press("Escape");
   check("표: Esc 첫 번은 보기를 닫지 않는다", (await page.locator(".viewer").count()) === 1);

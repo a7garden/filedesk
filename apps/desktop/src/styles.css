@@ -3960,14 +3960,14 @@ body.resizing-y * {
 .viewer-table table {
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 13px;
+  font-size: calc(13px * var(--zoom, 1));
   font-variant-numeric: tabular-nums;
   user-select: text;
 }
 .viewer-table th,
 .viewer-table td {
-  max-width: 360px;
-  padding: 5px 12px;
+  max-width: calc(360px * var(--zoom, 1));
+  padding: calc(5px * var(--zoom, 1)) calc(12px * var(--zoom, 1));
   border-right: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
   overflow: hidden;
@@ -4288,6 +4288,58 @@ body.resizing-y * {
   padding: 24px;
 }
 
+/* 확대 · 크게 보기 (2026.11.25) — 크게 보기는 나눈 칸 · 탭을 그대로 두고 이 보기만 왼쪽 열 오른쪽 전체(제목 줄 아래)를 덮는다 */
+.viewer.max {
+  position: fixed;
+  top: 38px;
+  left: var(--side-w, 228px);
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  box-shadow: -1px 0 0 var(--line);
+}
+.viewer-zoom {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px var(--line);
+  font-size: 12.5px;
+  color: var(--ink-2);
+  flex-shrink: 0;
+}
+.viewer-zoom button {
+  height: 26px;
+  min-width: 26px;
+  padding: 0 6px;
+  border-radius: 6px;
+}
+.viewer-zoom button:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--ink);
+}
+.viewer-zoom button:disabled {
+  color: var(--faint);
+}
+.viewer-zoom-pct {
+  min-width: 48px !important;
+  font-variant-numeric: tabular-nums;
+}
+.viewer-act[aria-pressed="true"] {
+  background: var(--sel);
+  color: var(--ink);
+}
+.image-stage.zoomed {
+  display: block;
+  overflow: auto;
+  cursor: zoom-out;
+}
+.image-stage.zoomed img {
+  max-width: none;
+  max-height: none;
+  margin: auto;
+}
+
 /* 마크다운 — 렌더된 채로 고친다 (@atomic-editor/editor). 글꼴은 감싸개에, 색은 편집기 뿌리에 filedesk 색으로 바꿔 끼운다.
    색 선택자를 넷 겹친 것은 편집기 CSS 의 [data-theme="light"] 덮어쓰기(나중에 읽힌다)를 이기려는 것 */
 .viewer .viewer-text .md-live {
@@ -4297,7 +4349,7 @@ body.resizing-y * {
   user-select: text;
   --atomic-editor-font: "Pretendard", "Pretendard Variable", system-ui, sans-serif;
   --atomic-editor-font-mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
-  --atomic-editor-body-size: 15px;
+  --atomic-editor-body-size: calc(15px * var(--zoom, 1));
   --atomic-editor-measure: 80ch;
 }
 .viewer .viewer-text .md-live .atomic-cm-editor {
@@ -4364,7 +4416,7 @@ body.resizing-y * {
 }
 .cm-fd.cm-code .cm-scroller {
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: calc(13px * var(--zoom, 1));
   line-height: 1.65;
 }
 .cm-fd .cm-panels {
