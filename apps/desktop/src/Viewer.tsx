@@ -14,12 +14,15 @@
 // 2026.11.11 : 문서 속 웹 그림(https)은 그린다 (tauri.conf.json CSP img-src) — 옵시디언과 같다. 받은 문서를 열기만 해도
 //   그 서버에 요청이 가지만, 이 앱에서 여는 md 는 대개 내 노트 · README 라 그림이 비는 쪽이 더 불편하다고 보았다.
 import { useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import CodeMirror, { EditorView } from "@uiw/react-codemirror";
 import { languages } from "@codemirror/language-data";
 import { syntaxTree } from "@codemirror/language";
+import { EditorState } from "@codemirror/state";
 import { AtomicCodeMirrorEditor } from "@atomic-editor/editor";
 import "@atomic-editor/editor/styles.css";
 import { api, type Entry } from "./api";
+import { findKit, openFind } from "./editorFind";
 import { errText, formatBytes, parentOf } from "./util";
 import {
   ENCODING_LABEL,
@@ -28,12 +31,14 @@ import {
   localPath,
   MD_EXTS,
   parseTable,
+  quoteCell,
   rawUrl,
   runnable,
   TABLE_EXTS,
   tableSep,
   textApi,
   viewKind,
+  type TableRow,
   type TextFile,
 } from "./viewable";
 
@@ -54,6 +59,9 @@ type Props = {
   guardRef?: React.MutableRefObject<() => Promise<boolean>>;
 };
 
+/** 찾기 · 바꾸기 열기 (Viewer 가 들고 본문이 단다). `replace` 면 바꿀 칸부터. */
+type FindRef = React.MutableRefObject<((replace: boolean) => void) | null>;
+
 const targetOf = (path: string): ViewTarget => {
   const name = path.split("\\").pop() ?? path;
   const dot = name.lastIndexOf(".");
@@ -73,6 +81,8 @@ export default function Viewer(p: Props) {
   const fail = (e: unknown) => setNote(errText(e));
   /** 남은 글을 쓰고 떠나도 되는가 — 밖에서 바뀐 것을 묻는 중이면 false (고친 글이 버려진다). */
   const flush = useRef<() => Promise<boolean>>(async () => true);
+  /** 찾기 · 바꾸기 열기 — 지금 보이는 본문(편집기 · 표)이 단다. 편집기 밖에 초점이 있을 때의 Ctrl+F · Ctrl+H 를 여기로 보낸다. */
+  const findRef = useRef<((replace: boolean) => void) | null>(null);
   if (p.guardRef) p.guardRef.current = () => flush.current();
   // 닫힌 뒤에는 묻지 않는다 — 남은 처리기가 닫힌 보기의 저장을 다시 부르지 않게.
   const guardRef = p.guardRef;
@@ -107,6 +117,14 @@ export default function Viewer(p: Props) {
     let popup = false;
     const onKeyFirst = (e: KeyboardEvent) => {
       popup = e.key === "Escape" && !!document.querySelector(".cm-atomic-table-menu, .cm-tooltip-autocomplete");
+      // Ctrl+F 찾기 · Ctrl+H 바꾸기 — 편집기 글 안이면 편집기가 받는다(findKit). 밖(머리 · 표 · 찾기 판의 칸)이면 여기서 연다.
+      //   찾기 판의 칸은 편집기 단축키가 닿지 않는다. 잡는 단계에서 막아야 앱의 Ctrl+H(숨김 파일 보기)가 함께 돌지 않는다.
+      const lk = e.key.toLowerCase();
+      if (e.ctrlKey && !e.altKey && !e.shiftKey && (lk === "f" || lk === "h") && findRef.current && !(e.target as HTMLElement).closest?.(".cm-content")) {
+        e.preventDefault();
+        e.stopPropagation();
+        findRef.current(lk === "h");
+      }
     };
     const onKey = (e: KeyboardEvent) => {
       // 편집기 찾기 칸의 Esc 같은 것은 편집기가 먼저 받는다
@@ -170,6 +188,7 @@ export default function Viewer(p: Props) {
           liveModified={p.liveModified}
           setInfo={setInfo}
           flushRef={flush}
+          findRef={findRef}
           onLink={openLink}
         />
       ) : kind === "image" ? (
@@ -191,6 +210,7 @@ function TextView(p: {
   liveModified?: number;
   setInfo: (n: React.ReactNode) => void;
   flushRef: React.RefObject<() => Promise<boolean>>;
+  findRef: FindRef;
   onLink: (href: string) => void;
 }) {
   const [file, setFile] = useState<TextFile | null>(null);
@@ -344,12 +364,12 @@ function TextView(p: {
       )}
       <div className="viewer-text">
         {p.md ? (
-          <MdEditor key={rev} doc={p.path} source={file.text} readOnly={file.mixed} onChange={change} onLink={p.onLink} />
+          <MdEditor key={rev} doc={p.path} source={file.text} readOnly={file.mixed} onChange={change} onLink={p.onLink} findRef={p.findRef} />
         ) : p.table && asTable ? (
-          <TableView text={text} sep={tableSep(p.table, text)} />
+          <TableView text={text} sep={tableSep(p.table, text)} readOnly={file.mixed} onChange={change} findRef={p.findRef} />
         ) : (
           <div className="viewer-pane">
-            <PlainEditor value={text} readOnly={file.mixed} onChange={change} />
+            <PlainEditor value={text} readOnly={file.mixed} onChange={change} findRef={p.findRef} />
           </div>
         )}
       </div>
@@ -391,11 +411,28 @@ function ctrlLink(open: React.RefObject<{ onLink: (href: string) => void }>) {
   });
 }
 
-function MdEditor({ doc, source, readOnly, onChange, onLink }: { doc: string; source: string; readOnly: boolean; onChange: (v: string) => void; onLink: (href: string) => void }) {
+function MdEditor({
+  doc,
+  source,
+  readOnly,
+  onChange,
+  onLink,
+  findRef,
+}: {
+  doc: string;
+  source: string;
+  readOnly: boolean;
+  onChange: (v: string) => void;
+  onLink: (href: string) => void;
+  findRef: FindRef;
+}) {
   const box = useRef<HTMLDivElement>(null);
   const cbs = useRef({ onChange, onLink });
   cbs.current = { onChange, onLink };
-  const extensions = useMemo(() => [ctrlLink(cbs)], []);
+  const view = useRef<EditorView | null>(null);
+  // 찾기 판은 편집기가 제 것을 단다 (own = false) — 글자 · Ctrl+H 만 더한다
+  const extensions = useMemo(() => [ctrlLink(cbs), findKit(view, false)], []);
+  useFindRef(findRef, view);
   useEffect(() => {
     const el = box.current;
     if (!el) return;
@@ -420,6 +457,16 @@ function MdEditor({ doc, source, readOnly, onChange, onLink }: { doc: string; so
   );
 }
 
+/** 찾기 열기를 Viewer 에 단다 — 편집기 밖에서 누른 Ctrl+F · Ctrl+H 가 이 편집기의 찾기 판을 연다. */
+function useFindRef(findRef: FindRef, view: React.RefObject<EditorView | null>) {
+  useEffect(() => {
+    findRef.current = (replace) => view.current && openFind(view.current, replace);
+    return () => {
+      findRef.current = null;
+    };
+  }, [findRef, view]);
+}
+
 // ───────── [4] 글 파일 ─────────
 
 const plainTheme = EditorView.theme({
@@ -427,15 +474,17 @@ const plainTheme = EditorView.theme({
   ".cm-scroller": { overflow: "auto" },
   ".cm-gutters": { display: "none" },
 });
-const PLAIN_EXT = [plainTheme, EditorView.lineWrapping];
-
-function PlainEditor({ value, readOnly, onChange }: { value: string; readOnly: boolean; onChange: (v: string) => void }) {
+function PlainEditor({ value, readOnly, onChange, findRef }: { value: string; readOnly: boolean; onChange: (v: string) => void; findRef: FindRef }) {
+  const view = useRef<EditorView | null>(null);
+  // 읽기 전용이면 찾기 판의 바꿀 칸도 숨는다 (EditorState.readOnly) — editable 만 끄면 「모두 바꾸기」로 고쳐졌다
+  const extensions = useMemo(() => [plainTheme, EditorView.lineWrapping, EditorState.readOnly.of(readOnly), findKit(view, true)], [readOnly]);
+  useFindRef(findRef, view);
   return (
     <div className="cm-fd cm-code">
       <CodeMirror
         value={value}
         onChange={onChange}
-        extensions={PLAIN_EXT}
+        extensions={extensions}
         editable={!readOnly}
         autoFocus
         height="100%"
@@ -542,44 +591,373 @@ function ImageView(p: { target: ViewTarget; siblings: Entry[]; setInfo: (n: Reac
 }
 
 // ───────── [6] 표 ─────────
+//
+// 칸을 고르고(누르기 · 화살표) 고친다(두 번 누르기 · F2 · Enter · 바로 치기). 고친 칸은 원본 글의 그 칸 자리만 바꿔 써서
+// 따옴표 · 줄끝 · 다른 칸의 꼴이 그대로 남는다 (parseTable 의 자리). 찾기 · 바꾸기는 칸 글을 기준으로 한다.
+// 2026.11.25 : 읽기만 하던 표에 고치기 · 찾기 · 바꾸기 · 줄 더하기 · 지우기 · 되돌리기를 더했다 (사용자 요청).
 
 /** 한 번에 그리는 줄 수 — 넘으면 앞부분만 그리고 알린다. 수만 줄을 칸마다 DOM 으로 그리면 창이 멈춘다. */
 const TABLE_MAX_ROWS = 5000;
+/** 표에서 되돌릴 수 있는 단계 수. */
+const TABLE_UNDO = 100;
 
-/** csv · tsv 를 표로. 첫 줄은 머리로 고정하고, 왼쪽에 줄 번호를 둔다. 읽기만 한다. */
-function TableView(p: { text: string; sep: string }) {
+type Pos = { r: number; c: number };
+type Edits = { s: number; e: number; t: string }[];
+
+/** 글의 여러 자리를 한 번에 바꾼다 — 뒤에서부터 바꿔 앞 자리가 밀리지 않게. */
+function applyEdits(text: string, edits: Edits): string {
+  let out = text;
+  for (const d of [...edits].sort((a, b) => b.s - a.s)) out = out.slice(0, d.s) + d.t + out.slice(d.e);
+  return out;
+}
+
+/** 칸 하나를 `v` 로 쓰는 바꿈. 짧은 줄(칸이 모자란 줄)이면 줄 끝에 구분자를 채워 그 칸을 만든다. */
+function cellEdit(rows: TableRow[], { r, c }: Pos, v: string, sep: string): Edits {
+  const row = rows[r];
+  const cell = row.cells[c];
+  if (cell) return [{ s: cell.s, e: cell.e, t: quoteCell(v, sep, cell.q) }];
+  const end = row.cells[row.cells.length - 1].e;
+  return [{ s: end, e: end, t: sep.repeat(c - row.cells.length + 1) + quoteCell(v, sep) }];
+}
+
+/** 대소문자 무시 · 구분 찾기. 찾은 자리들(시작)을 돌려준다. */
+function findIn(v: string, q: string, cs: boolean): number[] {
+  if (!q) return [];
+  const hay = cs ? v : v.toLowerCase();
+  const needle = cs ? q : q.toLowerCase();
+  const at: number[] = [];
+  for (let i = hay.indexOf(needle); i >= 0; i = hay.indexOf(needle, i + needle.length)) at.push(i);
+  return at;
+}
+
+/** 칸 글 안의 찾은 말을 모두 `rep` 로. */
+function replaceIn(v: string, q: string, rep: string, cs: boolean): string {
+  const at = findIn(v, q, cs);
+  let out = "";
+  let last = 0;
+  for (const i of at) (out += v.slice(last, i) + rep), (last = i + q.length);
+  return out + v.slice(last);
+}
+
+/** 칸 글 — 찾은 말을 밝힌다. */
+function Marked({ v, q, cs }: { v: string; q: string; cs: boolean }) {
+  const at = findIn(v, q, cs);
+  if (at.length === 0) return <>{v}</>;
+  const parts: React.ReactNode[] = [];
+  let last = 0;
+  at.forEach((i, k) => {
+    parts.push(v.slice(last, i), <mark key={k}>{v.slice(i, i + q.length)}</mark>);
+    last = i + q.length;
+  });
+  parts.push(v.slice(last));
+  return <>{parts}</>;
+}
+
+/** csv · tsv 를 표로. 첫 줄은 머리로 고정하고, 왼쪽에 줄 번호를 둔다. */
+function TableView(p: { text: string; sep: string; readOnly: boolean; onChange: (v: string) => void; findRef: FindRef }) {
   const rows = useMemo(() => parseTable(p.text, p.sep), [p.text, p.sep]);
-  const cols = rows.reduce((n, r) => Math.max(n, r.length), 0);
-  if (rows.length === 0) return <div className="viewer-empty">빈 파일</div>;
-  const [head, ...body] = rows;
+  const cols = rows.reduce((n, r) => Math.max(n, r.cells.length), 0);
+  const eol = p.text.includes("\r\n") ? "\r\n" : "\n";
+  const box = useRef<HTMLDivElement>(null);
+  const [sel, setSel] = useState<Pos | null>(null);
+  /** 고치는 칸과 그 칸에 친 글. */
+  const [edit, setEdit] = useState<(Pos & { v: string }) | null>(null);
+  /** 고치기를 한 번만 끝낸다 — Enter 로 끝낸 뒤 칸이 사라지며 blur 가 또 와도 다시 쓰지 않게. */
+  const editing = useRef(false);
+  const [find, setFind] = useState({ open: false, rep: false, q: "", to: "", cs: false, only: false });
+  const findInput = useRef<HTMLInputElement>(null);
+  const repInput = useRef<HTMLInputElement>(null);
+  const undo = useRef<string[]>([]);
+  const redo = useRef<string[]>([]);
+  const [said, setSaid] = useState("");
+
+  /** 글을 바꾸고 되돌릴 자리를 쌓는다. 저장은 글 보기와 같은 길(멈추면 저장)이다. */
+  const commit = (next: string) => {
+    if (next === p.text) return;
+    undo.current = [...undo.current.slice(-(TABLE_UNDO - 1)), p.text];
+    redo.current = [];
+    p.onChange(next);
+  };
+  const step = (back: boolean) => {
+    const from = back ? undo.current : redo.current;
+    const prev = from.pop();
+    if (prev == null) return;
+    (back ? redo : undo).current.push(p.text);
+    p.onChange(prev);
+  };
+
+  // 찾은 칸들 — 머리 줄도 찾는다. 「맞는 줄만」이면 몸통 줄을 거른다.
+  const hits = useMemo(() => {
+    const out: Pos[] = [];
+    if (!find.open || !find.q) return out;
+    rows.forEach((row, r) => row.cells.forEach((cell, c) => findIn(cell.v, find.q, find.cs).length && out.push({ r, c })));
+    return out;
+  }, [rows, find.open, find.q, find.cs]);
+  const hitSet = useMemo(() => new Set(hits.map((h) => `${h.r}:${h.c}`)), [hits]);
+  const cur = sel ? hits.findIndex((h) => h.r === sel.r && h.c === sel.c) : -1;
+
+  const body = useMemo(() => {
+    const all = rows.map((_, r) => r).slice(1);
+    const kept = find.open && find.only && find.q ? all.filter((r) => rows[r].cells.some((_, c) => hitSet.has(`${r}:${c}`))) : all;
+    return kept;
+  }, [rows, find.open, find.only, find.q, hitSet]);
   const shown = body.slice(0, TABLE_MAX_ROWS);
-  const pad = (r: string[]) => (r.length < cols ? [...r, ...Array<string>(cols - r.length).fill("")] : r);
+
+  // 고른 칸을 보이게 — 머리 줄 · 줄 번호 열은 붙어 있으므로 그만큼 비켜 둔다 (CSS scroll-margin)
+  useEffect(() => {
+    if (!sel) return;
+    box.current?.querySelector<HTMLElement>(`[data-r="${sel.r}"][data-c="${sel.c}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [sel]);
+
+  // 밖에서 누른 Ctrl+F · Ctrl+H 를 받는다 (Viewer)
+  useEffect(() => {
+    p.findRef.current = (rep) => {
+      setFind((f) => ({ ...f, open: true, rep: f.rep || (rep && !p.readOnly) }));
+      requestAnimationFrame(() => ((rep && !p.readOnly ? repInput : findInput).current ?? findInput.current)?.select());
+    };
+    return () => {
+      p.findRef.current = null;
+    };
+  });
+
+  const go = (k: number) => {
+    if (hits.length === 0) return setSaid(find.q ? "찾은 칸 없음" : "");
+    const i = cur < 0 ? (k > 0 ? 0 : hits.length - 1) : (cur + k + hits.length) % hits.length;
+    setSel(hits[i]);
+    setSaid("");
+    if (hits[i].r > 0 && !shown.includes(hits[i].r)) setSaid(`${hits[i].r}째 줄은 앞 ${TABLE_MAX_ROWS.toLocaleString()}줄 밖이라 표에 없음`);
+  };
+  /** 지금 칸의 찾은 말을 바꾸고 다음으로. 지금 칸이 찾은 칸이 아니면 먼저 그리로 간다. */
+  const replaceOne = () => {
+    if (p.readOnly || !find.q) return;
+    if (cur < 0) return go(1);
+    const h = hits[cur];
+    commit(applyEdits(p.text, cellEdit(rows, h, replaceIn(rows[h.r].cells[h.c].v, find.q, find.to, find.cs), p.sep)));
+    // 바꾼 뒤 찾은 칸 목록이 다시 만들어진다 — 다음 칸은 같은 차례 자리에 온다
+    const next = hits[cur + 1] ?? hits[0];
+    setSel(next && !(next.r === h.r && next.c === h.c) ? next : null);
+  };
+  const replaceAll = () => {
+    if (p.readOnly || !find.q || hits.length === 0) return;
+    commit(applyEdits(p.text, hits.flatMap((h) => cellEdit(rows, h, replaceIn(rows[h.r].cells[h.c].v, find.q, find.to, find.cs), p.sep))));
+    setSaid(`${hits.length}칸을 바꿈`);
+  };
+
+  const startEdit = (pos: Pos, v?: string) => {
+    if (p.readOnly) return setSaid("줄바꿈(CRLF · LF)이 섞인 파일이라 읽기 전용");
+    editing.current = true;
+    setEdit({ ...pos, v: v ?? rows[pos.r]?.cells[pos.c]?.v ?? "" });
+  };
+  const endEdit = (save: boolean, move?: Pos) => {
+    if (!edit || !editing.current) return;
+    editing.current = false;
+    if (save && edit.v !== (rows[edit.r]?.cells[edit.c]?.v ?? "")) commit(applyEdits(p.text, cellEdit(rows, edit, edit.v, p.sep)));
+    setEdit(null);
+    if (move) setSel(move);
+    box.current?.focus();
+  };
+
+  /** 줄 더하기 — 고른 줄 아래에 빈 줄. 고른 줄이 없으면 맨 끝. */
+  const addRow = () => {
+    if (p.readOnly || rows.length === 0) return;
+    const r = sel?.r ?? rows.length - 1;
+    const row = rows[r];
+    const blank = p.sep.repeat(Math.max(cols - 1, 0));
+    // 마지막 줄 뒤에 줄끝이 없으면 줄끝부터 붙인다
+    const t = row.next > row.e ? blank + eol : eol + blank;
+    commit(applyEdits(p.text, [{ s: row.next > row.e ? row.next : row.e, e: row.next > row.e ? row.next : row.e, t }]));
+    setSel({ r: r + 1, c: sel?.c ?? 0 });
+  };
+  /** 줄 지우기 — 고른 줄을 줄끝까지. 머리 줄은 지우지 않는다. */
+  const delRow = () => {
+    if (p.readOnly || !sel || sel.r === 0) return;
+    const row = rows[sel.r];
+    // 마지막 줄이면 앞 줄의 줄끝을 함께 지운다 — 빈 줄이 남지 않게
+    const s = row.next > row.e ? row.s : rows[sel.r - 1].e;
+    commit(applyEdits(p.text, [{ s, e: row.next > row.e ? row.next : row.e, t: "" }]));
+    setSel({ r: Math.min(sel.r, rows.length - 2), c: sel.c });
+  };
+
+  const onKey = (e: React.KeyboardEvent) => {
+    if (edit || (e.target as HTMLElement).closest("input")) return;
+    const ctrl = e.ctrlKey && !e.altKey;
+    const k = e.key;
+    const move = (dr: number, dc: number) => {
+      const at = sel ?? { r: 0, c: 0 };
+      // 줄은 보이는 차례로 옮긴다 (「맞는 줄만」이면 걸러진 줄 사이를)
+      const order = [0, ...shown];
+      const i = Math.max(0, order.indexOf(at.r));
+      const r = order[Math.min(order.length - 1, Math.max(0, i + dr))];
+      setSel({ r, c: Math.min(cols - 1, Math.max(0, at.c + dc)) });
+    };
+    let done = true;
+    if (k === "ArrowDown") move(1, 0);
+    else if (k === "ArrowUp") move(-1, 0);
+    else if (k === "ArrowRight" || (k === "Tab" && !e.shiftKey)) move(0, 1);
+    else if (k === "ArrowLeft" || (k === "Tab" && e.shiftKey)) move(0, -1);
+    else if (k === "PageDown") move(20, 0);
+    else if (k === "PageUp") move(-20, 0);
+    else if (ctrl && k === "Home") setSel({ r: 0, c: 0 });
+    else if (ctrl && k === "End") setSel({ r: shown[shown.length - 1] ?? 0, c: cols - 1 });
+    else if ((k === "Enter" || k === "F2") && sel) startEdit(sel);
+    else if (k === "F3") go(e.shiftKey ? -1 : 1);
+    else if ((k === "Delete" || k === "Backspace") && sel && !p.readOnly) commit(applyEdits(p.text, cellEdit(rows, sel, "", p.sep)));
+    else if (ctrl && e.key.toLowerCase() === "z") step(!e.shiftKey);
+    else if (ctrl && e.key.toLowerCase() === "y") step(false);
+    else if (ctrl && e.key.toLowerCase() === "c" && sel) void navigator.clipboard.writeText(rows[sel.r]?.cells[sel.c]?.v ?? "");
+    else if (ctrl && (k === "+" || k === "=")) addRow();
+    else if (ctrl && k === "-") delRow();
+    // 고른 칸에서 바로 치면 그 칸을 비우고 고치기 시작 (엑셀과 같다). 고칠 칸을 이 키를 받는 중에 바로 띄우고 초점을 옮겨
+    //   글자가 그 칸에 들어가게 한다 — 한글은 조합 중이라 키가 「Process」로 오고 글자를 알 수 없다. 막지 않는다(preventDefault 없이).
+    else if (sel && !e.ctrlKey && !e.altKey && !e.metaKey && (k.length === 1 || k === "Process")) {
+      flushSync(() => startEdit(sel, ""));
+      done = false;
+    }
+    else if (k === "Escape" && find.open) setFind((f) => ({ ...f, open: false }));
+    else if (k === "Escape" && sel) setSel(null);
+    else done = false;
+    if (done) e.preventDefault();
+  };
+
+  const onFindKey = (e: React.KeyboardEvent, isRep: boolean) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (isRep && e.ctrlKey) replaceAll();
+      else if (isRep) replaceOne();
+      else go(e.shiftKey ? -1 : 1);
+    } else if (e.key === "F3") {
+      e.preventDefault();
+      go(e.shiftKey ? -1 : 1);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setFind((f) => ({ ...f, open: false }));
+      box.current?.focus();
+    }
+  };
+
+  if (rows.length === 0) return <div className="viewer-empty">빈 파일</div>;
+
+  const cell = (r: number, c: number, head: boolean) => {
+    const v = rows[r].cells[c]?.v ?? "";
+    const isSel = sel?.r === r && sel.c === c;
+    const cls = [isSel ? "sel" : "", hitSet.has(`${r}:${c}`) ? "hit" : ""].join(" ").trim() || undefined;
+    const Tag = head ? "th" : "td";
+    return (
+      <Tag
+        key={c}
+        className={cls}
+        data-r={r}
+        data-c={c}
+        title={v.length > 40 || v.includes("\n") ? v : undefined}
+        onMouseDown={() => setSel({ r, c })}
+        onDoubleClick={() => startEdit({ r, c })}
+      >
+        {edit?.r === r && edit.c === c ? (
+          <input
+            className="cell-edit"
+            autoFocus
+            value={edit.v}
+            onChange={(e) => setEdit({ ...edit, v: e.target.value })}
+            onBlur={() => endEdit(true)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.preventDefault(), endEdit(true, { r: [0, ...shown][[0, ...shown].indexOf(r) + 1] ?? r, c });
+              else if (e.key === "Tab") e.preventDefault(), endEdit(true, { r, c: Math.min(cols - 1, Math.max(0, c + (e.shiftKey ? -1 : 1))) });
+              else if (e.key === "Escape") e.preventDefault(), endEdit(false);
+            }}
+          />
+        ) : (
+          <Marked v={v} q={find.open ? find.q : ""} cs={find.cs} />
+        )}
+      </Tag>
+    );
+  };
+
   return (
     <div className="viewer-table">
-      {body.length > TABLE_MAX_ROWS && (
-        <div className="viewer-bar" role="note">
-          <span>
-            {body.length.toLocaleString()}줄 중 앞 {TABLE_MAX_ROWS.toLocaleString()}줄만 표시 · 전체는 「글」이나 기본 앱으로
-          </span>
+      {find.open && (
+        <div className="table-find" role="search">
+          <div className="table-find-row">
+            <input
+              ref={findInput}
+              className="table-find-q"
+              placeholder="찾을 말"
+              aria-label="찾을 말"
+              value={find.q}
+              autoFocus
+              onChange={(e) => (setFind({ ...find, q: e.target.value }), setSaid(""))}
+              onKeyDown={(e) => onFindKey(e, false)}
+            />
+            <span className="table-find-count" aria-live="polite">
+              {find.q ? (hits.length ? `${cur >= 0 ? cur + 1 : "-"} / ${hits.length}칸` : "없음") : ""}
+            </span>
+            <button type="button" className="act" onClick={() => go(-1)} title="이전 · Shift+Enter">
+              이전
+            </button>
+            <button type="button" className="act" onClick={() => go(1)} title="다음 · Enter">
+              다음
+            </button>
+            <label className="table-find-opt">
+              <input type="checkbox" checked={find.cs} onChange={(e) => setFind({ ...find, cs: e.target.checked })} />
+              대소문자
+            </label>
+            <label className="table-find-opt">
+              <input type="checkbox" checked={find.only} onChange={(e) => setFind({ ...find, only: e.target.checked })} />
+              맞는 줄만
+            </label>
+            {!p.readOnly && (
+              <button type="button" className="act" aria-pressed={find.rep} onClick={() => setFind({ ...find, rep: !find.rep })} title="바꾸기 · Ctrl+H">
+                바꾸기
+              </button>
+            )}
+            <button type="button" className="act table-find-x" onClick={() => (setFind({ ...find, open: false }), box.current?.focus())} aria-label="닫기" title="닫기 · Esc">
+              ×
+            </button>
+          </div>
+          {find.rep && !p.readOnly && (
+            <div className="table-find-row">
+              <input
+                ref={repInput}
+                className="table-find-q"
+                placeholder="바꿀 말"
+                aria-label="바꿀 말"
+                value={find.to}
+                onChange={(e) => setFind({ ...find, to: e.target.value })}
+                onKeyDown={(e) => onFindKey(e, true)}
+              />
+              <button type="button" className="act" onClick={replaceOne} title="지금 칸을 바꾸고 다음으로 · Enter">
+                바꾸기
+              </button>
+              <button type="button" className="act" onClick={replaceAll} title="찾은 칸 모두 · Ctrl+Enter">
+                모두 바꾸기
+              </button>
+            </div>
+          )}
         </div>
       )}
-      <div className="viewer-table-scroll">
+      {/* 아래 끝은 즐겨찾기 독의 손잡이 글자와 겹쳐 위에 둔다 */}
+      <div className="table-hint">
+        {p.readOnly
+          ? "Ctrl+F 찾기"
+          : "두 번 누르기 · Enter · 바로 치기로 고치기 · Ctrl+F 찾기 · Ctrl+H 바꾸기 · Ctrl++ 줄 더하기 · Ctrl+- 줄 지우기 · Ctrl+Z 되돌리기"}
+      </div>
+      {(said || body.length > TABLE_MAX_ROWS) && (
+        <div className="viewer-bar" role="note">
+          <span>{said || `${body.length.toLocaleString()}줄 중 앞 ${TABLE_MAX_ROWS.toLocaleString()}줄만 표시 · 전체는 「글」이나 기본 앱으로`}</span>
+        </div>
+      )}
+      <div className="viewer-table-scroll" ref={box} tabIndex={0} onKeyDown={onKey} aria-label="표 · 화살표로 칸 고르기 · Enter 로 고치기">
         <table>
           <thead>
             <tr>
               <th className="n" aria-label="줄 번호" />
-              {pad(head).map((c, i) => (
-                <th key={i}>{c}</th>
-              ))}
+              {Array.from({ length: cols }, (_, c) => cell(0, c, true))}
             </tr>
           </thead>
           <tbody>
-            {shown.map((r, i) => (
-              <tr key={i}>
-                <td className="n">{i + 1}</td>
-                {pad(r).map((c, j) => (
-                  <td key={j}>{c}</td>
-                ))}
+            {shown.map((r) => (
+              <tr key={r}>
+                <td className="n">{r}</td>
+                {Array.from({ length: cols }, (_, c) => cell(r, c, false))}
               </tr>
             ))}
           </tbody>

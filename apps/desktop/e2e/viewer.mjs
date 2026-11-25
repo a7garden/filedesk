@@ -186,7 +186,7 @@ try {
   // 묻는 중에 닫으면 여기서 고친 글이 버려진다 — 닫지 않고 먼저 고르라고 한다
   await page.keyboard.press("Escape");
   await sleep(300);
-  check("묻는 중에는 Esc 로 닫히지 않는다", (await viewer.count()) === 1 && (await viewer.locator(".viewer-bar[role=alert]", { hasText: "겹친다" }).count()) === 1);
+  check("묻는 중에는 Esc 로 닫히지 않는다", (await viewer.count()) === 1 && (await viewer.locator(".viewer-bar[role=alert]", { hasText: "다른 곳에서 수정됨" }).count()) === 1);
   await page.screenshot({ path: join(SHOTS, "v4_충돌.png") });
   await ask.locator(".act.primary").click();
   check("덮어쓰기를 고르면 쓴다", await until(() => readFileSync(join(T, "노트.md"), "utf8").includes("mine"), 5000));

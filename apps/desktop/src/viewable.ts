@@ -19,28 +19,51 @@ export function tableSep(ext: string, text: string): string {
   return [",", ";", "\t"].reduce((a, b) => (count(b) > count(a) ? b : a));
 }
 
-/** csv · tsv 를 줄 · 칸으로 (RFC 4180) — 따옴표 안의 구분자 · 줄바꿈 · `""` 를 칸 글로 둔다. */
-export function parseTable(text: string, sep: string): string[][] {
-  const rows: string[][] = [];
-  let row: string[] = [];
+/** 표의 칸 — 글(`v`)과 원본 글에서의 자리(`s` ~ `e`, 따옴표 포함) · 따옴표로 싸여 있었는지. 칸을 고치면 이 자리만 바꿔 쓴다. */
+export type TableCell = { v: string; s: number; e: number; q: boolean };
+/** 표의 줄 — 칸들 · 줄 글의 자리(`s` ~ `e`, 줄끝 빼고) · 다음 줄이 시작하는 자리(`next`, 마지막 줄이면 글 끝). */
+export type TableRow = { cells: TableCell[]; s: number; e: number; next: number };
+
+/** csv · tsv 를 줄 · 칸으로 (RFC 4180) — 따옴표 안의 구분자 · 줄바꿈 · `""` 를 칸 글로 둔다.
+ *  2026.11.25 : 칸마다 원본 자리를 함께 낸다. 표에서 칸 하나를 고치면 그 칸의 글만 바꿔 쓰고 나머지(따옴표 · 줄끝 · 빈 칸)는 원래 꼴대로 둔다. */
+export function parseTable(text: string, sep: string): TableRow[] {
+  const rows: TableRow[] = [];
+  const n = text.length;
+  const start = text.charCodeAt(0) === 0xfeff ? 1 : 0;
+  let cells: TableCell[] = [];
   let cell = "";
+  let cs = start;
+  let rs = start;
+  let inQuote = false;
   let quoted = false;
-  const s = text.replace(/^﻿/, "");
-  for (let i = 0; i < s.length; i++) {
-    const c = s[i];
-    if (quoted) {
+  for (let i = start; i < n; i++) {
+    const c = text[i];
+    if (inQuote) {
       if (c !== '"') cell += c;
-      else if (s[i + 1] === '"') (cell += '"'), i++;
-      else quoted = false;
-    } else if (c === '"' && cell === "") quoted = true;
-    else if (c === sep) row.push(cell), (cell = "");
-    else if (c === "\n" || c === "\r") {
-      if (c === "\r" && s[i + 1] === "\n") i++;
-      row.push(cell), rows.push(row), (row = []), (cell = "");
+      else if (text[i + 1] === '"') (cell += '"'), i++;
+      else inQuote = false;
+    } else if (c === '"' && i === cs) inQuote = quoted = true;
+    else if (c === sep) {
+      cells.push({ v: cell, s: cs, e: i, q: quoted });
+      (cell = ""), (cs = i + 1), (quoted = false);
+    } else if (c === "\n" || c === "\r") {
+      const e = i;
+      if (c === "\r" && text[i + 1] === "\n") i++;
+      cells.push({ v: cell, s: cs, e, q: quoted });
+      rows.push({ cells, s: rs, e, next: i + 1 });
+      (cells = []), (cell = ""), (cs = rs = i + 1), (quoted = false);
     } else cell += c;
   }
-  if (cell !== "" || row.length) row.push(cell), rows.push(row);
+  if (cs < n || cells.length) {
+    cells.push({ v: cell, s: cs, e: n, q: quoted });
+    rows.push({ cells, s: rs, e: n, next: n });
+  }
   return rows;
+}
+
+/** 칸 글을 파일에 쓸 꼴로 — 구분자 · 따옴표 · 줄바꿈이 들었거나 원래 따옴표로 싸여 있었으면 싼다. */
+export function quoteCell(v: string, sep: string, wasQuoted = false): string {
+  return wasQuoted || v.includes(sep) || /["\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
 }
 /** 마크다운 — 보기(렌더) · 편집 · 나란히. 나머지 글 파일은 편집기만. */
 export const MD_EXTS = new Set(["md", "markdown"]);

@@ -1174,6 +1174,8 @@ export default function App() {
         const id = e.key === "9" ? ids[ids.length - 1] : ids[Number(e.key) - 1];
         if (id != null) showTab(id);
       } else if (k === "h") {
+        // 앱 안 보기의 편집기가 Ctrl+H(바꾸기)로 받았으면 숨김 파일을 바꾸지 않는다 (editorFind.ts)
+        if (e.defaultPrevented) return;
         e.preventDefault();
         setShowHidden((v) => !v);
       } else if (e.key === "\\") {
