@@ -4,10 +4,44 @@ import { invoke } from "@tauri-apps/api/core";
 import { parentOf } from "./util";
 
 /** 글 파일 (fd-core textfile::EXTS 와 같아야 한다). */
-/** 2026.11.12 : 설정 · 자료 글(ini · json · xml · yaml …)을 더했다. 실행되는 글(bat · ps1 · reg)과 csv(대개 엑셀로 연다)는 넣지 않는다. */
+/** 2026.11.12 : 설정 · 자료 글(ini · json · xml · yaml …)을 더했다. 실행되는 글(bat · ps1 · reg)은 넣지 않는다. */
 export const TEXT_EXTS = new Set(
-  "md markdown txt log ini cfg conf config properties json jsonc xml yaml yml toml env gitignore editorconfig nfo srt".split(" "),
+  "md markdown txt log ini cfg conf config properties json jsonc xml yaml yml toml env gitignore editorconfig nfo srt csv tsv".split(" "),
 );
+/** 표 — 글 파일이지만 표로 먼저 보인다 (머리의 「표 · 글」로 바꾼다). 2026.11.25 사용자 요청으로 더했다. */
+export const TABLE_EXTS = new Set(["csv", "tsv"]);
+
+/** 칸 나누는 글자. tsv 는 탭, csv 는 첫 줄에 가장 많은 것 (쉼표 · 세미콜론 · 탭) — 유럽식 엑셀은 세미콜론으로 낸다. */
+export function tableSep(ext: string, text: string): string {
+  if (ext.toLowerCase() === "tsv") return "\t";
+  const first = text.split(/\r?\n/, 1)[0] ?? "";
+  const count = (c: string) => first.split(c).length - 1;
+  return [",", ";", "\t"].reduce((a, b) => (count(b) > count(a) ? b : a));
+}
+
+/** csv · tsv 를 줄 · 칸으로 (RFC 4180) — 따옴표 안의 구분자 · 줄바꿈 · `""` 를 칸 글로 둔다. */
+export function parseTable(text: string, sep: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let quoted = false;
+  const s = text.replace(/^﻿/, "");
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (quoted) {
+      if (c !== '"') cell += c;
+      else if (s[i + 1] === '"') (cell += '"'), i++;
+      else quoted = false;
+    } else if (c === '"' && cell === "") quoted = true;
+    else if (c === sep) row.push(cell), (cell = "");
+    else if (c === "\n" || c === "\r") {
+      if (c === "\r" && s[i + 1] === "\n") i++;
+      row.push(cell), rows.push(row), (row = []), (cell = "");
+    } else cell += c;
+  }
+  if (cell !== "" || row.length) row.push(cell), rows.push(row);
+  return rows;
+}
 /** 마크다운 — 보기(렌더) · 편집 · 나란히. 나머지 글 파일은 편집기만. */
 export const MD_EXTS = new Set(["md", "markdown"]);
 /** 그림 (lib.rs image_mime 과 같아야 한다). WebView2 가 그대로 그리는 것만 — heic · tiff · psd 는 기본 앱으로. */

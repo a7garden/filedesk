@@ -6,6 +6,7 @@
 //   [3] 마크다운 — 옵시디언처럼 렌더된 채로 고친다 (@atomic-editor/editor · oxb 편집기의 바탕). 그림 · 링크는 문서 폴더 기준
 //   [4] 글 파일(txt · log) — 기호를 그리지 않는 고정폭 편집기
 //   [5] 그림 — 맞춤 ↔ 원래 크기 · ←/→ 같은 폴더의 그림
+//   [6] 표(csv · tsv) — 글 파일을 표로 먼저 보인다. 고치기는 「글」로 바꿔서 (2026.11.25)
 //
 // 2026.11.11 : 처음 만들었다. 저장 단추를 두지 않고 입력이 멈추면 쓴다(docket 메모와 같게) — Ctrl+S 는 바로 쓴다.
 // 읽은 인코딩 · 줄끝 그대로 쓰고(fd-core textfile), 연 사이 밖에서 바뀌었으면 덮지 않고 묻는다.
@@ -20,7 +21,21 @@ import { AtomicCodeMirrorEditor } from "@atomic-editor/editor";
 import "@atomic-editor/editor/styles.css";
 import { api, type Entry } from "./api";
 import { errText, formatBytes, parentOf } from "./util";
-import { ENCODING_LABEL, foreignShare, IMAGE_EXTS, localPath, MD_EXTS, rawUrl, runnable, textApi, viewKind, type TextFile } from "./viewable";
+import {
+  ENCODING_LABEL,
+  foreignShare,
+  IMAGE_EXTS,
+  localPath,
+  MD_EXTS,
+  parseTable,
+  rawUrl,
+  runnable,
+  TABLE_EXTS,
+  tableSep,
+  textApi,
+  viewKind,
+  type TextFile,
+} from "./viewable";
 
 /** 여는 파일. 목록 밖(마크다운 링크로 간 파일)도 열 수 있어 Entry 전체를 받지 않는다. */
 export type ViewTarget = Pick<Entry, "path" | "name" | "ext" | "modified"> & { size?: number };
@@ -151,6 +166,7 @@ export default function Viewer(p: Props) {
           key={p.target.path}
           path={p.target.path}
           md={isMd}
+          table={TABLE_EXTS.has(p.target.ext.toLowerCase()) ? p.target.ext.toLowerCase() : null}
           liveModified={p.liveModified}
           setInfo={setInfo}
           flushRef={flush}
@@ -170,6 +186,8 @@ type Status = "loading" | "saved" | "dirty" | "saving" | "conflict" | "error";
 function TextView(p: {
   path: string;
   md: boolean;
+  /** csv · tsv 면 그 확장자 — 표로 먼저 보인다. */
+  table: string | null;
   liveModified?: number;
   setInfo: (n: React.ReactNode) => void;
   flushRef: React.RefObject<() => Promise<boolean>>;
@@ -187,6 +205,8 @@ function TextView(p: {
   const timer = useRef(0);
   /** 다시 읽은 횟수 — 마크다운 편집기는 처음 받은 글만 쓰므로, 디스크에서 다시 읽으면 이 값으로 새로 띄운다. */
   const [rev, setRev] = useState(0);
+  /** 표로 보는 중인가 (csv · tsv). 고치려면 글로 바꾼다 — 표 칸에서 고치면 따옴표 · 구분자를 다시 써야 해서 원래 글 꼴이 흐트러진다. */
+  const [asTable, setAsTable] = useState(true);
 
   const load = () =>
     textApi
@@ -267,6 +287,16 @@ function TextView(p: {
     p.setInfo(
       file && (
         <>
+          {p.table && (
+            <span className="cs-seg" role="group" aria-label="보기">
+              <button type="button" aria-pressed={asTable} onClick={() => setAsTable(true)}>
+                표
+              </button>
+              <button type="button" aria-pressed={!asTable} onClick={() => setAsTable(false)} title="글로 보고 고치기">
+                글
+              </button>
+            </span>
+          )}
           <span title="읽은 인코딩 · 줄바꿈 그대로 저장">
             {ENCODING_LABEL[file.encoding]} · {file.crlf ? "CRLF" : "LF"}
           </span>
@@ -275,7 +305,7 @@ function TextView(p: {
       ),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [file, status]);
+  }, [file, status, asTable]);
 
   if (status === "error" && !file)
     return (
@@ -315,6 +345,8 @@ function TextView(p: {
       <div className="viewer-text">
         {p.md ? (
           <MdEditor key={rev} doc={p.path} source={file.text} readOnly={file.mixed} onChange={change} onLink={p.onLink} />
+        ) : p.table && asTable ? (
+          <TableView text={text} sep={tableSep(p.table, text)} />
         ) : (
           <div className="viewer-pane">
             <PlainEditor value={text} readOnly={file.mixed} onChange={change} />
@@ -505,6 +537,54 @@ function ImageView(p: { target: ViewTarget; siblings: Entry[]; setInfo: (n: Reac
           </button>
         </>
       )}
+    </div>
+  );
+}
+
+// ───────── [6] 표 ─────────
+
+/** 한 번에 그리는 줄 수 — 넘으면 앞부분만 그리고 알린다. 수만 줄을 칸마다 DOM 으로 그리면 창이 멈춘다. */
+const TABLE_MAX_ROWS = 5000;
+
+/** csv · tsv 를 표로. 첫 줄은 머리로 고정하고, 왼쪽에 줄 번호를 둔다. 읽기만 한다. */
+function TableView(p: { text: string; sep: string }) {
+  const rows = useMemo(() => parseTable(p.text, p.sep), [p.text, p.sep]);
+  const cols = rows.reduce((n, r) => Math.max(n, r.length), 0);
+  if (rows.length === 0) return <div className="viewer-empty">빈 파일</div>;
+  const [head, ...body] = rows;
+  const shown = body.slice(0, TABLE_MAX_ROWS);
+  const pad = (r: string[]) => (r.length < cols ? [...r, ...Array<string>(cols - r.length).fill("")] : r);
+  return (
+    <div className="viewer-table">
+      {body.length > TABLE_MAX_ROWS && (
+        <div className="viewer-bar" role="note">
+          <span>
+            {body.length.toLocaleString()}줄 중 앞 {TABLE_MAX_ROWS.toLocaleString()}줄만 표시 · 전체는 「글」이나 기본 앱으로
+          </span>
+        </div>
+      )}
+      <div className="viewer-table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th className="n" aria-label="줄 번호" />
+              {pad(head).map((c, i) => (
+                <th key={i}>{c}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((r, i) => (
+              <tr key={i}>
+                <td className="n">{i + 1}</td>
+                {pad(r).map((c, j) => (
+                  <td key={j}>{c}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

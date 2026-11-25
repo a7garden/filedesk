@@ -20,10 +20,10 @@ use serde::{Deserialize, Serialize};
 /// 앱 안에서 여는 글 파일 (화면 `viewable.ts` 의 TEXT_EXTS 와 같아야 한다).
 /// 2026.11.12 : 설정 · 자료 글(ini · json · xml · yaml …)을 더했다 — 메모장을 띄우지 않고 바로 본다 (사용자 요청).
 ///   실행되는 글(bat · ps1 · reg …)은 넣지 않는다 — 탐색기에서 두 번 누르면 도는 파일이라, 여기서 다르게 굴면 손이 헷갈린다.
-///   csv 도 넣지 않는다 — 대개 엑셀로 표를 보려고 연다.
+///   2026.11.25 : csv · tsv 를 더했다 (사용자 요청) — 화면은 표로 먼저 보이고 글로 바꿔 고친다. 엑셀은 「기본 앱으로 열기」.
 pub const EXTS: &[&str] = &[
     "md", "markdown", "txt", "log", "ini", "cfg", "conf", "config", "properties", "json", "jsonc", "xml", "yaml", "yml", "toml", "env",
-    "gitignore", "editorconfig", "nfo", "srt",
+    "gitignore", "editorconfig", "nfo", "srt", "csv", "tsv",
 ];
 
 /// 이보다 큰 글은 열지 않는다 — 편집기가 수십 MB 를 받으면 창이 굳는다. 큰 로그는 기본 앱으로 연다.

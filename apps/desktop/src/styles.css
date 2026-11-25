@@ -3945,6 +3945,61 @@ body.resizing-y * {
   margin: 0 auto;
 }
 
+/* 표 (csv · tsv) — 머리 줄과 줄 번호 열을 고정하고 가로 · 세로로 넘긴다. 칸 글은 한 줄로 자른다 */
+.viewer-table {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.viewer-table-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.viewer-table table {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  user-select: text;
+}
+.viewer-table th,
+.viewer-table td {
+  max-width: 360px;
+  padding: 5px 12px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+.viewer-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--side);
+  color: var(--ink);
+  font-weight: 600;
+}
+.viewer-table .n {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 44px;
+  background: var(--side);
+  color: var(--muted);
+  font-weight: 400;
+  text-align: right;
+}
+.viewer-table thead .n {
+  z-index: 3;
+}
+.viewer-table tbody tr:hover td:not(.n) {
+  background: var(--hover);
+}
+
 /* 마크다운 — 렌더된 채로 고친다 (@atomic-editor/editor). 글꼴은 감싸개에, 색은 편집기 뿌리에 filedesk 색으로 바꿔 끼운다.
    색 선택자를 넷 겹친 것은 편집기 CSS 의 [data-theme="light"] 덮어쓰기(나중에 읽힌다)를 이기려는 것 */
 .viewer .viewer-text .md-live {
