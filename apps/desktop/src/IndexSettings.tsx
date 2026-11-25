@@ -53,7 +53,7 @@ export default function IndexSettings({ current }: { current: string }) {
   return (
     <>
       <p className="muted set-note">
-        「모든 드라이브」 찾기 · 스마트 폴더용. NAS · 네트워크 드라이브 제외.
+        「모든 드라이브」 찾기와 스마트 폴더가 쓰는 색인. NAS · 네트워크 드라이브는 넣지 않음.
       </p>
       <div className="set-line">
         <span className="set-label">빠른 색인</span>
@@ -79,7 +79,7 @@ export default function IndexSettings({ current }: { current: string }) {
             )}
             {svc && (
               <button className="act" disabled={!hub?.bundled || !!busy} onClick={() => run("uninstall", () => api.serviceSetup("uninstall"), "서비스 제거됨")}>
-                서비스 지우기
+                서비스 제거
               </button>
             )}
           </div>
@@ -118,6 +118,12 @@ export default function IndexSettings({ current }: { current: string }) {
           ) : (
             <p className="muted set-hint">{hub ? "색인 없음" : ""}</p>
           )}
+          {/* 2026.11.25 : 구획 맨 아래 어느 줄에도 속하지 않고 떠 있던 「다시 만들기」를 그 대상인 드라이브 표 아래로 (UI 평가) */}
+          <div className="set-acts set-acts-after">
+            <button className="act" disabled={!!busy} onClick={() => run("rebuild", () => api.indexRebuild(), "색인 다시 만드는 중")}>
+              색인 다시 만들기
+            </button>
+          </div>
         </div>
       </div>
       <div className="set-line">
@@ -126,7 +132,7 @@ export default function IndexSettings({ current }: { current: string }) {
           {content ? (
             <>
               <p className="set-path">
-                {content.indexed.toLocaleString("ko-KR")}개 담음
+                {content.indexed.toLocaleString("ko-KR")}개 색인됨
                 {content.queued > 0 && ` · 남은 것 ${content.queued.toLocaleString("ko-KR")}${content.pdfLeft ? ` (pdf ${content.pdfLeft.toLocaleString("ko-KR")})` : ""}`}
                 {content.failed > 0 && ` · 못 읽은 것 ${content.failed.toLocaleString("ko-KR")}`}
                 {content.paused && " · 멈춤"}
@@ -142,7 +148,7 @@ export default function IndexSettings({ current }: { current: string }) {
                 </button>
               </div>
               <p className="muted set-hint">
-                제외: Windows · Program Files · AppData · 다른 계정 폴더
+                늘 제외: Windows · Program Files · AppData · 다른 계정 폴더
               </p>
             </>
           ) : (
@@ -163,22 +169,18 @@ export default function IndexSettings({ current }: { current: string }) {
             placeholder={"한 줄에 하나: D:\\임시\nC:\\Users\\나\\OneDrive\\옛 자료"}
             onChange={(e) => setExclude(e.target.value)}
           />
-          <div className="set-acts">
-            <button className="act" onClick={() => run("exclude", () => api.indexExclude(exclude.split("\n")), "제외 폴더 저장됨")}>
-              저장
-            </button>
+          <div className="set-acts set-acts-after">
             <button className="act" onClick={() => setExclude((x) => (x.trim() ? `${x.trim()}\n${current}` : current))} title={current}>
               지금 폴더 추가
+            </button>
+            {/* 다른 설정과 달리 저장 단추가 있다 — 저장하면 색인에서 그 폴더를 덜어 내므로, 적는 도중 한 글자마다 다시 하지 않게 */}
+            <button className="act primary" onClick={() => run("exclude", () => api.indexExclude(exclude.split("\n")), "제외 폴더 저장됨")}>
+              제외 폴더 저장
             </button>
           </div>
         </div>
       </div>
-      <div className="set-acts">
-        <button className="act" disabled={!!busy} onClick={() => run("rebuild", () => api.indexRebuild(), "색인 다시 만드는 중")}>
-          다시 만들기
-        </button>
-        {msg && <span className={msg.warn ? "warn-text" : "muted"}>{msg.text}</span>}
-      </div>
+      {msg && <p className={"set-note " + (msg.warn ? "warn-text" : "muted")} aria-live="polite">{msg.text}</p>}
     </>
   );
 }

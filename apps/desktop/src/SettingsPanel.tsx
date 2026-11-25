@@ -1,8 +1,8 @@
 // 설정 — 왼쪽 아래 「설정」 · Ctrl+, · 명령 팔레트로 연다.
 //
 // 목차 (한 장으로 이어진다 · 왼쪽 목차는 지금 읽는 자리를 따라간다)
-//   보기       크기 사다리 · 보일 열 · 숨김 파일 · 격자 미리보기 · 사이드바 구획(SideLayout · 2026.11.24)
-//   목록       기본 정렬 · 폴더를 위에 · 판 접어 시작 · 찾기에서 제외할 확장자(2026.11.20) · 판 관리(2026.11.16 · 기본 끔) · 고친 날 · 크기 꼴
+//   보기       크기 사다리 · 보일 열 · 표시(숨김 파일 · 상태 아이콘) · 격자 보기(미리보기 · 잘린 이름) · 사이드바 구획(SideLayout · 2026.11.24)
+//   목록       기본 정렬 + 폴더를 위에 · 판 관리(2026.11.16 · 기본 끔) + 판 접어 시작 · 찾기 제외 확장자(2026.11.20) · 크기 꼴
 //   열기       폴더 열기(두 번 · 한 번 누르기) · 시작 폴더
 //   화면 색     시스템 · 밝게 · 어둡게 — 작은 창 그림으로 고른다
 //   아이콘      Windows · filedesk · 아이콘 팩 — 같은 파일 몇 개가 셋에서 어떻게 보이는지 나란히
@@ -165,7 +165,7 @@ export default function SettingsPanel(props: Props) {
     (remove ? api.removeSkill(a.id) : api.installSkill(a.id))
       .then((s) => {
         setSkill(s);
-        setSkillMsg(remove ? `${a.name}에서 제거함` : `설치함 · ${a.name} 다시 시작 후 적용`);
+        setSkillMsg(remove ? `${a.name}에서 제거함` : `${a.name}에 설치함 · ${a.name}을(를) 다시 시작하면 적용`);
       })
       .catch((e) => setSkillMsg(errText(e)));
   };
@@ -272,20 +272,26 @@ export default function SettingsPanel(props: Props) {
                   ))}
                 </div>
                 <p className="muted set-hint">
-                  눌러서 켜고 끈다 · 열 너비는 목록 머리의 경계선을 끌어 바꾼다 ·{" "}
+                  눌러서 켜고 끄기 · 너비는 목록 머리의 경계선을 끌어 조절 ·{" "}
                   <button className="link-btn" onClick={resetCols}>
                     너비 처음대로
                   </button>
                 </p>
               </div>
             </div>
+            {/* 2026.11.25 : 「표시할 항목」 한 줄에 목록 전체 · 격자 전용이 섞여 있던 것을 둘로 나눴다 (UI 평가) */}
             <div className="set-line">
-              <span className="set-label">표시할 항목</span>
+              <span className="set-label">표시</span>
               <div>
                 {check("숨김 · 시스템 파일", showHidden, setShowHidden, "Ctrl+H")}
-                {check("격자에서 그림 · PDF · 영상의 내용 미리보기", view.thumbs, (thumbs) => setView((v) => ({ ...v, thumbs })))}
-                {check("격자에서 잘린 이름 펼쳐 보기", view.namePeek, (namePeek) => setView((v) => ({ ...v, namePeek })))}
-                {check("아이콘에 SVN · OneDrive 상태 표시", view.overlays, (overlays) => setView((v) => ({ ...v, overlays })))}
+                {check("아이콘에 SVN · OneDrive 상태", view.overlays, (overlays) => setView((v) => ({ ...v, overlays })))}
+              </div>
+            </div>
+            <div className="set-line">
+              <span className="set-label">격자 보기</span>
+              <div>
+                {check("그림 · PDF · 영상은 내용으로 미리보기", view.thumbs, (thumbs) => setView((v) => ({ ...v, thumbs })))}
+                {check("잘린 이름은 올려 두면 펼쳐 보기", view.namePeek, (namePeek) => setView((v) => ({ ...v, namePeek })))}
               </div>
             </div>
             {/* 사이드바 구획 — 줄여 그린 사이드바 위에서 끌어 차례 · 스위치로 켜고 끄기. 2026.11.24 사용자 요청 */}
@@ -293,7 +299,7 @@ export default function SettingsPanel(props: Props) {
               <span className="set-label">사이드바</span>
               <div>
                 <SideLayout view={view} setView={setView} />
-                <p className="muted set-hint">손잡이를 끌어 순서 변경 · 끈 구획은 사이드바에서 숨김</p>
+                <p className="muted set-hint">손잡이를 끌어 순서 바꾸기 · 끈 구획은 사이드바에서 숨김</p>
               </div>
             </div>
           </section>
@@ -323,18 +329,21 @@ export default function SettingsPanel(props: Props) {
                   view.sort.asc ? "asc" : "desc",
                   (d) => setView((v) => ({ ...v, sort: { ...v.sort, asc: d === "asc" } })),
                 )}
-                <p className="muted set-hint">모든 탭에 같다. 목록의 열 머리 · 「정렬 기준」 메뉴로 고른 것도 여기에 남는다</p>
-              </div>
-            </div>
-            <div className="set-line">
-              <span className="set-label">늘어놓기</span>
-              <div>
+                {/* 2026.11.25 : 「늘어놓기」 줄을 걷었다. 뜻이 흐렸고, 폴더 먼저는 정렬의 일 · 판 접기는 판 관리의 일이다 (UI 평가) */}
                 {check("폴더를 파일 위에 모으기", view.dirsFirst, (dirsFirst) => setView((v) => ({ ...v, dirsFirst })))}
-                {view.editions && check("판을 접은 채 시작", view.foldStart, (foldStart) => setView((v) => ({ ...v, foldStart })), "Ctrl+Shift+D 는 그 탭에서만")}
+                <p className="muted set-hint">모든 탭에 적용 · 목록의 열 머리나 「정렬 기준」 메뉴로 바꿔도 여기에 반영</p>
               </div>
             </div>
             <div className="set-line">
-              <span className="set-label">찾기에서 제외할 확장자</span>
+              <span className="set-label">판 관리</span>
+              <div>
+                {check("문서의 판을 한 줄로 묶기", view.editions, (editions) => setView((v) => ({ ...v, editions })))}
+                {view.editions && check("판을 접은 채 시작", view.foldStart, (foldStart) => setView((v) => ({ ...v, foldStart })), "Ctrl+Shift+D: 그 탭만 바꾸기")}
+                <p className="muted set-hint">「보고서_v2_20261125.hwpx」 같은 파일을 판으로 묶음 · 켜면 판 열 · 판 목록 · 새 판 내기 · 문제 문서 처리함이 생김</p>
+              </div>
+            </div>
+            <div className="set-line">
+              <span className="set-label">찾기 제외</span>
               <div>
                 <SkipExts exts={view.findSkip} set={(findSkip) => setView((v) => ({ ...v, findSkip }))} />
                 <p className="muted set-hint">
@@ -349,16 +358,7 @@ export default function SettingsPanel(props: Props) {
               </div>
             </div>
             <div className="set-line">
-              <span className="set-label">판 관리</span>
-              <div>
-                {check("문서의 판을 한 줄로 묶어 관리", view.editions, (editions) => setView((v) => ({ ...v, editions })))}
-                <p className="muted set-hint">
-                  「문서명_v판_날짜」 파일을 판으로 묶음 · 판 열 · 판 목록 · 새 판 내기 · 문제 문서 처리함
-                </p>
-              </div>
-            </div>
-            <div className="set-line">
-              <span className="set-label">파일 크기 표기</span>
+              <span className="set-label">크기 표기</span>
               <div>
                 {choice(
                   "크기 표시",
@@ -370,7 +370,7 @@ export default function SettingsPanel(props: Props) {
                   (sizeUnit) => setView((v) => ({ ...v, sizeUnit })),
                 )}
                 {check("폴더 용량 표시", view.folderSize, (folderSize) => setView((v) => ({ ...v, folderSize })))}
-                <p className="muted set-hint">폴더 크기 칸에 하위 폴더까지 더한 용량 · 큰 폴더와 NAS 는 늦게 표시</p>
+                <p className="muted set-hint">하위 폴더까지 더한 용량 · 큰 폴더와 NAS 는 늦게 나옴</p>
               </div>
             </div>
           </section>
@@ -397,7 +397,7 @@ export default function SettingsPanel(props: Props) {
                 {choice(
                   "시작할 때",
                   [
-                    ["last", "지난 탭 그대로", "지난번 탭 · 나눠 보기"],
+                    ["last", "지난 탭 그대로", "지난번 탭과 나눠 보기를 다시 엶"],
                     ["folder", "정한 폴더", start || "지금 폴더"],
                   ],
                   start ? "folder" : "last",
@@ -420,11 +420,12 @@ export default function SettingsPanel(props: Props) {
               {(
                 [
                   ["system", "시스템", "Windows 설정 따름"],
-                  ["light", "밝게", "밝게"],
-                  ["dark", "어둡게", "어둡게"],
+                  ["light", "밝게", ""],
+                  ["dark", "어둡게", ""],
                 ] as [Theme, string, string][]
               ).map(([t, l, hint]) => (
-                <button key={t} role="radio" aria-checked={theme === t} className={"theme-card" + (theme === t ? " on" : "")} onClick={() => setTheme(t)} title={hint}>
+                // 2026.11.25 : 「밝게」 위에 같은 말 「밝게」가 뜨던 풍선을 걷었다. 풀이가 필요한 「시스템」만 둔다
+                <button key={t} role="radio" aria-checked={theme === t} className={"theme-card" + (theme === t ? " on" : "")} onClick={() => setTheme(t)} title={hint || undefined}>
                   <MiniWindow theme={t} />
                   <span>{l}</span>
                 </button>
@@ -452,7 +453,7 @@ export default function SettingsPanel(props: Props) {
             {view.icons === "pack" && (
               <div className="pack-box">
                 <p className="set-path" title={view.iconPack}>
-                  {view.iconPack || <span className="muted">폴더 없음</span>}
+                  {view.iconPack || <span className="muted">아직 폴더를 정하지 않음</span>}
                 </p>
                 <div className="set-acts">
                   <button className="act primary" onClick={() => setView((v) => ({ ...v, iconPack: current }))} title={current}>
@@ -466,8 +467,8 @@ export default function SettingsPanel(props: Props) {
                   {packErr && <span className="warn-text">{packErr}</span>}
                 </div>
                 <p className="muted set-note">
-                  폴더에 그림(svg · png · ico · webp)을 두고 이름을 확장자(<code>pdf.svg</code>) · 종류(<code>doc.png</code>) · <code>folder</code> · <code>file</code> 로 짓는다.
-                  찾는 순서: 확장자 → 종류 → file
+                  폴더에 그림(svg · png · ico · webp)을 두고 이름을 확장자(<code>pdf.svg</code>) · 종류(<code>doc.png</code>) · <code>folder</code> · <code>file</code> 로 짓기.
+                  찾는 순서: 확장자 → 종류 → file.
                   {packMap && ` 찾은 그림 ${Object.keys(packMap).length}개${Object.keys(packMap).length ? `: ${Object.keys(packMap).sort().slice(0, 12).join(" · ")}${Object.keys(packMap).length > 12 ? " …" : ""}` : ""}`}
                 </p>
               </div>
@@ -476,6 +477,8 @@ export default function SettingsPanel(props: Props) {
 
           <section id="set-kinds" aria-labelledby="h-kinds">
             <h3 id="h-kinds">종류</h3>
+            {/* 2026.11.25 : 구획이 조작 안내로 바로 시작해 「종류」가 무엇을 정하는지 없었다 (UI 평가) */}
+            <p className="set-note">목록의 「종류」 열과 아이콘 색을 정하는 확장자 묶음.</p>
             <KindsEditor kinds={view.kinds} set={(kinds) => setView((v) => ({ ...v, kinds }))} />
           </section>
 
@@ -487,10 +490,10 @@ export default function SettingsPanel(props: Props) {
           <section id="set-skill" aria-labelledby="h-skill">
             <h3 id="h-skill">에이전트 스킬</h3>
             <p className="set-note">
-              Claude Code · Codex 같은 코딩 에이전트가 filedesk 명령줄(fd.exe)을 쓰게 하는 안내서.
+              Claude Code · Codex 같은 코딩 에이전트가 filedesk 명령줄(fd.exe)로 파일을 찾고 정리하게 하는 안내서.
             </p>
             <p className="muted set-note">
-              설치하면 에이전트가 드라이브를 직접 읽지 않고 색인으로 파일 · 문서 본문을 찾고, 판 정리 · 메모 · 색 표시 · 휴지통을 앱과 같은 규칙으로 처리. 파일을 바꾸는 일은 계획을 먼저 보이고, 지우기는 휴지통으로만.
+              설치하면 에이전트가 드라이브를 훑지 않고 색인으로 파일과 문서 본문을 찾음. 판 정리 · 메모 · 색 표시는 앱과 같은 규칙을 따르고, 파일을 바꾸기 전에 계획을 먼저 보이며, 지우기는 휴지통으로만.
             </p>
             {skill == null ? (
               <p className="set-path">확인 중…</p>
@@ -536,7 +539,7 @@ export default function SettingsPanel(props: Props) {
             {skill && !skill.hasCli && <p className="muted set-note">설치 파일로 설치한 앱에서만 설치 가능 (fd.exe 가 앱 옆에 있어야 함)</p>}
             {skillMsg && <p className="set-note">{skillMsg}</p>}
             {skillMissing.length > 0 && <p className="muted set-note">이 PC 에 없는 에이전트: {skillMissing.map((a) => a.name).join(" · ")}</p>}
-            <p className="muted set-note">설치한 스킬은 앱을 시작할 때 이 버전에 맞춰 저절로 갱신.</p>
+            <p className="muted set-note">설치한 스킬은 앱을 켤 때마다 이 버전에 맞춰 자동으로 갱신.</p>
             <p className="muted set-note">
               목록에 없는 에이전트: 명령줄 <code>fd skill install --dir &lt;스킬 폴더&gt;</code> 로 설치하거나, <code>fd skill show</code> 본문을 그 에이전트의 지침 파일에 붙여 넣기.
             </p>
@@ -677,7 +680,7 @@ function KindsEditor({ kinds, set }: { kinds: KindDef[]; set: (k: KindDef[]) => 
 
   return (
     <>
-      <p className="muted set-note">손잡이를 끌어 순서 변경 (확장자가 겹치면 위 종류 우선) · 확장자는 끌어서 다른 종류로 이동</p>
+      <p className="muted set-note">손잡이를 끌어 순서 바꾸기 (확장자가 겹치면 위 종류 우선) · 확장자 칩을 끌어 다른 종류로 옮기기</p>
       <div className={"kind-edit" + (drag?.on || sort.dragging ? " sorting" : "")} role="list" ref={sort.list}>
         {kinds.map((k, i) => (
           <div className={"kind-edit-row" + (drag?.on && drag.over === k.id && drag.from !== k.id ? " drop" : "")} role="listitem" key={k.id} data-kind-row={k.id} {...sort.item(i)}>

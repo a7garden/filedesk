@@ -2765,7 +2765,7 @@ body.resizing-y * {
 }
 /* 구획 사이는 선 대신 여백 — 머리 글자가 구획을 묶는다 */
 .set-body > section {
-  padding-bottom: 22px;
+  padding-bottom: 26px;
 }
 .set-body > section + section {
   border-top: 1px solid var(--line);
@@ -2791,18 +2791,21 @@ body.resizing-y * {
   background: var(--hover);
   color: var(--ink);
 }
+/* 2026.11.25 : 위 14 → 20 · 아래 12 → 16. 구획 머리가 바로 위 구분선에 붙어 앞 구획의 꼬리처럼 읽혔다 */
 .settings h3 {
-  margin: 14px 0 12px;
+  margin: 20px 0 16px;
   font-size: 14px;
 }
 .set-label {
   font-size: 13px;
 }
+/* 2026.11.25 : 아래 여백 12 → 줄 높이 28. 체크 줄과 고르기 줄(.pick-opt 28)의 리듬이 달라, 한 줄 안에 둘이 섞이면 간격이 들쭉날쭉했고
+   이름 열이 첫 체크와 어긋났다 */
 .set-check {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 12px;
+  min-height: 28px;
   font-size: 13px;
   cursor: pointer;
 }
@@ -2965,8 +2968,9 @@ body.resizing-y * {
   border-radius: 5px;
   color: var(--ink-2);
 }
+/* 2026.11.25 : --raise → --hover. 설정 판 바탕이 --raise 라 올려 두어도 바탕이 바뀌지 않았다 */
 .kind-edit-acts .icon-btn:hover:not(:disabled) {
-  background: var(--raise);
+  background: var(--hover);
   color: var(--ink);
 }
 .kind-edit-acts .icon-btn:disabled {
@@ -3611,20 +3615,26 @@ body.resizing-y * {
   color: var(--muted);
 }
 
-/* 설정 한 줄 — 왼쪽 이름 · 오른쪽 조작과 그 결과 */
+/* 설정 한 줄 — 왼쪽 이름 · 오른쪽 조작과 그 결과
+   2026.11.25 : 이름 열 96 → 104 · 이름을 짧게. 「찾기에서 제외할 확장자」 · 「파일 크기 표기」가 서너 줄로 접혀 오른쪽보다 키가 컸다.
+   이름은 오른쪽 첫 줄(체크 · 고르기 모두 28)의 가운데에 선다 — 28 줄에 글자 높이를 뺀 반 */
 .set-line {
   display: grid;
-  grid-template-columns: 96px minmax(0, 1fr);
+  grid-template-columns: 104px minmax(0, 1fr);
   align-items: start;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: 16px;
+  margin-bottom: 18px;
 }
 .set-line > .set-label {
-  padding-top: 4px;
+  padding-top: 5px;
+  color: var(--ink-2);
 }
 .set-hint {
   margin: 4px 0 0;
   font-size: 12px;
+}
+.set-acts-after {
+  margin-top: 8px;
 }
 .set-hint.warn {
   color: var(--warn);
