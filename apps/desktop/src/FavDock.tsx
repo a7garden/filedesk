@@ -111,7 +111,8 @@ export default function FavDock(props: Props) {
       if (!el) return;
       const r = el.getBoundingClientRect();
       const inside = e.buttons === 0 && e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
-      const v = inside && !(e.target as HTMLElement | null)?.closest?.(FOOT_CONTROLS);
+      // 2026.11.25 : 앱 안 보기(.viewer) 위에서는 열지 않는다 — 사용자 지적. 엑셀 시트 탭 · 표 · 쪽이 칸 바닥까지 내려와 그 위를 오갈 때마다 독이 올라왔다.
+      const v = inside && !(e.target as HTMLElement | null)?.closest?.(`${FOOT_CONTROLS}, .viewer`);
       setNear((n) => (n === v ? n : v));
     };
     const leave = () => setNear(false);
