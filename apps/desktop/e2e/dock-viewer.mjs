@@ -2,7 +2,7 @@
 //
 //   node e2e/dock-viewer.mjs
 //
-// 엑셀 보기는 시트 탭이 칸 바닥 줄(독이 여는 자리)에 놓인다. 그 위를 오가도 독이 열리지 않고, 보기를 닫으면 다시 열린다.
+// 엑셀 보기는 시트 탭이 늘 창 안에 서야 한다(긴 시트 · 시트 하나). 시트 탭이 칸 바닥 줄(독이 여는 자리)에 놓인다. 그 위를 오가도 독이 열리지 않고, 보기를 닫으면 다시 열린다.
 // 시험 파일은 openpyxl 로 만든다. 시험 폴더는 끝나면 지운다. 앱 설정은 떠 두었다가 되돌린다.
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -42,9 +42,14 @@ import sys
 from openpyxl import Workbook
 w = Workbook()
 w.active.title = "첫째"
-w.active["A1"] = "값"
+for r in range(1, 401):
+    w.active.cell(r, 1, f"줄 {r}")
 w.create_sheet("둘째")
 w.save(sys.argv[1] + "/표.xlsx")
+o = Workbook()
+o.active.title = "하나"
+o.active["A1"] = "값"
+o.save(sys.argv[1] + "/한장.xlsx")
 `);
 execFileSync("python", ["-X", "utf8", MAKE, T]);
 rmSync(MAKE);
@@ -85,12 +90,17 @@ try {
   check("엑셀 보기가 열린다", await until(() => page.locator(".sheet-tabs button").count().then((c) => c === 2), 8000));
   const tabs = await page.locator(".sheet-tabs").boundingBox();
   check("시트 탭이 독 자리와 겹친다", tabs && tabs.y + tabs.height > box.y, tabs ? `탭 ${Math.round(tabs.y)}+${Math.round(tabs.height)} · 독 ${Math.round(box.y)}` : "");
+  const win = await page.evaluate(() => innerHeight);
+  check("긴 시트에서도 시트 탭이 창 안에 보인다", tabs && tabs.y + tabs.height <= win + 1 && (await page.locator(".sheet-tabs button").first().isVisible()), tabs ? `탭 아래 ${Math.round(tabs.y + tabs.height)} · 창 ${win}` : "");
   check("엑셀 보기 위에서는 독이 열리지 않는다", !(await sweep()));
   await page.locator(".sheet-tabs button", { hasText: "둘째" }).click();
   check("시트 탭을 누를 수 있다", await until(() => page.locator(".sheet-tabs button[aria-selected=true]", { hasText: "둘째" }).count(), 2000));
   await page.keyboard.press("Escape");
   await until(() => page.locator(".viewer").count().then((c) => c === 0), 3000);
   check("보기를 닫으면 다시 열린다", await sweep());
+  await page.locator("section.pane:not([hidden]) .row", { has: page.locator(".label", { hasText: "한장" }) }).first().dblclick();
+  check("시트가 하나여도 탭이 선다", await until(() => page.locator(".sheet-tabs button", { hasText: "하나" }).isVisible(), 8000));
+  await page.keyboard.press("Escape");
   check("스크립트 오류 없음", errors.length === 0, errors.join(" | "));
 } finally {
   await browser?.close().catch(() => {});

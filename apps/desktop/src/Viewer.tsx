@@ -1142,15 +1142,14 @@ function SheetView(p: { path: string; liveModified?: number; setInfo: (n: React.
   return (
     <div className="viewer-sheet">
       <TableView key={at} sheet={table} readOnly readOnlyWhy="엑셀 미리보기는 읽기 전용 · 고치기는 「기본 앱으로 열기」" findRef={p.findRef} />
-      {sheets.length > 1 && (
-        <div className="sheet-tabs" role="tablist" aria-label="시트">
-          {sheets.map((s, i) => (
-            <button key={i} type="button" role="tab" aria-selected={i === at} onClick={() => setAt(i)} title={s.name}>
-              {s.name}
-            </button>
-          ))}
-        </div>
-      )}
+      {/* 시트가 하나여도 탭을 둔다 — 엑셀과 같게. 2026.11.25 : 하나면 숨겼더니 시트 탭이 안 보인다는 지적과 겹쳐 어느 시트를 보는지 알 길이 없었다 */}
+      <div className="sheet-tabs" role="tablist" aria-label="시트">
+        {sheets.map((s, i) => (
+          <button key={i} type="button" role="tab" aria-selected={i === at} onClick={() => setAt(i)} title={s.name}>
+            {s.name}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
