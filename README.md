@@ -14,6 +14,7 @@ Windows 탐색기를 대신해 쓰는 로컬 파일 탐색기. 탐색기가 하�
 몇 초 만에 색인하고 앱이 꺼져 있던 동안의 변경도 따라간다. NAS 는 색인하지 않고 누를 때 훑는다. 설계는 `DESIGN.md` [4].
 앱 안 보기: md · txt · log 와 그림(png · jpg · gif · webp · bmp · svg · ico · avif)은 열면 그 칸에서 바로 본다. csv · tsv 는 표로 열고 칸을 바로 고친다 (두 번 누르기 · Enter · 바로 치기, Ctrl++ 줄 더하기 · Ctrl+- 줄 지우기 · Ctrl+Z 되돌리기). 고친 칸만 바꿔 써서 나머지 꼴은 그대로다.
 세 보기 모두 Ctrl+F 찾기 · Ctrl+H 바꾸기 (모두 바꾸기 포함).
+엑셀(xlsx · xlsm · xlsb · xls · ods)은 시트마다 표로, 파워포인트(pptx · pptm · ppsx)는 쪽마다 원본 모양으로 미리 본다 — 둘 다 읽기만 하고 Ctrl+F 로 찾는다. 파워포인트 변환은 ClaudePPT 의 PPTX 가져오기를 옮겨 왔다 (`apps/desktop/src/pptx.ts`).
 마크다운은 옵시디언처럼 렌더된 채로 고치고(커서가 있는 줄만 기호가 드러난다 · 링크는 Ctrl+누르기), 글은 입력이 멈추면 읽은 인코딩(UTF-8 · CP949 …) · 줄바꿈 방식 그대로 저장한다.
 연 사이 다른 곳에서 고쳤으면 덮지 않고 묻는다. 그림은 ←/→ 로 같은 폴더의 그림 · 누르기(Space)로 맞춤 ↔ 원래 크기. Esc 로 목록 · 「기본 앱으로 열기」는 머리에.
 화면 글자의 용어는 `TERMS.md` 한 곳에서 정한다 — 새 글자를 넣을 때 먼저 본다.
@@ -80,7 +81,7 @@ GitHub Actions(`.github/workflows/release.yml`)가 서명한 설치 파일(NSIS)
 
 | 키 | 동작 |
 | - | - |
-| Enter · 더블클릭 | 열기 (폴더 · 폴더 바로가기 · md · txt · csv · 그림은 앱 안에서) |
+| Enter · 더블클릭 | 열기 (폴더 · 폴더 바로가기 · md · txt · csv · 엑셀 · 파워포인트 · 그림은 앱 안에서) |
 | Backspace · Alt+← / Alt+→ · Alt+↑ | 뒤로 / 앞으로 · 위로 |
 | F2 · Delete | 이름 바꾸기 · 휴지통 |
 | Ctrl+C · X · V · Ctrl+A | 복사 · 잘라내기 · 붙여넣기 · 모두 고르기 |

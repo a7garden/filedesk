@@ -9,6 +9,7 @@ pub mod list;
 pub mod memo;
 pub mod query;
 pub mod search;
+pub mod sheet;
 pub mod skill;
 pub mod text;
 pub mod textfile;

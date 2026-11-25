@@ -6,7 +6,9 @@
 //   [3] 마크다운 — 옵시디언처럼 렌더된 채로 고친다 (@atomic-editor/editor · oxb 편집기의 바탕). 그림 · 링크는 문서 폴더 기준
 //   [4] 글 파일(txt · log) — 기호를 그리지 않는 고정폭 편집기
 //   [5] 그림 — 맞춤 ↔ 원래 크기 · ←/→ 같은 폴더의 그림
-//   [6] 표(csv · tsv) — 글 파일을 표로 먼저 보인다. 고치기는 「글」로 바꿔서 (2026.11.25)
+//   [6] 표(csv · tsv) — 칸을 골라 고치기 · 찾기 · 바꾸기 · 줄 더하기 · 지우기 · 되돌리기 (2026.11.25)
+//   [7] 엑셀 — 시트를 표([6])로 읽기만 한다 · 아래 시트 탭 (2026.11.25)
+//   파워포인트는 SlidesView.tsx — 쪽을 HTML 로 그린다 (pptx.ts)
 //
 // 2026.11.11 : 처음 만들었다. 저장 단추를 두지 않고 입력이 멈추면 쓴다(docket 메모와 같게) — Ctrl+S 는 바로 쓴다.
 // 읽은 인코딩 · 줄끝 그대로 쓰고(fd-core textfile), 연 사이 밖에서 바뀌었으면 덮지 않고 묻는다.
@@ -23,6 +25,7 @@ import { AtomicCodeMirrorEditor } from "@atomic-editor/editor";
 import "@atomic-editor/editor/styles.css";
 import { api, type Entry } from "./api";
 import { findKit, openFind } from "./editorFind";
+import SlidesView from "./SlidesView";
 import { errText, formatBytes, parentOf } from "./util";
 import {
   ENCODING_LABEL,
@@ -32,6 +35,8 @@ import {
   MD_EXTS,
   parseTable,
   quoteCell,
+  readSheets,
+  type Sheet,
   rawUrl,
   runnable,
   TABLE_EXTS,
@@ -191,6 +196,10 @@ export default function Viewer(p: Props) {
           findRef={findRef}
           onLink={openLink}
         />
+      ) : kind === "sheet" ? (
+        <SheetView key={p.target.path} path={p.target.path} liveModified={p.liveModified} setInfo={setInfo} findRef={findRef} />
+      ) : kind === "slides" ? (
+        <SlidesView key={p.target.path} path={p.target.path} liveModified={p.liveModified} setInfo={setInfo} findRef={findRef} active={p.active} />
       ) : kind === "image" ? (
         <ImageView target={p.target} siblings={p.siblings} setInfo={setInfo} onPick={p.onPick} active={p.active} />
       ) : null}
@@ -366,7 +375,14 @@ function TextView(p: {
         {p.md ? (
           <MdEditor key={rev} doc={p.path} source={file.text} readOnly={file.mixed} onChange={change} onLink={p.onLink} findRef={p.findRef} />
         ) : p.table && asTable ? (
-          <TableView text={text} sep={tableSep(p.table, text)} readOnly={file.mixed} onChange={change} findRef={p.findRef} />
+          <TableView
+            text={text}
+            sep={tableSep(p.table, text)}
+            readOnly={file.mixed}
+            readOnlyWhy="줄바꿈(CRLF · LF)이 섞인 파일이라 읽기 전용"
+            onChange={change}
+            findRef={p.findRef}
+          />
         ) : (
           <div className="viewer-pane">
             <PlainEditor value={text} readOnly={file.mixed} onChange={change} findRef={p.findRef} />
@@ -653,11 +669,30 @@ function Marked({ v, q, cs }: { v: string; q: string; cs: boolean }) {
   return <>{parts}</>;
 }
 
-/** csv · tsv 를 표로. 첫 줄은 머리로 고정하고, 왼쪽에 줄 번호를 둔다. */
-function TableView(p: { text: string; sep: string; readOnly: boolean; onChange: (v: string) => void; findRef: FindRef }) {
-  const rows = useMemo(() => parseTable(p.text, p.sep), [p.text, p.sep]);
+/** 엑셀 열 이름 — 0 → A, 25 → Z, 26 → AA. */
+const colName = (n: number): string => (n < 26 ? "" : colName(Math.floor(n / 26) - 1)) + String.fromCharCode(65 + (n % 26));
+
+/** csv · tsv 를 표로. 첫 줄은 머리로 고정하고, 왼쪽에 줄 번호를 둔다.
+ *  엑셀 시트(`sheet`)면 읽기만 하고, 머리에 열 글자(A · B …)를 두고 모든 줄을 몸통으로 그린다 — 줄 번호 · 열 글자는 시트의 실제 자리다. */
+function TableView(p: {
+  text?: string;
+  sep?: string;
+  /** 엑셀 시트 — 글 대신 칸을 받는다. `origin` 은 첫 칸의 시트 안 자리 (0 부터). */
+  sheet?: { rows: TableRow[]; origin: { row: number; col: number }; note?: string };
+  readOnly: boolean;
+  /** 고칠 수 없는 까닭 — 고치려 할 때 알린다. */
+  readOnlyWhy?: string;
+  onChange?: (v: string) => void;
+  findRef: FindRef;
+}) {
+  const text = p.text ?? "";
+  const sep = p.sep ?? ",";
+  const sheet = p.sheet;
+  const rows = useMemo(() => sheet?.rows ?? parseTable(text, sep), [sheet, text, sep]);
   const cols = rows.reduce((n, r) => Math.max(n, r.cells.length), 0);
-  const eol = p.text.includes("\r\n") ? "\r\n" : "\n";
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  /** 몸통의 첫 줄 — 글 표는 머리 줄(0)을 뺀 1, 시트는 0. */
+  const first = sheet ? 0 : 1;
   const box = useRef<HTMLDivElement>(null);
   const [sel, setSel] = useState<Pos | null>(null);
   /** 고치는 칸과 그 칸에 친 글. */
@@ -673,16 +708,16 @@ function TableView(p: { text: string; sep: string; readOnly: boolean; onChange: 
 
   /** 글을 바꾸고 되돌릴 자리를 쌓는다. 저장은 글 보기와 같은 길(멈추면 저장)이다. */
   const commit = (next: string) => {
-    if (next === p.text) return;
-    undo.current = [...undo.current.slice(-(TABLE_UNDO - 1)), p.text];
+    if (next === text || !p.onChange) return;
+    undo.current = [...undo.current.slice(-(TABLE_UNDO - 1)), text];
     redo.current = [];
     p.onChange(next);
   };
   const step = (back: boolean) => {
     const from = back ? undo.current : redo.current;
     const prev = from.pop();
-    if (prev == null) return;
-    (back ? redo : undo).current.push(p.text);
+    if (prev == null || !p.onChange) return;
+    (back ? redo : undo).current.push(text);
     p.onChange(prev);
   };
 
@@ -697,11 +732,14 @@ function TableView(p: { text: string; sep: string; readOnly: boolean; onChange: 
   const cur = sel ? hits.findIndex((h) => h.r === sel.r && h.c === sel.c) : -1;
 
   const body = useMemo(() => {
-    const all = rows.map((_, r) => r).slice(1);
+    const all = rows.map((_, r) => r).slice(first);
     const kept = find.open && find.only && find.q ? all.filter((r) => rows[r].cells.some((_, c) => hitSet.has(`${r}:${c}`))) : all;
     return kept;
-  }, [rows, find.open, find.only, find.q, hitSet]);
+  }, [rows, first, find.open, find.only, find.q, hitSet]);
   const shown = body.slice(0, TABLE_MAX_ROWS);
+
+  // 파일을 연 두 번 누르기의 둘째 누르기가 막 그려진 표 위에 떨어져 칸 글이 파랗게 골라진 채 열렸다 — 열 때 한 번 푼다
+  useEffect(() => window.getSelection()?.removeAllRanges(), []);
 
   // 고른 칸을 보이게 — 머리 줄 · 줄 번호 열은 붙어 있으므로 그만큼 비켜 둔다 (CSS scroll-margin)
   useEffect(() => {
@@ -725,33 +763,33 @@ function TableView(p: { text: string; sep: string; readOnly: boolean; onChange: 
     const i = cur < 0 ? (k > 0 ? 0 : hits.length - 1) : (cur + k + hits.length) % hits.length;
     setSel(hits[i]);
     setSaid("");
-    if (hits[i].r > 0 && !shown.includes(hits[i].r)) setSaid(`${hits[i].r}째 줄은 앞 ${TABLE_MAX_ROWS.toLocaleString()}줄 밖이라 표에 없음`);
+    if (hits[i].r >= first && !shown.includes(hits[i].r)) setSaid(`${hits[i].r}째 줄은 앞 ${TABLE_MAX_ROWS.toLocaleString()}줄 밖이라 표에 없음`);
   };
   /** 지금 칸의 찾은 말을 바꾸고 다음으로. 지금 칸이 찾은 칸이 아니면 먼저 그리로 간다. */
   const replaceOne = () => {
     if (p.readOnly || !find.q) return;
     if (cur < 0) return go(1);
     const h = hits[cur];
-    commit(applyEdits(p.text, cellEdit(rows, h, replaceIn(rows[h.r].cells[h.c].v, find.q, find.to, find.cs), p.sep)));
+    commit(applyEdits(text, cellEdit(rows, h, replaceIn(rows[h.r].cells[h.c].v, find.q, find.to, find.cs), sep)));
     // 바꾼 뒤 찾은 칸 목록이 다시 만들어진다 — 다음 칸은 같은 차례 자리에 온다
     const next = hits[cur + 1] ?? hits[0];
     setSel(next && !(next.r === h.r && next.c === h.c) ? next : null);
   };
   const replaceAll = () => {
     if (p.readOnly || !find.q || hits.length === 0) return;
-    commit(applyEdits(p.text, hits.flatMap((h) => cellEdit(rows, h, replaceIn(rows[h.r].cells[h.c].v, find.q, find.to, find.cs), p.sep))));
+    commit(applyEdits(text, hits.flatMap((h) => cellEdit(rows, h, replaceIn(rows[h.r].cells[h.c].v, find.q, find.to, find.cs), sep))));
     setSaid(`${hits.length}칸을 바꿈`);
   };
 
   const startEdit = (pos: Pos, v?: string) => {
-    if (p.readOnly) return setSaid("줄바꿈(CRLF · LF)이 섞인 파일이라 읽기 전용");
+    if (p.readOnly) return setSaid(p.readOnlyWhy ?? "읽기 전용");
     editing.current = true;
     setEdit({ ...pos, v: v ?? rows[pos.r]?.cells[pos.c]?.v ?? "" });
   };
   const endEdit = (save: boolean, move?: Pos) => {
     if (!edit || !editing.current) return;
     editing.current = false;
-    if (save && edit.v !== (rows[edit.r]?.cells[edit.c]?.v ?? "")) commit(applyEdits(p.text, cellEdit(rows, edit, edit.v, p.sep)));
+    if (save && edit.v !== (rows[edit.r]?.cells[edit.c]?.v ?? "")) commit(applyEdits(text, cellEdit(rows, edit, edit.v, sep)));
     setEdit(null);
     if (move) setSel(move);
     box.current?.focus();
@@ -762,10 +800,10 @@ function TableView(p: { text: string; sep: string; readOnly: boolean; onChange: 
     if (p.readOnly || rows.length === 0) return;
     const r = sel?.r ?? rows.length - 1;
     const row = rows[r];
-    const blank = p.sep.repeat(Math.max(cols - 1, 0));
+    const blank = sep.repeat(Math.max(cols - 1, 0));
     // 마지막 줄 뒤에 줄끝이 없으면 줄끝부터 붙인다
     const t = row.next > row.e ? blank + eol : eol + blank;
-    commit(applyEdits(p.text, [{ s: row.next > row.e ? row.next : row.e, e: row.next > row.e ? row.next : row.e, t }]));
+    commit(applyEdits(text, [{ s: row.next > row.e ? row.next : row.e, e: row.next > row.e ? row.next : row.e, t }]));
     setSel({ r: r + 1, c: sel?.c ?? 0 });
   };
   /** 줄 지우기 — 고른 줄을 줄끝까지. 머리 줄은 지우지 않는다. */
@@ -774,7 +812,7 @@ function TableView(p: { text: string; sep: string; readOnly: boolean; onChange: 
     const row = rows[sel.r];
     // 마지막 줄이면 앞 줄의 줄끝을 함께 지운다 — 빈 줄이 남지 않게
     const s = row.next > row.e ? row.s : rows[sel.r - 1].e;
-    commit(applyEdits(p.text, [{ s, e: row.next > row.e ? row.next : row.e, t: "" }]));
+    commit(applyEdits(text, [{ s, e: row.next > row.e ? row.next : row.e, t: "" }]));
     setSel({ r: Math.min(sel.r, rows.length - 2), c: sel.c });
   };
 
@@ -785,7 +823,7 @@ function TableView(p: { text: string; sep: string; readOnly: boolean; onChange: 
     const move = (dr: number, dc: number) => {
       const at = sel ?? { r: 0, c: 0 };
       // 줄은 보이는 차례로 옮긴다 (「맞는 줄만」이면 걸러진 줄 사이를)
-      const order = [0, ...shown];
+      const order = sheet ? shown : [0, ...shown];
       const i = Math.max(0, order.indexOf(at.r));
       const r = order[Math.min(order.length - 1, Math.max(0, i + dr))];
       setSel({ r, c: Math.min(cols - 1, Math.max(0, at.c + dc)) });
@@ -797,11 +835,11 @@ function TableView(p: { text: string; sep: string; readOnly: boolean; onChange: 
     else if (k === "ArrowLeft" || (k === "Tab" && e.shiftKey)) move(0, -1);
     else if (k === "PageDown") move(20, 0);
     else if (k === "PageUp") move(-20, 0);
-    else if (ctrl && k === "Home") setSel({ r: 0, c: 0 });
+    else if (ctrl && k === "Home") setSel({ r: first === 0 ? (shown[0] ?? 0) : 0, c: 0 });
     else if (ctrl && k === "End") setSel({ r: shown[shown.length - 1] ?? 0, c: cols - 1 });
     else if ((k === "Enter" || k === "F2") && sel) startEdit(sel);
     else if (k === "F3") go(e.shiftKey ? -1 : 1);
-    else if ((k === "Delete" || k === "Backspace") && sel && !p.readOnly) commit(applyEdits(p.text, cellEdit(rows, sel, "", p.sep)));
+    else if ((k === "Delete" || k === "Backspace") && sel && !p.readOnly) commit(applyEdits(text, cellEdit(rows, sel, "", sep)));
     else if (ctrl && e.key.toLowerCase() === "z") step(!e.shiftKey);
     else if (ctrl && e.key.toLowerCase() === "y") step(false);
     else if (ctrl && e.key.toLowerCase() === "c" && sel) void navigator.clipboard.writeText(rows[sel.r]?.cells[sel.c]?.v ?? "");
@@ -835,7 +873,7 @@ function TableView(p: { text: string; sep: string; readOnly: boolean; onChange: 
     }
   };
 
-  if (rows.length === 0) return <div className="viewer-empty">빈 파일</div>;
+  if (rows.length === 0) return <div className="viewer-empty">{sheet ? "빈 시트" : "빈 파일"}</div>;
 
   const cell = (r: number, c: number, head: boolean) => {
     const v = rows[r].cells[c]?.v ?? "";
@@ -860,7 +898,11 @@ function TableView(p: { text: string; sep: string; readOnly: boolean; onChange: 
             onChange={(e) => setEdit({ ...edit, v: e.target.value })}
             onBlur={() => endEdit(true)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") e.preventDefault(), endEdit(true, { r: [0, ...shown][[0, ...shown].indexOf(r) + 1] ?? r, c });
+              if (e.key === "Enter") {
+                e.preventDefault();
+                const order = sheet ? shown : [0, ...shown];
+                endEdit(true, { r: order[order.indexOf(r) + 1] ?? r, c });
+              }
               else if (e.key === "Tab") e.preventDefault(), endEdit(true, { r, c: Math.min(cols - 1, Math.max(0, c + (e.shiftKey ? -1 : 1))) });
               else if (e.key === "Escape") e.preventDefault(), endEdit(false);
             }}
@@ -937,12 +979,12 @@ function TableView(p: { text: string; sep: string; readOnly: boolean; onChange: 
       {/* 아래 끝은 즐겨찾기 독의 손잡이 글자와 겹쳐 위에 둔다 */}
       <div className="table-hint">
         {p.readOnly
-          ? "Ctrl+F 찾기"
+          ? `${sheet ? "읽기 전용 미리보기 · 고치기는 기본 앱으로 · " : ""}Ctrl+F 찾기 · Ctrl+C 칸 복사`
           : "두 번 누르기 · Enter · 바로 치기로 고치기 · Ctrl+F 찾기 · Ctrl+H 바꾸기 · Ctrl++ 줄 더하기 · Ctrl+- 줄 지우기 · Ctrl+Z 되돌리기"}
       </div>
-      {(said || body.length > TABLE_MAX_ROWS) && (
+      {(said || sheet?.note || body.length > TABLE_MAX_ROWS) && (
         <div className="viewer-bar" role="note">
-          <span>{said || `${body.length.toLocaleString()}줄 중 앞 ${TABLE_MAX_ROWS.toLocaleString()}줄만 표시 · 전체는 「글」이나 기본 앱으로`}</span>
+          <span>{said || sheet?.note || `${body.length.toLocaleString()}줄 중 앞 ${TABLE_MAX_ROWS.toLocaleString()}줄만 표시 · 전체는 「글」이나 기본 앱으로`}</span>
         </div>
       )}
       <div className="viewer-table-scroll" ref={box} tabIndex={0} onKeyDown={onKey} aria-label="표 · 화살표로 칸 고르기 · Enter 로 고치기">
@@ -950,19 +992,84 @@ function TableView(p: { text: string; sep: string; readOnly: boolean; onChange: 
           <thead>
             <tr>
               <th className="n" aria-label="줄 번호" />
-              {Array.from({ length: cols }, (_, c) => cell(0, c, true))}
+              {sheet
+                ? Array.from({ length: cols }, (_, c) => (
+                    <th key={c} className="col">
+                      {colName(sheet.origin.col + c)}
+                    </th>
+                  ))
+                : Array.from({ length: cols }, (_, c) => cell(0, c, true))}
             </tr>
           </thead>
           <tbody>
             {shown.map((r) => (
               <tr key={r}>
-                <td className="n">{r}</td>
+                <td className="n">{sheet ? sheet.origin.row + r + 1 : r}</td>
                 {Array.from({ length: cols }, (_, c) => cell(r, c, false))}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+// ───────── [7] 엑셀 ─────────
+
+/** 엑셀 · 스프레드시트를 시트마다 표로. 읽기만 한다 — 다시 쓰면 서식 · 수식이 깨지므로 고치기는 기본 앱으로.
+ *  보이는 값만 옮긴다 (날짜는 날짜로, 숫자 서식 · 색 · 병합은 옮기지 않는다 · fd-core sheet). */
+function SheetView(p: { path: string; liveModified?: number; setInfo: (n: React.ReactNode) => void; findRef: FindRef }) {
+  const [sheets, setSheets] = useState<Sheet[] | null>(null);
+  const [err, setErr] = useState("");
+  const [at, setAt] = useState(0);
+  useEffect(() => {
+    let gone = false;
+    readSheets(p.path)
+      .then((v) => {
+        if (gone) return;
+        setSheets(v);
+        // 밖에서 고쳐 다시 읽어도 보던 시트에 남는다
+        setAt((i) => Math.min(i, Math.max(v.length - 1, 0)));
+      })
+      .catch((e) => !gone && setErr(errText(e)));
+    return () => {
+      gone = true;
+    };
+  }, [p.path, p.liveModified]);
+  const sheet = sheets?.[at];
+  useEffect(() => {
+    p.setInfo(sheets && <span>{`${sheets.length}개 시트 · 읽기 전용`}</span>);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sheets]);
+  const table = useMemo(
+    () =>
+      sheet && {
+        rows: sheet.rows.map((cells) => ({ cells: cells.map((v) => ({ v, s: 0, e: 0, q: false })), s: 0, e: 0, next: 0 })),
+        origin: { row: sheet.row0, col: sheet.col0 },
+        note: sheet.truncated ? `${sheet.totalRows.toLocaleString()}줄 중 앞 ${sheet.rows.length.toLocaleString()}줄 · 256열까지만 표시 · 전체는 기본 앱으로` : undefined,
+      },
+    [sheet],
+  );
+  if (err)
+    return (
+      <div className="viewer-empty">
+        <p>앱 안에서 열 수 없다. {err}</p>
+      </div>
+    );
+  if (!sheets || !table) return <div className="viewer-empty" />;
+  return (
+    <div className="viewer-sheet">
+      <TableView key={at} sheet={table} readOnly readOnlyWhy="엑셀 미리보기는 읽기 전용 · 고치기는 「기본 앱으로 열기」" findRef={p.findRef} />
+      {sheets.length > 1 && (
+        <div className="sheet-tabs" role="tablist" aria-label="시트">
+          {sheets.map((s, i) => (
+            <button key={i} type="button" role="tab" aria-selected={i === at} onClick={() => setAt(i)} title={s.name}>
+              {s.name}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

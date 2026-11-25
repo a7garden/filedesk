@@ -17,3 +17,6 @@ blake3 = "1"
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 pdf-extract = "0.9"
 encoding_rs = "0.8"
+# 엑셀 미리보기(`sheet`) — xlsx · xls · ods 를 순수 Rust 로 읽는다. dates 는 날짜 칸을 날짜로 (chrono).
+calamine = { version = "0.38", features = ["dates"] }
+chrono = { version = "0.4.45", default-features = false, features = ["alloc"] }

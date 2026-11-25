@@ -70,11 +70,20 @@ export const MD_EXTS = new Set(["md", "markdown"]);
 /** 그림 (lib.rs image_mime 과 같아야 한다). WebView2 가 그대로 그리는 것만 — heic · tiff · psd 는 기본 앱으로. */
 export const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "jfif", "gif", "webp", "bmp", "svg", "ico", "avif"]);
 
-export type ViewKind = "text" | "image";
+/** 엑셀 · 스프레드시트 — 시트를 표로 미리 본다 (lib.rs read_sheets · fd-core sheet). 고치기는 기본 앱으로. 2026.11.25 */
+export const SHEET_EXTS = new Set(["xlsx", "xlsm", "xlsb", "xls", "ods"]);
+/** 파워포인트 — 쪽을 HTML 로 미리 본다 (pptx.ts). 옛 꼴 ppt 는 zip 이 아니라 기본 앱으로. 2026.11.25 */
+export const SLIDE_EXTS = new Set(["pptx", "pptm", "ppsx"]);
+
+export type ViewKind = "text" | "image" | "sheet" | "slides";
 export function viewKind(ext: string): ViewKind | null {
   const x = ext.toLowerCase();
-  return TEXT_EXTS.has(x) ? "text" : IMAGE_EXTS.has(x) ? "image" : null;
+  return TEXT_EXTS.has(x) ? "text" : IMAGE_EXTS.has(x) ? "image" : SHEET_EXTS.has(x) ? "sheet" : SLIDE_EXTS.has(x) ? "slides" : null;
 }
+
+/** 엑셀 시트 하나 (fd-core sheet::Sheet). */
+export type Sheet = { name: string; rows: string[][]; row0: number; col0: number; totalRows: number; truncated: boolean };
+export const readSheets = (path: string) => invoke<Sheet[]>("read_sheets", { path });
 
 /** 그림 원본 주소. `m` 은 수정 시각 — 고친 그림이 캐시로 옛 모습을 보이지 않게. */
 export const rawUrl = (path: string, m?: number) => `http://fdicon.localhost/${encodeURIComponent(`raw:${path}`)}${m ? `?m=${m}` : ""}`;

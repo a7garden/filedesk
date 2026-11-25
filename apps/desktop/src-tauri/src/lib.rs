@@ -6,7 +6,7 @@
 //!   [2-1] 연결 — NAS · 공유 폴더 주소 풀기 · 공유 목록 · 로그인 · 이 PC 가 쓰던 곳 (`fd-shell::net`)
 //!         설치된 앱 목록 · 앱 열기 — 팔레트 · 왼쪽 열 「앱」 (`fd-shell::apps`)
 //!   [3] 열기 · 바로가기 대상 · 오른쪽 메뉴 · 셸 동사
-//!   [3-1] 앱 안 보기 — 글 파일(md · txt) 읽기 · 쓰기 (`fd-core::textfile`) · 그림은 [9] 아이콘 프로토콜의 `raw:`
+//!   [3-1] 앱 안 보기 — 글 파일(md · txt) 읽기 · 쓰기 (`fd-core::textfile`) · 엑셀 시트 (`fd-core::sheet`) · 그림 · 파워포인트는 [9] 아이콘 프로토콜의 `raw:`
 //!   [4] 파일 작업 — 이름 바꾸기 · 휴지통 · 복사/이동 · 붙여넣기 · 새 폴더
 //!   [4-1] 실행 취소 — 위 작업과 새 판 · 지난 판 옮기기를 거꾸로 (`undo.rs`)
 //!   [5] 끌기 (앱 밖으로)
@@ -342,6 +342,12 @@ async fn link_targets(paths: Vec<String>) -> CmdResult<Vec<Option<(String, bool)
 #[tauri::command]
 async fn read_text(path: String) -> CmdResult<fd_core::textfile::TextFile> {
     tauri::async_runtime::spawn_blocking(move || fd_core::textfile::read(Path::new(&path))).await.map_err(|e| e.to_string())?
+}
+
+/// 엑셀 미리보기 — 시트마다 칸 글 (`fd-core::sheet`). 읽기만 한다. 2026.11.25 더했다.
+#[tauri::command]
+async fn read_sheets(path: String) -> CmdResult<Vec<fd_core::sheet::Sheet>> {
+    tauri::async_runtime::spawn_blocking(move || fd_core::sheet::read(Path::new(&path))).await.map_err(|e| e.to_string())?
 }
 
 /// 고친 글을 쓴다. 연 뒤 밖에서 바뀌었으면 `changed` 로 거절한다 (화면이 다시 읽을지 덮어쓸지 묻는다).
@@ -938,6 +944,15 @@ fn image_mime(file: &str) -> Option<&'static str> {
     })
 }
 
+/// `raw:` 로 화면에 내주는 꼴 — 그림과 파워포인트. 파워포인트는 화면이 zip 을 풀어 쪽을 그린다 (Viewer · pptx.ts).
+/// 2026.11.25 : 파워포인트 미리보기를 더했다. 아이콘 팩(image_mime)에는 넣지 않는다 — 그쪽은 그림만 받는다.
+fn raw_mime(file: &str) -> Option<&'static str> {
+    image_mime(file).or_else(|| {
+        let ext = Path::new(file).extension()?.to_string_lossy().to_lowercase();
+        matches!(ext.as_str(), "pptx" | "pptm" | "ppsx").then_some("application/vnd.openxmlformats-officedocument.presentationml.presentation")
+    })
+}
+
 /// 아이콘 팩 폴더의 그림 — 파일 이름(확장자 뺀 것, 소문자) → 경로. 이름은 확장자(`pdf`) · 종류(`doc`) · `folder` · `file`.
 /// 같은 이름이 여러 꼴이면 svg → png → 나머지 차례로 하나만 (선명한 것 먼저).
 #[tauri::command]
@@ -1204,12 +1219,17 @@ pub fn run() {
         .register_asynchronous_uri_scheme_protocol("fdicon", |_ctx, req, responder| {
             let key = percent_decode(req.uri().path().trim_start_matches('/'));
             // 아이콘 팩(`pack:<그림 파일 경로>`) — 사용자가 고른 폴더의 그림을 그대로 준다.
-            // 앱 안 그림 보기 · 마크다운 속 그림(`raw:<경로>`)도 같다. 그림 꼴만 (화면이 아무 파일이나 읽어 가지 않게).
+            // 앱 안 그림 보기 · 마크다운 속 그림(`raw:<경로>`)도 같다. 그림 꼴과 파워포인트만 (화면이 아무 파일이나 읽어 가지 않게 · raw_mime).
             // 큰 사진(수십 MB)을 읽는 동안 다른 요청이 막히지 않게 따로 읽는다.
             if let Some(file) = key.strip_prefix("pack:").or_else(|| key.strip_prefix("raw:")).map(str::to_owned) {
                 std::thread::spawn(move || {
-                    let resp = match image_mime(&file).and_then(|mime| std::fs::read(&file).ok().map(|b| (mime, b))) {
-                        Some((mime, bytes)) => tauri::http::Response::builder().header("Content-Type", mime).header("Cache-Control", "no-cache").body(bytes),
+                    let resp = match raw_mime(&file).and_then(|mime| std::fs::read(&file).ok().map(|b| (mime, b))) {
+                        // 파워포인트 미리보기는 fetch 로 받는다 — 앱 쪽(tauri.localhost)과 이 주소는 다른 곳이라 허락 머리가 없으면 막힌다 (2026.11.25)
+                        Some((mime, bytes)) => tauri::http::Response::builder()
+                            .header("Content-Type", mime)
+                            .header("Cache-Control", "no-cache")
+                            .header("Access-Control-Allow-Origin", "*")
+                            .body(bytes),
                         None => tauri::http::Response::builder().status(404).body(Vec::new()),
                     };
                     responder.respond(resp.expect("응답"));
@@ -1241,6 +1261,7 @@ pub fn run() {
             open_item,
             link_targets,
             read_text,
+            read_sheets,
             write_text,
             modified_of,
             context_menu,
