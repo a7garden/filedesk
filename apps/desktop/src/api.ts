@@ -116,6 +116,8 @@ export const TAG_LABEL: Record<TagColor, string> = { red: "빨강", orange: "주
 /** 하위 폴더까지 찾기 결과 (fd-core search). */
 /** 찾은 항목. `snippet` 은 문서 안 글에서 맞은 곳 앞뒤. */
 export type Found = Entry & { memo?: string; snippet?: string };
+/** 폴더 용량 — partial 은 읽지 못한 하위 폴더가 있었다 (합이 작을 수 있다) · stopped 는 중간에 멈췄다. */
+export type DirSize = { bytes: number; files: number; dirs: number; partial: boolean; stopped: boolean };
 export type SearchResult = { root: string; query: string; items: Found[]; scanned: number; truncated: boolean; cancelled: boolean };
 
 export type SkillAgent = { id: string; name: string; file: string; detected: boolean; installed: string | null };
@@ -215,6 +217,9 @@ export type ViewPrefs = {
   sideOff: SideId[];
   /** 크기 — `kb` 탐색기처럼 늘 KB / `auto` 알맞은 단위 (MB · GB). */
   sizeUnit: "kb" | "auto";
+  /** 폴더 크기 칸에 그 안 모든 하위 폴더 파일까지 더한 용량을 보인다. 폴더마다 훑어 세므로 큰 폴더 · NAS 는 늦게 찬다.
+   *  2026.11.25 : 사용자 요청. 기본은 끈다 — 켜면 폴더를 열 때마다 디스크를 훑는다. */
+  folderSize: boolean;
   /** 찾기 결과에서 늘 빼는 확장자 (점 없이 소문자 · 예: lnk). 이 폴더 안 거르기 · 색 표시 · 새 파일 모아 보기에는 먹지 않는다.
    *  2026.11.20 : 사용자 요청. 모든 드라이브에서 찾으면 시작 메뉴 · 바탕화면의 바로가기가 원본과 나란히 섞였다.
    *  기본은 바로가기(lnk · url) · 임시 파일(tmp) · 받다 만 파일(crdownload). 다 지운 설정은 빈 채로 읽는다 (App readSettings). */
@@ -226,7 +231,7 @@ export type SideId = "pc" | "favs" | "apps" | "links" | "tags" | "smart";
 export const SIDE_IDS: SideId[] = ["pc", "favs", "apps", "links", "tags", "smart"];
 export const SIDE_LABEL: Record<SideId, string> = { pc: "이 PC (드라이브)", favs: "즐겨찾기", apps: "앱", links: "연결 (NAS · 공유 폴더)", tags: "색 표시", smart: "스마트 폴더" };
 export const DEFAULT_VIEW: ViewPrefs = { mode: "list", dense: false, size: 1, icons: "shell", iconPack: "", thumbs: true, namePeek: true, overlays: true, hiddenCols: ["kind"], kinds: DEFAULT_KINDS, folderClick: "double",
-  sort: { key: "name", asc: true }, dirsFirst: true, editions: false, foldStart: true, sizeUnit: "kb", recent: true, links: false, sideFavs: true, sideOrder: ["pc", "favs", "apps", "links", "tags", "smart"], sideOff: [], findSkip: ["lnk", "url", "tmp", "crdownload"] };
+  sort: { key: "name", asc: true }, dirsFirst: true, editions: false, foldStart: true, sizeUnit: "kb", folderSize: false, recent: true, links: false, sideFavs: true, sideOrder: ["pc", "favs", "apps", "links", "tags", "smart"], sideOff: [], findSkip: ["lnk", "url", "tmp", "crdownload"] };
 
 export type Theme = "system" | "light" | "dark";
 
@@ -236,6 +241,9 @@ export type Outcome = "done" | "aborted" | "skipped";
 
 export const api = {
   listDir: (path: string, showHidden: boolean) => invoke<Entry[]>("list_dir", { path, showHidden }),
+  /** 폴더 용량 (하위 폴더까지). `token` 은 칸이 폴더를 열 때마다 새로 — `dirSizeStop(token)` 이 그 세기를 멈춘다. */
+  dirSize: (path: string, token: number) => invoke<DirSize>("dir_size", { path, token }),
+  dirSizeStop: (token: number) => invoke<void>("dir_size_stop", { token }),
   /** 없어진 폴더에서 가장 가까운, 아직 있는 위 폴더 (없으면 null). */
   nearestDir: (path: string) => invoke<string | null>("nearest_dir", { path }),
   places: () => invoke<Places>("places"),

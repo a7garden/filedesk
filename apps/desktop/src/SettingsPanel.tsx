@@ -369,6 +369,8 @@ export default function SettingsPanel(props: Props) {
                   view.sizeUnit,
                   (sizeUnit) => setView((v) => ({ ...v, sizeUnit })),
                 )}
+                {check("폴더 용량 표시", view.folderSize, (folderSize) => setView((v) => ({ ...v, folderSize })))}
+                <p className="muted set-hint">폴더 크기 칸에 하위 폴더까지 더한 용량 · 큰 폴더와 NAS 는 늦게 표시</p>
               </div>
             </div>
           </section>

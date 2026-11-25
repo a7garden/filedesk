@@ -133,6 +133,54 @@ pub fn recent_files(dirs: &[&Path], days: u64) -> Vec<Entry> {
     found.into_iter().map(|(_, e)| e).collect()
 }
 
+/// 폴더 용량 — 그 안 모든 하위 폴더 파일 크기의 합.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirSize {
+    pub bytes: u64,
+    pub files: u64,
+    pub dirs: u64,
+    /// 읽지 못한 하위 폴더가 있었다 (권한 · 끊긴 네트워크) — 합이 실제보다 작을 수 있다.
+    pub partial: bool,
+    /// `stop` 이 참이 되어 중간에 멈췄다 — 합이 끝까지 센 값이 아니다.
+    pub stopped: bool,
+}
+
+/// 폴더 안 모든 파일 크기를 더한다. 목록 「크기」 열의 폴더 용량 (설정 › 목록 › 폴더 용량 표시). 2026.11.25 더했다.
+/// 연결 지점(정션 · 심볼릭 링크)은 따라가지 않는다 — 문서 저장소 연결 폴더처럼 같은 파일을 두 번 세거나 끝없이 돈다.
+/// 숨김 · 시스템 파일도 센다 — 탐색기 「속성」의 크기와 맞춘다. `stop` 은 폴더 하나를 읽을 때마다 묻는다 (폴더를 떠나면 멈추게).
+pub fn dir_size(path: &Path, stop: &dyn Fn() -> bool) -> DirSize {
+    let mut out = DirSize::default();
+    let mut stack = vec![path.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        if stop() {
+            out.stopped = true;
+            break;
+        }
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            out.partial = true;
+            continue;
+        };
+        for item in rd.flatten() {
+            let Ok(meta) = item.metadata() else {
+                out.partial = true;
+                continue;
+            };
+            if file_attrs(&meta) & ATTR_REPARSE != 0 || meta.file_type().is_symlink() {
+                continue;
+            }
+            if meta.is_dir() {
+                out.dirs += 1;
+                stack.push(item.path());
+            } else {
+                out.files += 1;
+                out.bytes += meta.len();
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -161,6 +209,20 @@ mod tests {
         let got = recent_files(&[dir.as_path()], 3);
         assert_eq!(got.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["받은.pdf"]);
         assert!(recent_files(&[dir.join("없는 폴더").as_path()], 3).is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn dir_size_sums_nested_files() {
+        let dir = std::env::temp_dir().join(format!("fd-core-size-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("a").join("b")).unwrap();
+        std::fs::write(dir.join("1.txt"), b"12345").unwrap();
+        std::fs::write(dir.join("a").join("2.txt"), b"123").unwrap();
+        std::fs::write(dir.join("a").join("b").join("3.txt"), b"12").unwrap();
+        let s = dir_size(&dir, &|| false);
+        assert_eq!((s.bytes, s.files, s.dirs, s.partial, s.stopped), (10, 3, 2, false, false));
+        assert!(dir_size(&dir, &|| true).stopped);
+        assert!(dir_size(&dir.join("없는 폴더"), &|| false).partial);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

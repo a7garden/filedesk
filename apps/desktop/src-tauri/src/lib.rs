@@ -2,7 +2,7 @@
 //!
 //! 목차
 //!   [1] 공통 — 주 스레드에서 돌리기 · 창 손잡이
-//!   [2] 목록 · 위치 · 주소
+//!   [2] 목록 · 위치 · 주소 · 폴더 용량 (하위 폴더까지 합)
 //!   [2-1] 연결 — NAS · 공유 폴더 주소 풀기 · 공유 목록 · 로그인 · 이 PC 가 쓰던 곳 (`fd-shell::net`)
 //!         설치된 앱 목록 · 앱 열기 — 팔레트 · 왼쪽 열 「앱」 (`fd-shell::apps`)
 //!   [3] 열기 · 바로가기 대상 · 오른쪽 메뉴 · 셸 동사
@@ -25,7 +25,7 @@ mod undo;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use fd_core::Entry;
 use fd_shell::RawHwnd;
@@ -83,6 +83,30 @@ async fn list_dir(path: String, show_hidden: bool) -> CmdResult<Vec<Entry>> {
         Ok(list)
     })
     .await?
+}
+
+/// 멈추라고 한 폴더 용량 세기의 표 — 칸마다 폴더를 열 때 새 표를 쓰고, 떠날 때 그 표를 여기에 넣는다.
+/// 큰 폴더 · NAS 는 몇 분 걸릴 수 있어, 다른 폴더로 옮긴 뒤에도 앞 폴더를 계속 훑으면 디스크와 네트워크를 붙잡는다.
+/// 표를 칸마다 따로 두는 까닭: 하나로 두면 나눠 보기에서 한 칸이 폴더를 옮길 때 옆 칸의 세기까지 멈춘다.
+static DIR_SIZE_STOPPED: Mutex<Vec<u64>> = Mutex::new(Vec::new());
+
+/// 폴더 용량 — 그 안 모든 하위 폴더 파일 크기의 합 (설정 › 목록 › 폴더 용량 표시). 2026.11.25 더했다.
+#[tauri::command]
+async fn dir_size(path: String, token: u64) -> CmdResult<fd_core::list::DirSize> {
+    tauri::async_runtime::spawn_blocking(move || fd_core::list::dir_size(Path::new(&path), &|| DIR_SIZE_STOPPED.lock().unwrap().contains(&token)))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// `token` 으로 시작한 폴더 용량 세기를 멈춘다 — 칸이 다른 폴더로 옮기거나 설정에서 끌 때. 표는 최근 것만 남긴다 (끝난 세기의 표는 다시 묻지 않는다).
+#[tauri::command]
+fn dir_size_stop(token: u64) {
+    let mut v = DIR_SIZE_STOPPED.lock().unwrap();
+    v.push(token);
+    let n = v.len();
+    if n > 256 {
+        v.drain(..n - 256);
+    }
 }
 
 /// 목록을 못 읽은 까닭을 머리표 `[missing]` · `[denied]` · `[offline]` 로 갈라 준다 — 화면(Pane [1])이 이것을 보고
@@ -561,14 +585,17 @@ async fn drag_out(app: AppHandle, window: WebviewWindow, paths: Vec<String>) -> 
 #[derive(Default)]
 struct WatchState {
     watcher: Mutex<Option<RecommendedWatcher>>,
-    dirs: Mutex<HashSet<PathBuf>>,
+    /// 실제로 감시 핸들을 연 자리 — 로컬 드라이브는 뿌리(`D:\`), 그 밖(NAS · 공유 폴더)은 탭 폴더.
+    handles: Mutex<HashSet<PathBuf>>,
+    /// 화면에 알릴 폴더 — `watch_key` 로 맞춘 경로 → 화면에 넘길 원래 경로. 감시 콜백이 함께 쥔다.
+    wanted: Arc<Mutex<HashMap<String, String>>>,
     /// 창마다 감시해 달라고 한 폴더. 감시는 이것을 모두 합친 자리다.
     /// 2026.11.24 : 창이 여럿이 되며(탭을 끌어 떼어 낸 창) 한 창이 부르면 다른 창의 폴더 감시가 풀렸다 — 창별로 받아 합친다.
     by_window: Mutex<HashMap<String, Vec<String>>>,
 }
 
 /// 열린 탭들의 폴더를 감시한다. 바뀌면 `fs-changed` 로 그 폴더 경로를 알린다 — 화면이 다시 읽는다.
-/// 하위 폴더까지 보지 않는다 (탭이 보는 칸만). NAS 경로는 감시가 안 될 수 있어 실패해도 넘어간다.
+/// 하위 폴더 안의 변경은 알리지 않는다 (탭이 보는 칸만). NAS 경로는 감시가 안 될 수 있어 실패해도 넘어간다.
 #[tauri::command]
 fn watch_dirs(app: AppHandle, window: WebviewWindow, state: tauri::State<'_, WatchState>, dirs: Vec<String>) -> CmdResult<()> {
     state.by_window.lock().unwrap().insert(window.label().to_string(), dirs);
@@ -583,20 +610,83 @@ fn unwatch_window(app: &AppHandle, label: &str) {
     }
 }
 
+/// 경로를 견줄 꼴 — 대소문자 · `/` · 끝 `\` 를 맞춘다 (화면 `util.ts` 의 `norm` 과 같다).
+fn watch_key(p: &Path) -> String {
+    let mut s = p.to_string_lossy().replace('/', "\\").to_lowercase();
+    while s.len() > 3 && s.ends_with('\\') {
+        s.pop();
+    }
+    s
+}
+
+/// 감시 핸들을 열 자리. 로컬 드라이브(고정 · 이동식)는 그 뿌리, 그 밖은 폴더 자신.
+/// 2026.11.25 : 탭 폴더와 그 `이전판/` 마다 핸들을 열었더니, Windows 는 열린 핸들이 아래에 있는 폴더의 이름 바꾸기 · 옮기기를 막아
+///   탭으로 열어 둔 폴더(이전판이 있으면) · 그 위 폴더 전부를 다른 앱이 「사용 중」으로 못 바꿨다.
+///   드라이브 뿌리는 이름이 바뀌지 않으므로 거기에 하위까지 보는 감시 하나를 걸고, 알림을 탭 폴더로 거른다.
+///   NAS 는 뿌리 감시가 무겁고 안 될 수 있어 탭 폴더에 하위까지 건다 — 이전판은 따라오고 탭 폴더 자체는 잠그지 않는다(위 폴더는 여전히 잠긴다).
+fn watch_anchor(dir: &Path) -> PathBuf {
+    if let Some(std::path::Component::Prefix(pre)) = dir.components().next() {
+        if let std::path::Prefix::Disk(_) | std::path::Prefix::VerbatimDisk(_) = pre.kind() {
+            let root = format!("{}\\", pre.as_os_str().to_string_lossy());
+            if matches!(fd_shell::system::drive_kind(&root), "fixed" | "removable") {
+                return PathBuf::from(root);
+            }
+        }
+    }
+    dir.to_path_buf()
+}
+
 /// 모든 창이 부탁한 폴더를 합쳐 감시 자리를 맞춘다.
 fn rewatch(app: &AppHandle, state: &WatchState) -> CmdResult<()> {
     let dirs: Vec<String> = state.by_window.lock().unwrap().values().flatten().cloned().collect::<HashSet<_>>().into_iter().collect();
+    // 알릴 폴더와 핸들 자리 (핸들 자리, 그 아래 실제 폴더).
+    let mut wanted = HashMap::new();
+    let mut anchors: Vec<(PathBuf, PathBuf)> = Vec::new();
+    for d in dirs.into_iter().map(PathBuf::from) {
+        // 없는 폴더(지워졌거나 이름이 바뀐 탭)는 살아 있는 가장 가까운 위 폴더를 본다 — 되살아나면 화면이 그 자리에서 다시 읽게 (Pane [1]).
+        // 2026.11.18 리뷰 지적 : 없는 폴더만 보고 있어 「다시 살아나면 다시 읽는다」가 한 번도 일어나지 않았다. 화면은 못 읽게 되거나 되살아날 때 이 명령을 다시 부른다.
+        let live = if d.exists() { d.clone() } else {
+            match d.ancestors().skip(1).find(|a| a.exists()) {
+                Some(a) => a.to_path_buf(),
+                None => continue,
+            }
+        };
+        let mut tell = vec![live.clone()];
+        // 그 폴더의 `이전판/` 도 알린다 — 이전판 안에서만 바뀌면 판 눈금 · 문제 줄이 따라오지 않았다.
+        // 이벤트 경로의 상위가 `…\이전판` 이면 화면이 그 위 폴더를 다시 읽는다 (Pane [1]).
+        // 2026.11.11 : 지난 판 폴더 이름이 여럿이 되어(`이전판` · `지난판` · `old versions` …) 이름 하나로 찾지 않는다.
+        if live == d {
+            tell.extend(fd_core::docs::history_dirs(&d));
+        }
+        for t in tell {
+            wanted.insert(watch_key(&t), t.to_string_lossy().into_owned());
+        }
+        anchors.push((watch_anchor(&live), live));
+    }
+    *state.wanted.lock().unwrap() = wanted;
+
     let mut guard = state.watcher.lock().unwrap();
     if guard.is_none() {
         let app2 = app.clone();
+        let wanted = state.wanted.clone();
         let w = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-            let Ok(ev) = res else { return };
+            let wanted = wanted.lock().unwrap();
+            // 무엇이 바뀌었는지 잃었거나(버퍼 넘침) 감시가 깨졌다 — 보는 폴더 모두 다시 읽게 한다.
+            //   드라이브 뿌리 감시는 그 드라이브 전체 변경이 들어와 몰릴 때 넘칠 수 있다.
+            let ev = match res {
+                Ok(ev) if !ev.need_rescan() => ev,
+                _ => {
+                    for v in wanted.values() {
+                        let _ = app2.emit("fs-changed", v.clone());
+                    }
+                    return;
+                }
+            };
             let mut sent = HashSet::new();
             for p in ev.paths {
-                if let Some(parent) = p.parent() {
-                    let s = parent.to_string_lossy().into_owned();
-                    if sent.insert(s.clone()) {
-                        let _ = app2.emit("fs-changed", s);
+                if let Some(orig) = p.parent().and_then(|parent| wanted.get(&watch_key(parent))) {
+                    if sent.insert(orig) {
+                        let _ = app2.emit("fs-changed", orig.clone());
                     }
                 }
             }
@@ -605,32 +695,21 @@ fn rewatch(app: &AppHandle, state: &WatchState) -> CmdResult<()> {
         *guard = Some(w);
     }
     let w = guard.as_mut().unwrap();
-    // 그 폴더의 `이전판/` 도 본다 — 감시는 한 단계라, 이전판 안에서만 바뀌면 판 눈금 · 문제 줄이 따라오지 않았다.
-    // 이벤트 경로의 상위가 `…\이전판` 이면 화면이 그 위 폴더를 다시 읽는다 (Pane [1]).
-    let want: HashSet<PathBuf> = dirs
-        .into_iter()
-        .map(PathBuf::from)
-        .flat_map(|d| {
-            // 없는 폴더(지워졌거나 이름이 바뀐 탭)는 살아 있는 가장 가까운 위 폴더를 본다 — 되살아나면 화면이 그 자리에서 다시 읽게 (Pane [1]).
-            // 2026.11.18 리뷰 지적 : 없는 폴더만 보고 있어 「다시 살아나면 다시 읽는다」가 한 번도 일어나지 않았다. 화면은 못 읽게 되거나 되살아날 때 이 명령을 다시 부른다.
-            if !d.exists() {
-                return d.ancestors().skip(1).find(|a| a.exists()).map(Path::to_path_buf).into_iter().collect::<Vec<_>>();
-            }
-            // 2026.11.11 : 지난 판 폴더 이름이 여럿이 되어(`이전판` · `지난판` · `old versions` …) 이름 하나로 찾지 않는다.
-            let mut v = fd_core::docs::history_dirs(&d);
-            v.push(d);
-            v
-        })
-        .collect();
-    let mut have = state.dirs.lock().unwrap();
-    for gone in have.difference(&want).cloned().collect::<Vec<_>>() {
+    let mut have = state.handles.lock().unwrap();
+    let mut keep: HashSet<PathBuf> = HashSet::new();
+    for (anchor, live) in anchors {
+        if have.contains(&anchor) || w.watch(&anchor, RecursiveMode::Recursive).is_ok() {
+            have.insert(anchor.clone());
+            keep.insert(anchor);
+        } else if anchor != live && (have.contains(&live) || w.watch(&live, RecursiveMode::Recursive).is_ok()) {
+            // 뿌리에 못 걸면(권한 등) 그 폴더에 건다 — 잠기더라도 화면이 따라오지 않는 것보다 낫다.
+            have.insert(live.clone());
+            keep.insert(live);
+        }
+    }
+    for gone in have.difference(&keep).cloned().collect::<Vec<_>>() {
         let _ = w.unwatch(&gone);
         have.remove(&gone);
-    }
-    for new in want.difference(&have.clone()).cloned().collect::<Vec<_>>() {
-        if w.watch(&new, RecursiveMode::NonRecursive).is_ok() {
-            have.insert(new);
-        }
     }
     Ok(())
 }
@@ -1152,6 +1231,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             list_dir,
+            dir_size,
+            dir_size_stop,
             places,
             resolve_input,
             nearest_dir,
@@ -1221,6 +1302,14 @@ mod tests {
         assert_eq!(volume_of(r"C:\a\b"), "c:");
         assert_eq!(volume_of(r"\\nas\공유\x"), r"\\nas\공유");
         assert_ne!(volume_of(r"C:\a"), volume_of(r"D:\a"));
+    }
+
+    #[test]
+    fn watch_key_matches_screen_norm() {
+        assert_eq!(watch_key(Path::new(r"D:\Work\")), r"d:\work");
+        assert_eq!(watch_key(Path::new("D:/Work/이전판")), r"d:\work\이전판");
+        assert_eq!(watch_key(Path::new(r"D:\")), r"d:\");
+        assert_eq!(watch_anchor(Path::new(r"\\nas\공유\x")), PathBuf::from(r"\\nas\공유\x"));
     }
 
     #[test]

@@ -134,6 +134,7 @@ function withDefaults(s: Partial<Settings> | null): Settings {
       sideOrder: [...new Set([...(Array.isArray(s?.view?.sideOrder) ? s.view.sideOrder : []).filter((x): x is SideId => SIDE_IDS.includes(x as SideId)), ...SIDE_IDS])],
       sideOff: Array.isArray(s?.view?.sideOff) ? s.view.sideOff.filter((x): x is SideId => x === "pc" || x === "apps" || x === "tags") : [],
       sizeUnit: s?.view?.sizeUnit === "auto" ? "auto" : "kb",
+      folderSize: s?.view?.folderSize === true,
       kinds: validKinds(s?.view?.kinds),
       findSkip: Array.isArray(s?.view?.findSkip) ? parseExts(s.view.findSkip.filter((x) => typeof x === "string").join(" ")) : DEFAULT_VIEW.findSkip,
     },

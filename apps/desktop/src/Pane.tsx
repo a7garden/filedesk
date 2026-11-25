@@ -6,6 +6,7 @@
 //   [1-1] 찾기 — 이 폴더(이름 · 메모) · 하위 폴더까지(Shift+Enter) · 모든 드라이브(Alt+Enter) · 범위 돌리기(Tab · Shift+Tab) ·
 //         문서 본문까지(Ctrl+Enter 켜고 끄기, fd-core search) · 색 표시 모아 보기(왼쪽 「색 표시」) ·
 //         새 파일 모아 보기(왼쪽 「새 파일」). 종류 · 색으로도 추린다
+//   [1-2] 폴더 용량 — 설정 「폴더 용량 표시」를 켜면 이 폴더 목록의 하위 폴더 용량을 두 줄로 차례로 센다 (fd-core list::dir_size)
 //   [2] 줄 만들기 — 문서 하나 = 한 줄(최신판), 펼치면 그 자리에 판들 · 새 판 줄
 //       이름 · 판에 문제가 있는 문서는 접혀 있어도 바로 밑에 「문제 줄」(무엇이 어긋났나 + 고칠 동작). 머리의 「문제 문서 N개」는 처리함(IssueInbox)을 연다
 //       2026.11.13 : 「문제 문서 N개」를 그것만 남기는 거르기 → 처리함 창. 격자 위에 모으던 문제 줄도 처리함으로 옮겼다
@@ -24,11 +25,12 @@
 //       2026.11.11 : 격자 보기 · 크기(Ctrl+휠) · filedesk 아이콘 · 오른쪽 메뉴에 filedesk 항목(메모 · 색 · 즐겨찾기 · 옆 칸 · 새 판)
 //       2026.11.13 : 오른쪽 메뉴를 filedesk 가 그린다(ContextMenu) — 셸 메뉴는 그 「더 보기」 · Shift+오른쪽 단추 · Shift+F10
 //   [8] 앱 안 보기 — md · txt · 그림은 셸에 넘기지 않고 이 칸에서 연다 (Viewer). 그동안 목록 단축키는 쉰다
+//   2026.11.25 : 폴더 용량 (설정 › 목록 › 폴더 용량 표시) — 크기 칸에 하위 폴더까지 더한 용량. 폴더마다 Rust 가 훑고([1-2]), 크기 정렬에도 쓴다.
 //   2026.11.12 : 찾기 칸에 조건(`고친:3일 종류:문서 크기:>10MB` …)을 적어 거른다 — 칩으로 보이고 × 로 뗀다 · 「＋ 조건」.
 //                범위에 「모든 드라이브」(색인)를 더했다. 조건은 「스마트 폴더로 저장」하고, 왼쪽 스마트 폴더를 누르면 여기에 모아 보인다.
 import { type CSSProperties, type ReactNode, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { api, iconUrl, overlayUrl, TAG_COLORS, TAG_LABEL, today, type ColKey, type DocFile, type DocGroup, type EditionPlan, type Entry, type Found, type QueryResult, type QuerySpec, type Root, type SmartFolder, type SmartScope, type TagColor, type ViewPrefs } from "./api";
+import { api, iconUrl, overlayUrl, TAG_COLORS, TAG_LABEL, today, type ColKey, type DocFile, type DocGroup, type EditionPlan, type DirSize, type Entry, type Found, type QueryResult, type QuerySpec, type Root, type SmartFolder, type SmartScope, type TagColor, type ViewPrefs } from "./api";
 import { kindTable, looksLikeQuery, matches, PRESETS, removeToken, sourceLabel, tzOffset } from "./query";
 import AddressBar, { type AddressHandle } from "./AddressBar";
 import type { Tab } from "./App";
@@ -73,6 +75,13 @@ import {
 
 // 편집기 · 마크다운 묶음(수백 KB)은 처음 열 때 읽는다 — 켜는 시간에 얹지 않게
 const Viewer = lazy(() => import("./Viewer"));
+
+/** 센 폴더 용량을 칸끼리 함께 쓰는 짧은 기억 — 폴더를 오가거나 옆 칸에서 같은 폴더를 열 때 다시 훑지 않게.
+ *  오래 두지 않는다: 하위 폴더 안에서 바뀐 것은 폴더 감시로 알 수 없어, 기억이 길면 낡은 용량이 남는다. */
+const DIR_SIZES = new Map<string, { s: DirSize; at: number }>();
+const DIR_SIZE_TTL = 120_000;
+/** 한 칸에서 동시에 훑는 폴더 수 — 많으면 같은 디스크를 두고 서로 늦춘다. */
+const DIR_SIZE_LANES = 2;
 
 type Props = {
   tab: Tab;
@@ -602,10 +611,17 @@ export default function Pane(p: Props) {
     isAll(deep?.scope) ? { kind: "all" } : { kind: "roots", roots: [{ path, recursive: deep?.scope === "below" || deep?.scope === "content" }] };
   const saveSmart = () => window.dispatchEvent(new CustomEvent("fd:smart-new", { detail: { q: filter.trim(), scope: scopeHere() } }));
 
+  /** 모아 보기(스마트 폴더 · 색 표시 · 새 파일)를 열 때 앞 폴더에서 걸어 둔 종류 · 색 거르기를 푼다.
+   *  2026.11.25 : 「문서」나 「파랑」을 걸어 둔 채 빨강 표시 · 스마트 폴더를 열면 결과가 비거나 일부만 보였다 — 거르기 칩은 결과에 그 종류 · 색이 없으면 서지 않아 왜 비었는지도 안 보였다. */
+  const clearPicks = () => {
+    setKind(null);
+    setColorOnly(null);
+  };
   /** 스마트 폴더 모아 보기 — 왼쪽에서 누르면 지금 칸에 띄운다. 고친 날 조건이 있으면 최근 것부터. */
   const showSmart = useCallback(
     (folder: SmartFolder, scope: { all: boolean; roots: Root[] }) => {
       setDeep({ scope: "smart", q: folder.name, smart: folder, items: null, truncated: false, scanned: 0 });
+      clearPicks();
       if (/(^|\s)(수정|수정일|고친|고친날|날짜|modified|date):/i.test(folder.q))
         setSort((s) => {
           if (!sortBefore.current) sortBefore.current = s;
@@ -624,6 +640,7 @@ export default function Pane(p: Props) {
   const showTagged = useCallback(
     (color: TagColor) => {
       setDeep({ scope: "tag", q: TAG_LABEL[color], color, items: null, truncated: false, scanned: 0 });
+      clearPicks();
       api
         .tagged(color)
         .then((items) => setDeep((d) => (d?.scope === "tag" && d.color === color ? { ...d, items } : d)))
@@ -637,6 +654,7 @@ export default function Pane(p: Props) {
   const showRecent = useCallback(
     (dirs: string[], days: number) => {
       setDeep({ scope: "recent", q: `최근 ${days}일`, items: null, truncated: false, scanned: 0 });
+      clearPicks();
       setSort((s) => {
         if (!sortBefore.current) sortBefore.current = s;
         return { key: "modified", asc: false };
@@ -691,6 +709,86 @@ export default function Pane(p: Props) {
   /** 찾은 것의 메모 — 이 폴더 밖이라 목록 메모(memos)에 없다. */
   const deepMemos = useMemo(() => new Map((deep?.items ?? []).filter((f) => f.memo).map((f) => [norm(f.path), f.memo as string])), [deep]);
   const memoOf = (fp: string) => memos.get(norm(fp)) ?? deepMemos.get(norm(fp));
+  /** 찾은 것의 색 표시 — 이 폴더 밖이라 목록 색(colors)에 없다. 결과가 오면 한 번에 묻는다 (색 표시 모아 보기는 그 색 하나).
+   *  2026.11.25 : 하위 폴더 · 스마트 폴더 · 모든 드라이브 결과에서 색 점이 빠지고, 색 거르기 칩이 안 서거나 눌러도 비었고,
+   *    결과 안에서 적은 `색:빨강` 조건이 늘 비었다 — 색을 이 폴더 목록(colors)에서만 찾았다. */
+  const [deepColors, setDeepColors] = useState<Map<string, TagColor>>(new Map());
+  const deepItems = deep?.items;
+  const deepColor = deep?.scope === "tag" ? deep.color : undefined;
+  useEffect(() => {
+    if (!deepItems?.length) return setDeepColors(new Map());
+    if (deepColor) return setDeepColors(new Map(deepItems.map((f) => [norm(f.path), deepColor])));
+    let alive = true;
+    api
+      .memosOf(deepItems.map((f) => f.path))
+      .then((ms) => alive && setDeepColors(new Map(ms.filter((m) => m.color).map((m) => [norm(m.path), m.color as TagColor]))))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [deepItems, deepColor]);
+  const colorOf = (fp: string) => colors.get(norm(fp)) ?? deepColors.get(norm(fp));
+
+  // ───────── [1-2] 폴더 용량 ─────────
+
+  /** 보이는 폴더의 용량 (설정 「폴더 용량 표시」) — 경로 → 센 값. 목록이 오면 두 줄로 차례로 센다.
+   *  폴더를 떠나거나 설정을 끄면 남은 세기를 멈춘다 (큰 폴더 · NAS 는 몇 분 걸려 디스크 · 네트워크를 붙잡는다). */
+  const [dirSizes, setDirSizes] = useState<Map<string, DirSize>>(new Map());
+  //   이 폴더 목록에서만 센다 — 찾기 · 모아 보기 결과의 폴더는 여러 드라이브에 흩어져 있고(C:\Windows 같은 큰 폴더도 걸린다) 수백 개라 다 훑으면 디스크를 오래 붙잡는다.
+  //   크기 열을 숨겼으면(격자 보기는 늘 보인다) 세지 않는다.
+  const sizeOn = p.view.folderSize && !deep && (isGrid || !p.view.hiddenCols.includes("size"));
+  const sizeKey = sizeOn ? (entries ?? []).filter((e) => e.isDir).map((e) => e.path).join("|") : "";
+  useEffect(() => {
+    if (!sizeKey) return setDirSizes(new Map());
+    const now = Date.now();
+    const have = new Map<string, DirSize>();
+    const todo: string[] = [];
+    for (const d of sizeKey.split("|")) {
+      const c = DIR_SIZES.get(norm(d));
+      if (c && now - c.at < DIR_SIZE_TTL) have.set(norm(d), c.s);
+      else todo.push(d);
+    }
+    setDirSizes(have);
+    if (!todo.length) return;
+    const token = Math.floor(Math.random() * 2 ** 52);
+    let alive = true;
+    const lane = async () => {
+      while (alive && todo.length) {
+        const d = todo.shift()!;
+        try {
+          const s = await api.dirSize(d, token);
+          if (!alive || s.stopped) return;
+          DIR_SIZES.set(norm(d), { s, at: Date.now() });
+          setDirSizes((m) => new Map(m).set(norm(d), s));
+        } catch {
+          /* 못 읽는 폴더는 빈칸으로 둔다 */
+        }
+      }
+    };
+    for (let i = 0; i < DIR_SIZE_LANES; i++) void lane();
+    return () => {
+      alive = false;
+      api.dirSizeStop(token).catch(() => {});
+    };
+  }, [sizeKey]);
+  /** 크기 정렬 · 고른 용량에 쓸 폴더 용량을 입힌다 — 아직 못 센 폴더는 그대로 (0). */
+  const sized = useCallback(
+    (list: Entry[]) => (dirSizes.size ? list.map((e) => (e.isDir && dirSizes.has(norm(e.path)) ? { ...e, size: dirSizes.get(norm(e.path))!.bytes } : e)) : list),
+    [dirSizes],
+  );
+  /** 크기 칸 글 — 파일은 그대로, 폴더는 센 용량(설정이 켜져 있을 때만) · 세는 동안 「…」. */
+  const sizeText = (e: Entry, wait = true) => {
+    if (!e.isDir) return formatSize(e, p.view.sizeUnit);
+    if (!sizeOn) return "";
+    const d = dirSizes.get(norm(e.path));
+    if (!d) return wait ? "…" : "";
+    return formatSize({ ...e, isDir: false, size: d.bytes }, p.view.sizeUnit);
+  };
+  const sizeTitle = (e: Entry) => {
+    const d = e.isDir ? dirSizes.get(norm(e.path)) : undefined;
+    if (!d) return undefined;
+    return `${formatBytes(d.bytes)} · 파일 ${d.files.toLocaleString("ko-KR")}개 · 폴더 ${d.dirs.toLocaleString("ko-KR")}개${d.partial ? "\n읽지 못한 하위 폴더가 있어 실제보다 작을 수 있음" : ""}`;
+  };
 
   // ───────── [2] 줄 만들기 ─────────
 
@@ -728,15 +826,16 @@ export default function Pane(p: Props) {
   const colorCounts = useMemo(() => {
     const m = new Map<TagColor, number>();
     for (const e of base) {
-      const c = colors.get(norm(e.path));
+      const c = colorOf(e.path);
       if (c) m.set(c, (m.get(c) ?? 0) + 1);
     }
     return m;
-  }, [base, colors]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- colorOf 는 colors · deepColors 로만 바뀐다
+  }, [base, colors, deepColors]);
   const passes = useCallback(
-    (e: Entry) => (!kind || kindOf(e) === kind) && (!colorOnly || colors.get(norm(e.path)) === colorOnly),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 종류 설정이 바뀌면 kindOf 가 다른 답을 낸다
-    [kind, colorOnly, colors, p.view.kinds],
+    (e: Entry) => (!kind || kindOf(e) === kind) && (!colorOnly || colorOf(e.path) === colorOnly),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 종류 설정이 바뀌면 kindOf 가 다른 답을 낸다 · colorOf 는 colors · deepColors 로만 바뀐다
+    [kind, colorOnly, colors, deepColors, p.view.kinds],
   );
   /** 설정 「찾기에서 제외할 확장자」에 걸려 빠지는가. 찾기 칸 · 스마트 폴더로 찾은 것에만 — 색 표시 · 새 파일은 사용자가 고른 모음이라 그대로 둔다.
    *  찾는 말에 그 확장자를 적었으면(.lnk · 확장자:lnk) 빼지 않는다 — 바로가기를 찾는데 바로가기가 빠지면 안 된다. */
@@ -772,11 +871,11 @@ export default function Pane(p: Props) {
         if (!q) return true;
         const memo = memoOf(e.path);
         const hay = `${e.name} ${memo ?? ""}`.toLowerCase();
-        if (spec) return matches(spec, e, hay, memo, colors.get(norm(e.path)));
+        if (spec) return matches(spec, e, hay, memo, colorOf(e.path));
         return terms.every((t) => hay.includes(t));
       };
       // 자리와 본문 글을 따로 둔다 — 자리는 앞을 줄이고(가까운 폴더가 남게) 본문 글은 뒤를 줄인다 (entryRow 「.where」)
-      return sortEntries((deep.items ?? []).filter((e) => passes(e) && !skipped(e) && within(e)), sort, p.view.dirsFirst).map(
+      return sortEntries(sized((deep.items ?? []).filter((e) => passes(e) && !skipped(e) && within(e))), sort, p.view.dirsFirst).map(
         (e): Row => ({ kind: "entry", e, depth: 0, where: rel(e.path) || undefined, snip: (e as Found).snippet ? `…${(e as Found).snippet}…` : undefined }),
       );
     }
@@ -805,7 +904,7 @@ export default function Pane(p: Props) {
     };
     const byName = q ? visible.filter(has) : visible;
     const out: Row[] = [];
-    for (const e of sortEntries(byName, sort, p.view.dirsFirst)) {
+    for (const e of sortEntries(sized(byName), sort, p.view.dirsFirst)) {
       const rep = repOf.get(norm(e.path));
       const g = rep?.group ?? groupOf.get(norm(e.path));
       out.push({ kind: "entry", e, depth: 0, group: g, hiddenCount: rep?.count });
@@ -826,7 +925,7 @@ export default function Pane(p: Props) {
       }
     }
     return out;
-  }, [entries, groups, groupOf, issueLead, fold, filter, sort, p.view.dirsFirst, open, path, deep, passes, skipped, memos, spec, colors]);
+  }, [entries, groups, groupOf, issueLead, fold, filter, sort, p.view.dirsFirst, open, path, deep, passes, skipped, memos, spec, colors, deepColors, sized]);
 
   /** 고르기 · 키보드가 다니는 줄 (새 판 줄은 건너뛴다). */
   const nav = useMemo(() => rows.filter((r): r is EntryRow => r.kind === "entry"), [rows]);
@@ -993,14 +1092,16 @@ export default function Pane(p: Props) {
     if (v === (memoOf(fp) ?? "")) return;
     api
       .setMemo(fp, v)
-      .then((m) =>
+      .then((m) => {
         setMemos((old) => {
           const n = new Map(old);
           if (m) n.set(norm(fp), m.text);
           else n.delete(norm(fp));
           return n;
-        }),
-      )
+        });
+        // 찾은 결과의 메모도 — 지운 메모가 deepMemos 에서 다시 보이지 않게
+        setDeep((d) => (d?.items?.some((f) => samePath(f.path, fp)) ? { ...d, items: d.items.map((f) => (samePath(f.path, fp) ? { ...f, memo: m?.text || undefined } : f)) } : d));
+      })
       .catch(report);
   };
 
@@ -1010,14 +1111,20 @@ export default function Pane(p: Props) {
     if (!paths.length) return;
     Promise.all(paths.map((fp) => api.setColor(fp, c)))
       .then(() => {
-        setColors((old) => {
+        const put = (old: Map<string, TagColor>) => {
           const n = new Map(old);
           for (const fp of paths) {
             if (c) n.set(norm(fp), c);
             else n.delete(norm(fp));
           }
           return n;
-        });
+        };
+        setColors(put);
+        // 찾은 결과의 색도 — 안 그러면 이 폴더 밖 항목은 뗀 색이 그대로 남는다 (colorOf 가 deepColors 를 본다)
+        setDeepColors(put);
+        // 색 표시 모아 보기에서 그 색을 떼거나 다른 색으로 바꾸면 더는 그 모음이 아니다
+        const gone = new Set(paths.map(norm));
+        setDeep((d) => (d?.scope === "tag" && d.items && c !== d.color ? { ...d, items: d.items.filter((f) => !gone.has(norm(f.path))) } : d));
         window.dispatchEvent(new CustomEvent("fd:colors"));
       })
       .catch(report);
@@ -1127,7 +1234,7 @@ export default function Pane(p: Props) {
     ];
     if (one && e.isDir)
       items.push({ label: "새 탭에서 열기", run: () => p.onOpenTab(e.path) }, { label: p.split ? "옆 칸에서 열기" : "나눠서 옆에 열기", run: () => p.onOpenBeside(e.path) });
-    items.push("sep", { colors: one ? colors.get(norm(e.path)) : null, pick: (c) => applyColor(paths, c) });
+    items.push("sep", { colors: one ? colorOf(e.path) : null, pick: (c) => applyColor(paths, c) });
     if (one) items.push({ label: memoOf(e.path) ? "메모 편집…" : "메모 붙이기…", hint: "Ctrl+M", run: () => setMemoing(e.path) });
     items.push({ label: "즐겨찾기에 추가", hint: "Ctrl+D", run: () => p.onPin(list.map((x) => ({ path: x.path, isDir: x.isDir }))) });
     if (one && (groupOf.get(norm(e.path))?.files.length ?? 0) > 1) items.push({ label: "판 목록 보기…", run: () => showEditions(e) });
@@ -1611,16 +1718,18 @@ export default function Pane(p: Props) {
             }
           }
           // 2026.11.13 : Ctrl+Enter 는 켜기 → 켜고 끄기 · Shift / Alt+Enter 는 켜 둔 본문 찾기를 끄지 않는다 (범위 단추와 같게)
+          // 2026.11.25 : 모아 보기(스마트 폴더 · 색 표시 · 새 파일) 안에서는 Enter 와 같다 — 결과 안을 추리던 말로 앞 폴더 하위를 찾으며 모아 보기가 닫혔다
+          const ranged = !deep || isFind(deep.scope);
           if (e.key === "Tab" && !e.ctrlKey && !e.altKey && canCycle()) {
             e.preventDefault();
             cycleScope(e.shiftKey ? -1 : 1);
-          } else if (e.key === "Enter" && e.shiftKey) {
+          } else if (e.key === "Enter" && e.shiftKey && ranged) {
             e.preventDefault();
             startDeep(isContent(deep?.scope) ? "content" : "below");
-          } else if (e.key === "Enter" && e.ctrlKey) {
+          } else if (e.key === "Enter" && e.ctrlKey && ranged) {
             e.preventDefault();
             toggleContent();
-          } else if (e.key === "Enter" && e.altKey) {
+          } else if (e.key === "Enter" && e.altKey && ranged) {
             e.preventDefault();
             startDeep(isContent(deep?.scope) ? "allContent" : "all");
           } else if (e.key === "Enter" || e.key === "ArrowDown") {
@@ -1652,19 +1761,17 @@ export default function Pane(p: Props) {
         </button>
       )}
       </span>
-      {(!deep || isFind(deep.scope)) && (
-        <button
-          className="icon-btn qb-btn"
-          aria-label="찾기 조건 고르기"
-          aria-expanded={qbFrom != null}
-          title="찾기 조건 (수정일 · 크기 · 종류 · 색 · 메모)"
-          onClick={() => setQbFrom((v) => (v == null ? filter : null))}
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M2 4h12M4.5 8h7M7 12h2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
-          </svg>
-        </button>
-      )}
+      <button
+        className="icon-btn qb-btn"
+        aria-label="찾기 조건 고르기"
+        aria-expanded={qbFrom != null}
+        title="찾기 조건 (수정일 · 크기 · 종류 · 색 · 메모)"
+        onClick={() => setQbFrom((v) => (v == null ? filter : null))}
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M2 4h12M4.5 8h7M7 12h2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+        </svg>
+      </button>
       {qbFrom != null && (
         <QueryBuilder
           initial={qbFrom}
@@ -1679,7 +1786,7 @@ export default function Pane(p: Props) {
     </>
   );
 
-  const selBytes = selectedEntries.reduce((n, e) => n + (e.isDir ? 0 : e.size), 0);
+  const selBytes = selectedEntries.reduce((n, e) => n + (e.isDir ? (dirSizes.get(norm(e.path))?.bytes ?? 0) : e.size), 0);
   const stacked = rows.filter((r) => r.kind === "entry" && r.depth === 0 && r.hiddenCount != null).length;
 
   /** 판 글자 단추 — 「v4 11-13 · 4판」. 누르면 판 목록 창. 줄 고르기 · 끌기가 먼저 받지 않게 누르기를 여기서 멈춘다.
@@ -1717,7 +1824,7 @@ export default function Pane(p: Props) {
     const docDate = parsed?.date ? `${parsed.date.slice(4, 6)}-${parsed.date.slice(6, 8)}` : "";
     const isHistDir = p.view.editions && e.isDir && e.name === "이전판";
     const memo = memoOf(e.path);
-    const color = colors.get(norm(e.path));
+    const color = colorOf(e.path);
     const fresh = r.depth === 1 && !!g && justOpened?.key === g.key && Date.now() - justOpened.at < 400;
     return (
       <div
@@ -1852,8 +1959,8 @@ export default function Pane(p: Props) {
           </span>
         )}
         {colOn("size") && (
-          <span className="cell size" role="gridcell">
-            {formatSize(e, p.view.sizeUnit)}
+          <span className={"cell size" + (e.isDir && dirSizes.get(norm(e.path))?.partial ? " partial" : "")} role="gridcell" title={sizeTitle(e)}>
+            {sizeText(e)}
           </span>
         )}
       </div>
@@ -1874,7 +1981,7 @@ export default function Pane(p: Props) {
     const parsed = g?.files.find((f) => samePath(f.path, e.path))?.parsed;
     const title = isStack && g ? g.title : stem;
     const memo = memoOf(e.path);
-    const color = colors.get(norm(e.path));
+    const color = colorOf(e.path);
     const iconPx = TILE[p.view.size].icon;
     const px = Math.round(iconPx * (window.devicePixelRatio || 1));
     const thumb = p.view.thumbs && !e.isDir && canThumb(e.ext);
@@ -1959,7 +2066,11 @@ export default function Pane(p: Props) {
               {memo.split("\n")[0]}
             </button>
           ) : (
-            !e.isDir && <span className="muted">{formatSize(e, p.view.sizeUnit)}</span>
+            sizeText(e, false) && (
+              <span className="muted" title={sizeTitle(e)}>
+                {sizeText(e, false)}
+              </span>
+            )
           )}
         </div>
       </div>
@@ -2184,7 +2295,7 @@ export default function Pane(p: Props) {
               {kindLabel(k)} <span className="kind-n">{kindCounts.get(k) ?? 0}</span>
             </button>
           ))}
-          {TAG_COLORS.filter((c) => colorCounts.has(c) || colorOnly === c).map((c) => (
+          {deep?.scope !== "tag" && TAG_COLORS.filter((c) => colorCounts.has(c) || colorOnly === c).map((c) => (
             <button
               key={c}
               className="kind kind-color"
@@ -2195,50 +2306,49 @@ export default function Pane(p: Props) {
               <TagDot color={c} /> <span className="kind-n">{colorCounts.get(c) ?? 0}</span>
             </button>
           ))}
-          {(!deep || isFind(deep.scope)) && (
-            <span className="preset-wrap">
-              <button className="kind" aria-expanded={presetOpen} title="조건 추가" onClick={() => setPresetOpen((v) => !v)}>
-                ＋ 조건
-              </button>
-              {presetOpen && (
-                <span className="preset-menu" role="menu" onMouseLeave={() => setPresetOpen(false)}>
-                  {[...new Set(PRESETS.map((x) => x.group))].map((g) => (
-                    <span key={g} className="preset-group">
-                      <span className="preset-head">{g}</span>
-                      {PRESETS.filter((x) => x.group === g).map((x) => (
-                        <button
-                          key={x.token}
-                          role="menuitem"
-                          title={x.token}
-                          onClick={() => {
-                            setFilter((f) => `${f.trim()} ${x.token}`.trim());
-                            setPresetOpen(false);
-                            filterRef.current?.focus();
-                          }}
-                        >
-                          {x.label}
-                        </button>
-                      ))}
-                    </span>
-                  ))}
-                  {/* 2026.11.13 : 자주 쓰는 조건만 여기 둔다. 날짜 범위 · 확장자 · 뺄 말은 오른쪽 위 「찾기 조건」 판에 있는데,
-                      두 곳이 이어지지 않아 여기서 찾다 막혔다. 판으로 가는 문을 같은 메뉴 안에 둔다 */}
-                  <span className="preset-group">
-                    <span className="preset-head">더</span>
-                    <button
-                      role="menuitem"
-                      onClick={() => {
-                        setPresetOpen(false);
-                        setQbFrom(filter);
-                      }}
-                    >
-                      찾기 조건 판…
-                    </button>
+          {/* 2026.11.25 : 모아 보기 안에서도 — 찾기 칸에 조건을 적으면 결과 안을 추리는데(rows 의 within) 고르는 단추만 숨어 있었다 */}
+          <span className="preset-wrap">
+            <button className="kind" aria-expanded={presetOpen} title="조건 추가" onClick={() => setPresetOpen((v) => !v)}>
+              ＋ 조건
+            </button>
+            {presetOpen && (
+              <span className="preset-menu" role="menu" onMouseLeave={() => setPresetOpen(false)}>
+                {[...new Set(PRESETS.map((x) => x.group))].map((g) => (
+                  <span key={g} className="preset-group">
+                    <span className="preset-head">{g}</span>
+                    {PRESETS.filter((x) => x.group === g).map((x) => (
+                      <button
+                        key={x.token}
+                        role="menuitem"
+                        title={x.token}
+                        onClick={() => {
+                          setFilter((f) => `${f.trim()} ${x.token}`.trim());
+                          setPresetOpen(false);
+                          filterRef.current?.focus();
+                        }}
+                      >
+                        {x.label}
+                      </button>
+                    ))}
                   </span>
+                ))}
+                {/* 2026.11.13 : 자주 쓰는 조건만 여기 둔다. 날짜 범위 · 확장자 · 뺄 말은 오른쪽 위 「찾기 조건」 판에 있는데,
+                    두 곳이 이어지지 않아 여기서 찾다 막혔다. 판으로 가는 문을 같은 메뉴 안에 둔다 */}
+                <span className="preset-group">
+                  <span className="preset-head">더</span>
+                  <button
+                    role="menuitem"
+                    onClick={() => {
+                      setPresetOpen(false);
+                      setQbFrom(filter);
+                    }}
+                  >
+                    찾기 조건 판…
+                  </button>
                 </span>
-              )}
-            </span>
-          )}
+              </span>
+            )}
+          </span>
         </div>
       )}
       {/* 열 머리와 목록을 함께 덮는 열 경계선 — 줄마다 그리지 않고 한 번만 (styles.css 「열 경계선」) */}
@@ -2467,7 +2577,7 @@ export default function Pane(p: Props) {
         <TagMenu
           x={tagMenu.x}
           y={tagMenu.y}
-          current={tagMenu.paths.length === 1 ? colors.get(norm(tagMenu.paths[0])) : null}
+          current={tagMenu.paths.length === 1 ? colorOf(tagMenu.paths[0]) : null}
           onPick={(c) => applyColor(tagMenu.paths, c)}
           onClose={() => setTagMenu(null)}
         />
