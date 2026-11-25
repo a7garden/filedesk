@@ -12,7 +12,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { renderPptx, slideCss, type SlidePreview } from "./pptx";
 import { errText } from "./util";
-import { rawUrl } from "./viewable";
+import { rawUrl, stripHasFocus } from "./viewable";
 
 type Props = {
   path: string;
@@ -39,7 +39,8 @@ export default function SlidesView(p: Props) {
   const [err, setErr] = useState("");
   const [cur, setCur] = useState(0);
   const scroller = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(0);
+  /** 쪽을 늘어놓는 칸의 너비 · 높이. */
+  const [avail, setAvail] = useState({ w: 0, h: 0 });
 
   useEffect(() => {
     let gone = false;
@@ -82,14 +83,16 @@ export default function SlidesView(p: Props) {
   const size = meta?.size ?? { w: 1280, h: 720 };
   const css = useMemo(() => slideCss(size, meta?.font ?? "") + "::highlight(fd-find) { background: rgba(255, 200, 0, 0.45); } ::highlight(fd-find-cur) { background: rgba(255, 140, 0, 0.75); }", [size.w, size.h, meta?.font]);
 
-  // 칸 너비에 맞춰 쪽을 줄인다
+  // 쪽 하나가 칸 안에 통째로 들도록 줄인다 — 너비와 높이 중 모자란 쪽에 맞춘다.
+  // 2026.11.25 : 너비에만 맞췄더니 16:9 쪽이 보통 창에서 아래가 잘려 한 쪽을 보려면 굴려야 했다. 위 쪽 번호 줄 · 여백(60)을 뺀다
   useLayoutEffect(() => {
     const el = scroller.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => setWidth(Math.min(MAX_W, el.clientWidth - 48)));
+    const ro = new ResizeObserver(() => setAvail({ w: el.clientWidth - 48, h: el.clientHeight - 60 }));
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+  const width = avail.w > 0 ? Math.min(MAX_W, avail.w, Math.max(240, avail.h) * (size.w / size.h)) : 0;
   const scale = width > 0 ? (width / size.w) * p.zoom : 0;
 
   // 지금 보이는 쪽 — 머리에 「3 / 24쪽」
@@ -193,8 +196,8 @@ export default function SlidesView(p: Props) {
     if ((e.target as HTMLElement).closest("input")) return;
     const k = e.key;
     let done = true;
-    if (k === "PageDown" || k === " " || k === "ArrowRight") jump(cur + 1);
-    else if (k === "PageUp" || k === "ArrowLeft") jump(cur - 1);
+    if (k === "PageDown" || k === " " || k === "ArrowRight" || k === "ArrowDown") jump(cur + 1);
+    else if (k === "PageUp" || k === "ArrowLeft" || k === "ArrowUp") jump(cur - 1);
     else if (k === "Home") jump(0);
     else if (k === "End") jump(slides.length - 1);
     else if (k === "F3") go(e.shiftKey ? -1 : 1);
@@ -203,7 +206,7 @@ export default function SlidesView(p: Props) {
   };
   // 열자마자 쪽 넘기기 키가 듣게
   useEffect(() => {
-    if (p.active) scroller.current?.focus();
+    if (p.active && !stripHasFocus()) scroller.current?.focus();
   }, [p.active]);
 
   const warn = meta?.warnings.map((w) => WARN[w]).filter(Boolean) ?? [];

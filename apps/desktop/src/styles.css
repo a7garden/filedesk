@@ -2343,6 +2343,11 @@ body.resizing-y * {
   justify-self: start;
   max-width: none;
 }
+/* 앱 안 보기가 열린 동안은 입술(「즐겨찾기」 눈금)도 숨긴다 — 보기 아래 끝(엑셀 시트 탭 · 쪽 · 글)에 겹쳐 그려졌다.
+   보기 위에서는 어차피 열지 않는다 (FavDock near). 파일을 끌어 오는 중이면(open) 그대로 둔다. 2026.11.25 */
+.app:has(section.pane:not([hidden]) .viewer) .dock:not(.open) {
+  visibility: hidden;
+}
 .dock-shelf {
   pointer-events: auto;
 }
@@ -3843,6 +3848,114 @@ body.resizing-y * {
   flex-direction: column;
   background: var(--paper);
   --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  container: viewer / inline-size;
+}
+/* 좁은 보기(나눈 칸 · 목록 옆) — 머리 글이 단추 밑으로 잘려 겹쳤다 (2026.11.25). 폴더 이름부터, 더 좁으면 상태 글을 접는다 */
+@container viewer (max-width: 640px) {
+  .viewer-folder {
+    display: none;
+  }
+}
+@container viewer (max-width: 520px) {
+  .viewer-info {
+    display: none;
+  }
+  .viewer-name {
+    flex: 1;
+  }
+}
+/* 보기 옆 파일 목록 (Pane viewStrip · 2026.11.25) — 목록 자리 왼쪽에 좁게 남고 보기는 그 오른쪽으로 비킨다.
+   머리 높이를 보기 머리(.viewer-head)와 맞춰 두 머리의 밑줄이 한 줄로 이어진다. 좁은 칸(720px 아래)에서는 보기에 자리를 준다 */
+.view-strip {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 6;
+  width: 240px;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+  border-right: 1px solid var(--line);
+}
+.viewer.with-strip {
+  left: 240px;
+}
+.view-strip-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 52px;
+  padding: 0 6px 0 14px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+}
+.view-strip-x {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  font-size: 16px;
+  color: var(--muted);
+}
+.view-strip-x:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.view-strip-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px;
+}
+.view-strip-list:focus {
+  outline: none;
+}
+.view-strip-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: default;
+}
+.view-strip-item:hover {
+  background: var(--hover);
+}
+.view-strip-item.cur {
+  background: var(--sel);
+}
+/* 목록에 키가 있으면 지금 줄에 테두리 — ↑↓ 가 어디서 듣는지 보이게 */
+.view-strip-list:focus-visible .view-strip-item.cur,
+.view-strip-list:focus .view-strip-item.cur {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.view-strip-item.off {
+  color: var(--muted);
+}
+.view-strip-item.off img,
+.view-strip-item.off svg {
+  opacity: 0.55;
+}
+.view-strip-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.view-strip-name .ext {
+  color: var(--muted);
+}
+@container pane (max-width: 720px) {
+  .view-strip,
+  .viewer-strip-btn {
+    display: none;
+  }
+  .viewer.with-strip {
+    left: 0;
+  }
 }
 .viewer-head {
   display: flex;
@@ -4238,6 +4351,8 @@ body.resizing-y * {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  /* 세로 굴림 막대 자리를 늘 비워 둔다 — 막대가 뒤늦게 생기면 쪽 너비(clientWidth 로 잰다)만큼 가로 막대가 따라 생겼다 */
+  scrollbar-gutter: stable;
   padding: 20px 24px 40vh;
   background: var(--side);
 }

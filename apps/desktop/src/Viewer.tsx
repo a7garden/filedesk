@@ -1,7 +1,8 @@
 // 앱 안 보기 — 목록 자리를 덮고 파일 하나를 연다. 닫으면(Esc · 마우스 뒤로) 그 줄로 돌아간다.
 //
 // 목차
-//   [1] 틀 — 머리(이름 · 꼴 · 상태 · 확대 · 크게 보기 · 기본 앱으로) · 단축키
+//   [1] 틀 — 머리(이름 · 꼴 · 상태 · 목록 · 확대 · 크게 보기 · 기본 앱으로) · 단축키
+//       목록: 왼쪽에 그 폴더의 파일 목록(Pane 이 그린다)을 두고 보기는 그 오른쪽으로 비킨다 (2026.11.25)
 //       확대 · 축소: Ctrl+= · Ctrl+- · Ctrl+0 · Ctrl+휠 — 모든 보기가 같은 배율(zoom)을 받는다 (글은 글자 크기, 표는 칸, 그림 · 쪽은 크기)
 //       크게 보기(F11): 나눈 칸을 그대로 둔 채 이 보기만 왼쪽 열 오른쪽 전체를 덮는다. Esc 는 먼저 크게 보기를 푼다 (2026.11.25)
 //   [2] 글 — 불러오기 · 멈추면 저장 · 밖에서 바뀐 것
@@ -42,6 +43,7 @@ import {
   type Sheet,
   rawUrl,
   runnable,
+  stripHasFocus,
   TABLE_EXTS,
   tableSep,
   textApi,
@@ -65,6 +67,8 @@ type Props = {
   onClose: () => void;
   /** 목록이 보기를 닫기 전에 묻는 자리 — 남은 글을 쓰고, 겹침을 묻는 중이면 false. */
   guardRef?: React.MutableRefObject<() => Promise<boolean>>;
+  /** 왼쪽 파일 목록(Pane 의 .view-strip) — 켜졌는가 · 켜고 끄기. 목록은 Pane 이 그리고 보기는 그 오른쪽으로 비킨다. */
+  strip?: { on: boolean; toggle: () => void };
 };
 
 /** 확대 단계 — 브라우저와 비슷한 눈금. */
@@ -202,7 +206,7 @@ export default function Viewer(p: Props) {
   return (
     <div
       ref={root}
-      className={"viewer" + (max ? " max" : "")}
+      className={"viewer" + (max ? " max" : "") + (p.strip?.on ? " with-strip" : "")}
       role="region"
       aria-label={`${p.target.name} 보기`}
       style={{ "--zoom": zoom } as React.CSSProperties}
@@ -227,6 +231,11 @@ export default function Viewer(p: Props) {
             +
           </button>
         </span>
+        {p.strip && !max && (
+          <button className="viewer-act viewer-strip-btn" onClick={p.strip.toggle} aria-pressed={p.strip.on} title={p.strip.on ? "왼쪽 파일 목록 닫기" : "왼쪽에 이 폴더의 파일 목록 · 보면서 다른 파일로"}>
+            목록
+          </button>
+        )}
         <button className="viewer-act" onClick={() => setMax((v) => !v)} aria-pressed={max} title={max ? "칸 안으로 되돌리기 · F11 · Esc" : "이 보기만 크게 · F11"}>
           {max ? "칸으로" : "크게 보기"}
         </button>
@@ -509,6 +518,17 @@ function MdEditor({
   // 찾기 판은 편집기가 제 것을 단다 (own = false) — 글자 · Ctrl+H 만 더한다
   const extensions = useMemo(() => [ctrlLink(cbs), findKit(view, false)], []);
   useFindRef(findRef, view);
+  // 열자마자 굴리기 · 치기가 듣게 — 글 파일 편집기(autoFocus)와 같게. 편집기는 뒤늦게 서므로 설 때까지 몇 박자 기다린다 (2026.11.25)
+  useEffect(() => {
+    let n = 0;
+    let raf = 0;
+    const tryFocus = () => {
+      if (view.current) return stripHasFocus() || view.current.focus();
+      if (++n < 60) raf = requestAnimationFrame(tryFocus);
+    };
+    raf = requestAnimationFrame(tryFocus);
+    return () => cancelAnimationFrame(raf);
+  }, [doc]);
   useEffect(() => {
     const el = box.current;
     if (!el) return;
@@ -562,7 +582,7 @@ function PlainEditor({ value, readOnly, onChange, findRef }: { value: string; re
         onChange={onChange}
         extensions={extensions}
         editable={!readOnly}
-        autoFocus
+        autoFocus={!stripHasFocus()}
         height="100%"
         theme="none"
         basicSetup={{
@@ -899,6 +919,11 @@ function TableView(p: {
     setSel({ r: Math.min(sel.r, rows.length - 2), c: sel.c });
   };
 
+  // 열자마자 화살표 · PageDown 이 듣게 — 2026.11.25 : 표를 한 번 눌러야 키가 들어 열고 바로 화살표를 치면 아무 일도 없었다
+  useEffect(() => {
+    if (!stripHasFocus()) box.current?.focus({ preventScroll: true });
+  }, []);
+
   const onKey = (e: React.KeyboardEvent) => {
     if (edit || (e.target as HTMLElement).closest("input")) return;
     const ctrl = e.ctrlKey && !e.altKey;
@@ -935,8 +960,8 @@ function TableView(p: {
       flushSync(() => startEdit(sel, ""));
       done = false;
     }
+    // Esc 는 찾기 판만 닫고, 아니면 보기를 닫는다 (Viewer). 2026.11.25 : 고른 칸 풀기에 Esc 한 번을 써서 미리보기를 닫으려면 두 번 눌러야 했다
     else if (k === "Escape" && find.open) setFind((f) => ({ ...f, open: false }));
-    else if (k === "Escape" && sel) setSel(null);
     else done = false;
     if (done) e.preventDefault();
   };

@@ -25,6 +25,7 @@
 //       2026.11.11 : 격자 보기 · 크기(Ctrl+휠) · filedesk 아이콘 · 오른쪽 메뉴에 filedesk 항목(메모 · 색 · 즐겨찾기 · 옆 칸 · 새 판)
 //       2026.11.13 : 오른쪽 메뉴를 filedesk 가 그린다(ContextMenu) — 셸 메뉴는 그 「더 보기」 · Shift+오른쪽 단추 · Shift+F10
 //   [8] 앱 안 보기 — md · txt · 그림은 셸에 넘기지 않고 이 칸에서 연다 (Viewer). 그동안 목록 단축키는 쉰다
+//       왼쪽에 이 폴더의 파일 목록(viewStrip)을 두고 누르거나 ↑↓ 로 다른 파일을 바로 본다 (2026.11.25)
 //   2026.11.25 : 폴더 용량 (설정 › 목록 › 폴더 용량 표시) — 크기 칸에 하위 폴더까지 더한 용량. 폴더마다 Rust 가 훑고([1-2]), 크기 정렬에도 쓴다.
 //   2026.11.12 : 찾기 칸에 조건(`고친:3일 종류:문서 크기:>10MB` …)을 적어 거른다 — 칩으로 보이고 × 로 뗀다 · 「＋ 조건」.
 //                범위에 「모든 드라이브」(색인)를 더했다. 조건은 「스마트 폴더로 저장」하고, 왼쪽 스마트 폴더를 누르면 여기에 모아 보인다.
@@ -1823,6 +1824,84 @@ export default function Pane(p: Props) {
   const edGroup = edList ? groups.find((g) => g.key === edList.key) : undefined;
   const asEntry = (f: DocFile): Entry => ({ name: f.name, path: f.path, isDir: false, size: f.size, modified: f.modified, attrs: 0, ext: f.parsed.ext, kind: "" });
 
+  // ───────── 보기 옆 파일 목록 ─────────
+  // 2026.11.25 : 사용자 요청. 보기를 연 채 왼쪽에 이 폴더의 파일만 이름으로 늘어놓고, 누르거나 ↑↓ 로 그 파일을 바로 본다.
+  // 목록 자리에 그대로 남겨 좁힌다(보기는 오른쪽) — 방금 누른 줄이 제자리에 있어 눈이 끊기지 않고, 왼쪽 열 → 목록 → 내용 차례가 된다.
+  // 경로 줄 · 거르기 · 폴더는 두지 않는다 — 이 폴더 안에서 고르기만 한다. 차례 · 숨김 · 거르기는 큰 목록(nav)과 같다.
+  const stripRef = useRef<HTMLDivElement>(null);
+  const stripFiles = useMemo(() => nav.map((r) => r.e).filter((e) => !e.isDir), [nav]);
+  /** 목록에서 고른 파일을 본다 — 보던 글은 먼저 쓴다(겹침을 묻는 중이면 그대로 둔다). 볼 수 없는 꼴은 고르기만. */
+  const stripPick = (e: Entry) => {
+    if (!viewKind(e.ext) || (viewing && samePath(viewing.path, e.path))) return;
+    void viewerGuard.current().then((ok) => {
+      if (!ok) return;
+      setViewing(e);
+      selectOnly(e.path);
+    });
+  };
+  const stripKey = (ev: React.KeyboardEvent) => {
+    const can = stripFiles.filter((e) => viewKind(e.ext));
+    const i = viewing ? can.findIndex((e) => samePath(e.path, viewing.path)) : -1;
+    const to = ev.key === "ArrowDown" ? can[i + 1] : ev.key === "ArrowUp" ? can[i - 1] : ev.key === "Home" ? can[0] : ev.key === "End" ? can[can.length - 1] : undefined;
+    if (!to) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    stripPick(to);
+  };
+  // 지금 보는 파일이 목록 밖으로 나가 있으면 보이게 굴린다 (그림 ←/→ 로 넘겨도 따라온다)
+  useEffect(() => {
+    stripRef.current?.querySelector(".view-strip-item.cur")?.scrollIntoView({ block: "nearest" });
+  }, [viewing?.path, p.view.viewStrip]);
+  const viewStrip = () => (
+    <aside className="view-strip" aria-label="이 폴더의 파일">
+      <div className="view-strip-head">
+        <span className="view-strip-count">파일 {stripFiles.length}개</span>
+        <button className="view-strip-x" onClick={() => p.setView((v) => ({ ...v, viewStrip: false }))} aria-label="파일 목록 닫기" title="파일 목록 닫기 · 머리의 「목록」으로 다시 연다">
+          ×
+        </button>
+      </div>
+      <div className="view-strip-list" ref={stripRef} role="listbox" aria-label="파일 · ↑↓ 로 넘기며 보기" tabIndex={0} onKeyDown={stripKey}>
+        {stripFiles.map((e) => {
+          const cur = !!viewing && samePath(viewing.path, e.path);
+          const can = !!viewKind(e.ext);
+          const ext = e.ext ? `.${e.ext}` : "";
+          return (
+            <div
+              key={e.path}
+              role="option"
+              aria-selected={cur}
+              aria-disabled={!can}
+              className={"view-strip-item" + (cur ? " cur" : "") + (can ? "" : " off")}
+              title={can ? e.name : `${e.name} · 앱 안 보기 없음 · 두 번 눌러 기본 앱으로`}
+              onClick={() => stripPick(e)}
+              onDoubleClick={() => !can && openEntries([e])}
+            >
+              {rowIcon(e)}
+              <span className="view-strip-name">
+                {ext ? e.name.slice(0, -ext.length) : e.name}
+                {ext && <span className="ext">{ext}</span>}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </aside>
+  );
+
+  /** 줄의 16px 그림 — 아이콘 설정(셸 · filedesk · 팩)대로. 목록 줄과 보기 옆 파일 목록이 같이 쓴다. */
+  const rowIcon = (e: Entry, faint = false) =>
+    p.view.icons === "pack" && !faint && packIconUrl(e) ? (
+      <img src={packIconUrl(e)!} width={16} height={16} alt="" draggable={false} />
+    ) : e.isDir ? (
+      <FolderGlyph faint={faint} />
+    ) : p.view.icons !== "shell" ? (
+      <DocGlyph ext={e.ext} path={e.path} />
+    ) : (
+      <ShortcutMark ext={e.ext} size={16}>
+        <img src={iconUrl(e)} width={16} height={16} alt="" draggable={false} loading="lazy" />
+      </ShortcutMark>
+    );
+
   const entryRow = (r: EntryRow, start: number) => {
     const e = r.e;
     const selected = sel.has(e.path);
@@ -1872,21 +1951,7 @@ export default function Pane(p: Props) {
           ) : (
             <span className="twisty-space" />
           )}
-          {withOverlay(
-            e,
-            16,
-            p.view.icons === "pack" && !isHistDir && packIconUrl(e) ? (
-              <img src={packIconUrl(e)!} width={16} height={16} alt="" draggable={false} />
-            ) : e.isDir ? (
-              <FolderGlyph faint={isHistDir} />
-            ) : p.view.icons !== "shell" ? (
-              <DocGlyph ext={e.ext} path={e.path} />
-            ) : (
-              <ShortcutMark ext={e.ext} size={16}>
-                <img src={iconUrl(e)} width={16} height={16} alt="" draggable={false} loading="lazy" />
-              </ShortcutMark>
-            ),
-          )}
+          {withOverlay(e, 16, rowIcon(e, isHistDir))}
           {renaming === e.path ? (
             <RenameInput entry={e} onCommit={(v) => commitRename(e, v)} onCancel={() => setRenaming(null)} />
           ) : (
@@ -2624,10 +2689,12 @@ export default function Pane(p: Props) {
           onClose={() => setEdList(null)}
         />
       )}
+      {viewing && p.view.viewStrip && viewStrip()}
       {viewing && (
-        <Suspense fallback={<div className="viewer" />}>
+        <Suspense fallback={<div className={"viewer" + (p.view.viewStrip ? " with-strip" : "")} />}>
           <Viewer
             target={viewing}
+            strip={{ on: p.view.viewStrip, toggle: () => p.setView((v) => ({ ...v, viewStrip: !v.viewStrip })) }}
             siblings={nav.map((r) => r.e)}
             liveModified={entries?.find((x) => samePath(x.path, viewing.path))?.modified}
             active={p.active}

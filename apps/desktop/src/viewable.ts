@@ -87,6 +87,10 @@ export function viewKind(ext: string): ViewKind | null {
 export type Sheet = { name: string; rows: string[][]; row0: number; col0: number; totalRows: number; truncated: boolean };
 export const readSheets = (path: string) => invoke<Sheet[]>("read_sheets", { path });
 
+/** 보기 옆 파일 목록(Pane 의 .view-strip)이 키를 받는 중인가 — 목록에서 ↑↓ 로 넘길 때 새로 연 보기가 초점을 가져가지 않게.
+ *  보기마다 열 때 제 몸에 초점을 주는데(바로 굴리기 · 치기), 이 때는 하지 않는다. 2026.11.25 */
+export const stripHasFocus = () => !!document.activeElement?.closest(".view-strip");
+
 /** 그림 원본 주소. `m` 은 수정 시각 — 고친 그림이 캐시로 옛 모습을 보이지 않게. */
 export const rawUrl = (path: string, m?: number) => `http://fdicon.localhost/${encodeURIComponent(`raw:${path}`)}${m ? `?m=${m}` : ""}`;
 

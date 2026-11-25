@@ -224,6 +224,8 @@ export type ViewPrefs = {
    *  2026.11.20 : 사용자 요청. 모든 드라이브에서 찾으면 시작 메뉴 · 바탕화면의 바로가기가 원본과 나란히 섞였다.
    *  기본은 바로가기(lnk · url) · 임시 파일(tmp) · 받다 만 파일(crdownload). 다 지운 설정은 빈 채로 읽는다 (App readSettings). */
   findSkip: string[];
+  /** 앱 안 보기 왼쪽에 그 폴더의 파일 목록을 둔다 — 보면서 다른 파일로 바로 옮긴다. 2026.11.25 사용자 요청 · 처음에는 켠다. */
+  viewStrip: boolean;
 };
 export type ColKey = "ver" | "date" | "size" | "kind";
 /** 왼쪽 열 구획 — 이 PC · 즐겨찾기 · 앱 · 연결 · 색 표시 · 스마트 폴더. */
@@ -231,7 +233,7 @@ export type SideId = "pc" | "favs" | "apps" | "links" | "tags" | "smart";
 export const SIDE_IDS: SideId[] = ["pc", "favs", "apps", "links", "tags", "smart"];
 export const SIDE_LABEL: Record<SideId, string> = { pc: "이 PC (드라이브)", favs: "즐겨찾기", apps: "앱", links: "연결 (NAS · 공유 폴더)", tags: "색 표시", smart: "스마트 폴더" };
 export const DEFAULT_VIEW: ViewPrefs = { mode: "list", dense: false, size: 1, icons: "shell", iconPack: "", thumbs: true, namePeek: true, overlays: true, hiddenCols: ["kind"], kinds: DEFAULT_KINDS, folderClick: "double",
-  sort: { key: "name", asc: true }, dirsFirst: true, editions: false, foldStart: true, sizeUnit: "kb", folderSize: false, recent: true, links: false, sideFavs: true, sideOrder: ["pc", "favs", "apps", "links", "tags", "smart"], sideOff: [], findSkip: ["lnk", "url", "tmp", "crdownload"] };
+  sort: { key: "name", asc: true }, dirsFirst: true, editions: false, foldStart: true, sizeUnit: "kb", folderSize: false, recent: true, links: false, sideFavs: true, sideOrder: ["pc", "favs", "apps", "links", "tags", "smart"], sideOff: [], findSkip: ["lnk", "url", "tmp", "crdownload"], viewStrip: true };
 
 export type Theme = "system" | "light" | "dark";
 

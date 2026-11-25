@@ -12,7 +12,7 @@
 // 파워포인트 보기(SlidesView)와 같은 쪽 틀 · 서식(.slide-*)을 쓴다 — 쪽 보기는 하나의 모양으로.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { errText } from "./util";
-import { rawUrl } from "./viewable";
+import { rawUrl, stripHasFocus } from "./viewable";
 
 type Props = {
   path: string;
@@ -230,7 +230,7 @@ export default function HwpView(p: Props) {
   };
   // 열자마자 쪽 넘기기 · 화살표 굴리기 키가 듣게
   useEffect(() => {
-    if (p.active) scroller.current?.focus();
+    if (p.active && !stripHasFocus()) scroller.current?.focus();
   }, [p.active]);
 
   return (

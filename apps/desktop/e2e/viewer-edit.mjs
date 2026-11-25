@@ -158,10 +158,10 @@ try {
   check("표: Ctrl+Shift++ 로 아래에 빈 줄", await until(() => read("명단.csv").split("\r\n")[2] === ",,", 4000), JSON.stringify(read("명단.csv")));
   await page.keyboard.press("Control+Shift+Minus");
   check("표: Ctrl+Shift+- 로 그 줄을 지운다", await until(() => !read("명단.csv").includes("\r\n,,\r\n") && read("명단.csv").split("\r\n").length === 5, 4000), JSON.stringify(read("명단.csv")));
-  // Esc 는 고른 칸을 풀고 보기는 닫지 않는다
-  await page.keyboard.press("Escape");
-  check("표: Esc 첫 번은 보기를 닫지 않는다", (await page.locator(".viewer").count()) === 1);
   await page.screenshot({ path: join(SHOTS, "ve-table-end.png") });
+  // 2026.11.25 : Esc 한 번이면 보기를 닫는다 — 고른 칸이 있어도 (전에는 첫 번이 고른 칸만 풀었다)
+  await page.keyboard.press("Escape");
+  check("표: 고른 칸이 있어도 Esc 한 번에 닫는다", await until(() => page.locator(".viewer").count().then((c) => c === 0), 3000));
 
   check("스크립트 오류 없음", errors.length === 0, errors.join(" | "));
 } finally {

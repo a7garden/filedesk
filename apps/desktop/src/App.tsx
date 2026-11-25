@@ -127,6 +127,7 @@ function withDefaults(s: Partial<Settings> | null): Settings {
       foldStart: s?.view?.foldStart !== false,
       recent: s?.view?.recent !== false,
       namePeek: s?.view?.namePeek !== false,
+      viewStrip: s?.view?.viewStrip !== false,
       overlays: s?.view?.overlays !== false,
       links: typeof s?.view?.links === "boolean" ? s.view.links : Array.isArray(s?.links) && s.links.length > 0,
       sideFavs: s?.view?.sideFavs !== false,
