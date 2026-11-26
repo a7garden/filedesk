@@ -33,7 +33,7 @@ import SettingsPanel from "./SettingsPanel";
 import Sidebar from "./Sidebar";
 import TitleBar from "./TitleBar";
 import { useAutoUpdate, useUpdateState } from "./updater";
-import { applyPalette, applyTheme, baseName, DEFAULT_COLS, DEFAULT_KINDS, errText, type KindDef, norm, parseExts, setIconPack, setKinds, type Sort, type SortKey } from "./util";
+import { applyPalette, applyTheme, baseName, DEFAULT_COLS, DEFAULT_COLS_NARROW, DEFAULT_KINDS, errText, type KindDef, norm, parseExts, setIconPack, setKinds, type Sort, type SortKey } from "./util";
 
 export type Tab = { id: number; path: string; back: string[]; fwd: string[] };
 
@@ -103,6 +103,7 @@ function withDefaults(s: Partial<Settings> | null): Settings {
     session: s?.session ?? { tabs: [], active: 0 },
     // 2026.11.17 : 종류 열 너비가 맨 뒤에 붙었다 — 너비 넷인 지난 설정은 그대로 두고 기본값만 잇는다
     cols: oldDateCol(s?.cols?.length === DEFAULT_COLS.length ? s.cols : s?.cols?.length === DEFAULT_COLS.length - 1 ? [...s.cols, DEFAULT_COLS[DEFAULT_COLS.length - 1]] : DEFAULT_COLS),
+    colsNarrow: Array.isArray(s?.colsNarrow) && s.colsNarrow.length === DEFAULT_COLS_NARROW.length && s.colsNarrow.every((w) => typeof w === "number") ? s.colsNarrow : DEFAULT_COLS_NARROW,
     showHidden: s?.showHidden ?? false,
     theme: s?.theme === "light" || s?.theme === "dark" ? s.theme : "system",
     palette: isPalette(s?.palette) ? s.palette : "blue",
@@ -399,6 +400,7 @@ export default function App() {
   const [apps, setApps] = useState<AppInfo[]>([]);
   const [sideW, setSideW] = useState(SIDE_W);
   const [cols, setCols] = useState<number[]>(DEFAULT_COLS);
+  const [colsNarrow, setColsNarrow] = useState<number[]>(DEFAULT_COLS_NARROW);
   const [theme, setTheme] = useState<Theme>("system");
   const [palette, setPalette] = useState<PaletteId>("blue");
   const [loaded, setLoaded] = useState(false);
@@ -570,6 +572,7 @@ export default function App() {
       setPinned(s.pinned);
       setLinks(s.links);
       setCols(s.cols);
+      setColsNarrow(s.colsNarrow);
       setShowHidden(s.showHidden);
       setTheme(s.theme);
       setPalette(s.palette);
@@ -611,7 +614,7 @@ export default function App() {
   const prefsJson = useRef("");
   useEffect(() => {
     if (!loaded) return;
-    const prefs = { pinned, links, cols, showHidden, theme, palette, view, start, smart, apps: pinnedApps, sideW };
+    const prefs = { pinned, links, cols, colsNarrow, showHidden, theme, palette, view, start, smart, apps: pinnedApps, sideW };
     const json = JSON.stringify(prefs);
     const changed = json !== prefsJson.current;
     prefsJson.current = json;
@@ -636,7 +639,7 @@ export default function App() {
         .catch(() => {});
     }, 500);
     return () => window.clearTimeout(t);
-  }, [loaded, tabs, root, focus, pinned, links, cols, showHidden, theme, palette, view, start, smart, pinnedApps, sideW]);
+  }, [loaded, tabs, root, focus, pinned, links, cols, colsNarrow, showHidden, theme, palette, view, start, smart, pinnedApps, sideW]);
   // 다른 창이 공용 설정을 바꿨다 — 같이 맞춘다.
   useEffect(() => {
     const un = listen<{ from: string; prefs: Settings }>(PREFS_EVENT, (ev) => {
@@ -646,6 +649,7 @@ export default function App() {
       setPinned(s.pinned);
       setLinks(s.links);
       setCols(s.cols);
+      setColsNarrow(s.colsNarrow);
       setShowHidden(s.showHidden);
       setTheme(s.theme);
       setPalette(s.palette);
@@ -1506,6 +1510,8 @@ export default function App() {
                   showHidden={showHidden}
                   cols={cols}
                   setCols={setCols}
+                  colsNarrow={colsNarrow}
+                  setColsNarrow={setColsNarrow}
                   view={at?.leaf.step == null ? view : atStep(view, at.leaf.step)}
                   setView={setView}
                   zoom={(f) => zoomPane(key, f)}
@@ -1585,7 +1591,10 @@ export default function App() {
           setTheme={setTheme}
           palette={palette}
           setPalette={setPalette}
-          resetCols={() => setCols(DEFAULT_COLS)}
+          resetCols={() => {
+            setCols(DEFAULT_COLS);
+            setColsNarrow(DEFAULT_COLS_NARROW);
+          }}
           start={start}
           setStart={setStart}
           onClose={() => setSettingsOpen(false)}

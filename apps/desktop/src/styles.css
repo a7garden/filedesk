@@ -3527,7 +3527,8 @@ body.resizing-y * {
    2026.11.12 : 접는 순서를 크기 → 고친 날 → 판 으로 뒤집었다. 전에는 680px 아래에서 「판」 열부터 지워
    나눠 보기(정본 · 자료 견주기)의 두 칸 모두 판이 보이지 않았다. 이제 680px 아래는 판 열이 눈금 없이 「v3 11-01」 글자만 남고,
    480px 아래는 크기 열, 400px 아래는 고친 날 열도 접는다. 이름이 「메모 · 색」 단추에 밀려 사라지지 않게 좁은 칸에서 그 단추는 올렸을 때만 나온다.
-   열 너비 손잡이는 넓은 칸에서만 — 좁은 칸의 너비는 정해 둔 값이다. 바닥 줄은 보기 이름 글자를 접는다. */
+   바닥 줄은 보기 이름 글자를 접는다.
+   2026.11.26 : 좁은 칸에도 열 너비 손잡이를 둔다 — 좁은 칸은 넓은 칸과 따로 둔 너비(colsNarrow)를 끈다. --cols-mode 는 Pane 이 어느 너비를 끌지 읽는 표시다. */
 .pane {
   overflow: hidden;
   container: pane / inline-size;
@@ -3538,7 +3539,9 @@ body.resizing-y * {
   .row:not(.edition):not(.issue-line) {
     grid-template-columns: var(--cols-narrow);
   }
-  .cols .resizer,
+  .cols {
+    --cols-mode: narrow;
+  }
   .ladder-label {
     display: none;
   }

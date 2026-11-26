@@ -143,6 +143,8 @@ export type Settings = {
   links: Place[];
   session: { tabs: string[]; active: number };
   cols: number[];
+  /** 좁은 칸(680px 아래)의 열 너비 — 차례는 cols 와 같다. 없으면(지난 판 설정) 기본값. 2026.11.26 더했다. */
+  colsNarrow: number[];
   showHidden: boolean;
   /** 화면 색. `system` 이면 Windows 설정(밝게 · 어둡게)을 따른다. */
   theme: Theme;

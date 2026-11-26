@@ -50,6 +50,7 @@ import { viewKind } from "./viewable";
 import {
   baseName,
   DEFAULT_COLS,
+  DEFAULT_COLS_NARROW,
   errText,
   formatBytes,
   formatDate,
@@ -98,6 +99,9 @@ type Props = {
   showHidden: boolean;
   cols: number[];
   setCols: (cols: number[]) => void;
+  /** 좁은 칸(680px 아래)의 열 너비 — util DEFAULT_COLS_NARROW. */
+  colsNarrow: number[];
+  setColsNarrow: (cols: number[]) => void;
   onPin: (items: { path: string; isDir: boolean }[]) => void;
   view: ViewPrefs;
   setView: (f: (v: ViewPrefs) => ViewPrefs) => void;
@@ -1574,17 +1578,29 @@ export default function Pane(p: Props) {
   /** 열 너비 끌기 — 손잡이는 판 · 고친 날 · 크기 열의 <왼쪽> 경계에 있다.
    *  2026.11.11 : 오른쪽 경계에 두었더니, 이 열들은 창 오른쪽에 붙어 있어 넓히면 왼쪽 경계가 반대로 밀려 잡은 선이 마우스를 따라오지 않았다.
    *  이름 열은 남는 너비를 다 쓰므로 따로 끌 손잡이가 없다 — 그 오른쪽 경계가 곧 다음 열의 왼쪽 손잡이다. */
+  /** 이 칸이 지금 좁은 칸 너비를 쓰는가 — CSS 의 컨테이너 조건(680px)이 다는 표시(--cols-mode)를 읽는다. 칸 너비를 JS 로 다시 재면 경계에서 어긋난다. */
+  const narrowNow = (el: Element) => getComputedStyle(el).getPropertyValue("--cols-mode").trim() === "narrow";
+  /** 2026.11.26 : 끌기는 <화면에 보이는 너비>에서 시작한다. 설정 너비에서 시작하면 열이 그보다 좁게 그려져 있을 때
+   *  처음 끄는 만큼은 아무것도 바뀌지 않아 「줄일 수 없다」로 보였다. */
   const startResize = (ev: React.MouseEvent, i: number) => {
     ev.preventDefault();
     ev.stopPropagation();
     const x0 = ev.clientX;
-    const base = [...p.cols];
+    const head = (ev.currentTarget as HTMLElement).parentElement!;
+    const narrow = narrowNow(head);
+    const base = [...(narrow ? p.colsNarrow : p.cols)];
+    const shown = head.getBoundingClientRect().width;
+    if (shown > 0) base[i] = Math.round(shown);
+    const set = narrow ? p.setColsNarrow : p.setCols;
+    // 넓힐 수 있는 끝 — 이름 열이 제 최소 너비(좁은 칸 120 · 넓은 칸 설정값)까지 내어 준 만큼. 넘기면 오른쪽 열이 칸 밖으로 밀려 잘린다
+    const name = head.parentElement?.querySelector<HTMLElement>(":scope > .col-0")?.getBoundingClientRect().width ?? 0;
+    const spare = Math.max(0, Math.round(name) - (narrow ? 120 : p.cols[0]));
     document.body.classList.add("col-resizing");
     setResizing(i);
     const move = (m: MouseEvent) => {
       const next = [...base];
-      next[i] = Math.max(56, Math.round(base[i] - (m.clientX - x0)));
-      p.setCols(next);
+      next[i] = Math.max(56, Math.min(base[i] + spare, Math.round(base[i] - (m.clientX - x0))));
+      set(next);
     };
     const upH = () => {
       document.body.classList.remove("col-resizing");
@@ -1600,17 +1616,20 @@ export default function Pane(p: Props) {
   // 2026.11.12 : 좁아질 때 판 열을 가장 먼저 지우던 것을 뒤집었다 — 나눠 보기(정본 · 자료 견주기)에서 두 칸 다 판이 사라졌다.
   //   이제 접는 순서는 크기 → 고친 날 → 판. 좁은 칸의 판 열은 눈금을 빼고 「v3 11-01」 글자만 남긴다.
   //   wide : 설정 너비 그대로 · narrow : 판은 글자 폭 · tight : 크기도 접는다 · least : 고친 날도 접는다 (styles.css 「좁은 칸」)
-  const colTemplate = (w: "wide" | "narrow" | "tight" | "least") =>
-    [
-      w === "wide" ? `minmax(${p.cols[0]}px, 1fr)` : "minmax(120px, 1fr)",
-      colOn("ver") ? (w === "wide" ? `${p.cols[1]}px` : "84px") : "",
-      colOn("date") && w !== "least" ? `${w === "wide" ? p.cols[2] : Math.min(p.cols[2], 96)}px` : "",
+  //   2026.11.26 : 좁은 칸(narrow · tight · least)은 좁은 칸 너비(colsNarrow)를 쓰고 거기서도 끌어 바꾼다
+  const colTemplate = (w: "wide" | "narrow" | "tight" | "least") => {
+    const c = w === "wide" ? p.cols : p.colsNarrow;
+    return [
+      w === "wide" ? `minmax(${c[0]}px, 1fr)` : "minmax(120px, 1fr)",
+      colOn("ver") ? `${c[1]}px` : "",
+      colOn("date") && w !== "least" ? `${c[2]}px` : "",
       // 종류는 좁아지면 가장 먼저 접는다 — 확장자가 이름 끝에 남아 있어 잃는 것이 가장 적다
-      colOn("kind") && w === "wide" ? `${p.cols[4]}px` : "",
-      colOn("size") && (w === "wide" || w === "narrow") ? `${p.cols[3]}px` : "",
+      colOn("kind") && w === "wide" ? `${c[4]}px` : "",
+      colOn("size") && (w === "wide" || w === "narrow") ? `${c[3]}px` : "",
     ]
       .filter(Boolean)
       .join(" ");
+  };
   // 수정일 꼴은 그 열의 실제 너비로 고른다 — 칸을 나누거나 열을 끌어 좁히면 시각 · 연도 앞자리를 차례로 뺀다 (util pickDateFit)
   const [dateFit, setDateFit] = useState<DateFit>("full");
   useEffect(() => {
@@ -1653,7 +1672,11 @@ export default function Pane(p: Props) {
           className="resizer"
           title="너비 조절 · 두 번 눌러 처음대로"
           onMouseDown={(e) => startResize(e, i)}
-          onDoubleClick={() => p.setCols(p.cols.map((w, j) => (j === i ? DEFAULT_COLS[i] : w)))}
+          onDoubleClick={(e) =>
+            narrowNow(e.currentTarget.parentElement!)
+              ? p.setColsNarrow(p.colsNarrow.map((w, j) => (j === i ? DEFAULT_COLS_NARROW[i] : w)))
+              : p.setCols(p.cols.map((w, j) => (j === i ? DEFAULT_COLS[i] : w)))
+          }
           aria-hidden="true"
         />
       )}
@@ -2647,7 +2670,10 @@ export default function Pane(p: Props) {
           at={colMenu}
           shown={colOn}
           onToggle={toggleCol}
-          onReset={() => p.setCols(DEFAULT_COLS)}
+          onReset={() => {
+            p.setCols(DEFAULT_COLS);
+            p.setColsNarrow(DEFAULT_COLS_NARROW);
+          }}
           onClose={() => setColMenu(null)}
         />
       )}
