@@ -63,9 +63,10 @@
    구성마다 글자 대비를 다시 재지 않아도 되게. 강조색은 밝게 바탕 위 글자로 4.5:1 을 넘게 골랐다.
    바탕(--paper)을 바꾸면 src-tauri/src/lib.rs paper_color 도 같이 고친다 — 켤 때 창을 미리 칠하는 색이다. */
 [data-palette="forest"] {
-  --paper:      light-dark(#f6f8f6, #1f2421);
-  --side:       light-dark(#ecf0ed, #181c1a);
-  --raise:      light-dark(#ffffff, #2a302c);
+  --paper:      light-dark(#f4f8f5, #1c2520);
+  --side:       light-dark(#e5eee8, #151d18);
+  --raise:      light-dark(#ffffff, #27322b);
+  --muted:      light-dark(#5d646b, #989ea7);
   --sel:        light-dark(rgba(31, 122, 82, 0.16), rgba(116, 199, 155, 0.26));
   --accent:     light-dark(#1f7a52, #74c79b);
   --accent-ink: light-dark(#ffffff, #0e2419);
@@ -74,18 +75,20 @@
   --ok:         light-dark(#1d6a8a, #6fb6d6);
 }
 [data-palette="plum"] {
-  --paper:      light-dark(#f8f7fa, #222029);
-  --side:       light-dark(#efedf3, #1a181f);
-  --raise:      light-dark(#ffffff, #2e2b35);
+  --paper:      light-dark(#f8f6fb, #221e2d);
+  --side:       light-dark(#ece8f4, #1a1723);
+  --raise:      light-dark(#ffffff, #2e293b);
+  --muted:      light-dark(#5d646b, #989ea7);
   --sel:        light-dark(rgba(107, 75, 196, 0.15), rgba(180, 156, 255, 0.27));
   --accent:     light-dark(#6b4bc4, #b49cff);
   --accent-ink: light-dark(#ffffff, #1c1236);
   --focus:      light-dark(rgba(107, 75, 196, 0.55), rgba(180, 156, 255, 0.6));
 }
 [data-palette="rose"] {
-  --paper:      light-dark(#faf7f8, #252023);
-  --side:       light-dark(#f3edef, #1c181a);
-  --raise:      light-dark(#ffffff, #322b2e);
+  --paper:      light-dark(#fbf6f8, #281f25);
+  --side:       light-dark(#f4e8ed, #1f181c);
+  --raise:      light-dark(#ffffff, #352a31);
+  --muted:      light-dark(#5d646b, #989ea7);
   --sel:        light-dark(rgba(184, 50, 106, 0.14), rgba(240, 143, 180, 0.26));
   --accent:     light-dark(#b8326a, #f08fb4);
   --accent-ink: light-dark(#ffffff, #33101f);
@@ -103,9 +106,9 @@
 }
 
 /* 2026.11.26 : 폭을 넓힌 색 구성 — 사용자 요청 「더 다양하게 · 덜 어두운 다크도」.
-   위 다섯은 바탕 빛깔만 조금 틀어 어둡게가 다 비슷했다(#1f~#25). 아래는 바탕 밝기 자체를 옮기므로
+   위 다섯(강조색 묶음)은 바탕 빛깔만 조금 틀어 어둡게가 다 비슷했다(#1f~#25). 아래는 바탕 밝기 자체를 옮기므로
    글자 · 선 · 올린 줄 · 파일 종이 색까지 구성마다 다시 잡았다. 흐린 글자는 바탕 · 왼쪽 열 · 뜬 면에서 4.5:1 을 넘는다. */
-/* 잿빛 — 덜 어두운 어둡게. 바탕을 #33373e 까지 올리고 면 차를 유지한다 */
+/* 안개 — 덜 어두운 어둡게. 바탕을 #33373e 까지 올리고 면 차를 유지한다 */
 [data-palette="slate"] {
   --paper:      light-dark(#eef0f3, #33373e);
   --side:       light-dark(#e3e6ea, #2b2e34);
@@ -177,7 +180,7 @@
   --warn:       light-dark(#b4232f, #ff8a8a);
   --warn-bg:    light-dark(rgba(180, 35, 47, 0.08), rgba(255, 138, 138, 0.1));
 }
-/* 또렷 — 높은 대비. 흰 · 검정 바탕에 선 · 고른 줄을 진하게, 어둡게 강조는 노랑 */
+/* 선명 — 높은 대비. 흰 · 검정 바탕에 선 · 고른 줄을 진하게 */
 [data-palette="contrast"] {
   --paper:      light-dark(#ffffff, #0a0a0a);
   --side:       light-dark(#f0f0f0, #000000);
@@ -189,10 +192,30 @@
   --hover:      light-dark(rgba(0, 0, 0, 0.09), rgba(255, 255, 255, 0.12));
   --line:       light-dark(rgba(0, 0, 0, 0.3), rgba(255, 255, 255, 0.32));
   --icon-paper: light-dark(#ffffff, #262626);
-  --sel:        light-dark(rgba(0, 71, 214, 0.2), rgba(255, 214, 0, 0.3));
-  --accent:     light-dark(#0047d6, #ffd600);
+  /* 어둡게 강조는 처음에 노랑이었으나 검정 위 노란 고른 줄이 탁한 올리브로 보여 하늘색으로 바꿨다 */
+  --sel:        light-dark(rgba(0, 71, 214, 0.2), rgba(108, 196, 255, 0.32));
+  --accent:     light-dark(#0047d6, #6cc4ff);
   --accent-ink: light-dark(#ffffff, #000000);
-  --focus:      light-dark(rgba(0, 71, 214, 0.8), rgba(255, 214, 0, 0.8));
+  --focus:      light-dark(rgba(0, 71, 214, 0.8), rgba(108, 196, 255, 0.85));
+}
+/* 노을 — 살구빛 바탕에 주홍 강조. 어둡게는 저녁 보랏빛. 경고가 주홍에 묻히지 않게 붉은 분홍으로 뗀다 */
+[data-palette="dusk"] {
+  --paper:      light-dark(#fbf4ef, #2a2230);
+  --side:       light-dark(#f3e5dc, #211a27);
+  --raise:      light-dark(#fffaf7, #372d3e);
+  --ink:        light-dark(#2a1f1c, #f0e6ee);
+  --ink-2:      light-dark(#4f413b, #d3c4d0);
+  --muted:      light-dark(#6d5d56, #ae9eb0);
+  --faint:      light-dark(#c0ada4, #6f6074);
+  --hover:      light-dark(rgba(80, 40, 20, 0.07), rgba(255, 220, 240, 0.08));
+  --line:       light-dark(rgba(80, 40, 20, 0.13), rgba(255, 220, 240, 0.14));
+  --icon-paper: light-dark(#fffdfb, #43384a);
+  --sel:        light-dark(rgba(179, 71, 29, 0.15), rgba(255, 159, 122, 0.26));
+  --accent:     light-dark(#b3471d, #ff9f7a);
+  --accent-ink: light-dark(#ffffff, #3a1205);
+  --focus:      light-dark(rgba(179, 71, 29, 0.55), rgba(255, 159, 122, 0.6));
+  --warn:       light-dark(#b0203f, #ff8aa5);
+  --warn-bg:    light-dark(rgba(176, 32, 63, 0.08), rgba(255, 138, 165, 0.1));
 }
 
 * {
@@ -3957,6 +3980,19 @@ body.resizing-y * {
 }
 /* 색 구성 — 견본은 그 구성의 값(data-palette)으로 그린 작은 창: 왼쪽 열 · 바탕 · 고른 줄 · 강조 점 */
 .palette-pick {
+  display: grid;
+  gap: 6px;
+}
+.palette-group {
+  display: grid;
+  gap: 2px;
+}
+.palette-group-label {
+  padding-left: 8px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.palette-row {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;

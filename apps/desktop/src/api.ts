@@ -283,19 +283,23 @@ export const DEFAULT_VIEW: ViewPrefs = { mode: "list", dense: false, size: 1, ic
 export type Theme = "system" | "light" | "dark";
 /** 색 구성 — 화면 색(밝게 · 어둡게)과 따로 고른다. 구성마다 밝게 · 어둡게 값을 다 가진다 (styles.css `[data-palette]`).
  *  2026.11.26 : 사용자 요청 「여러 테마색 구성을 지원」으로 더했다. 기본은 쪽빛(앱 아이콘 색). */
-export type Palette = "blue" | "forest" | "plum" | "rose" | "ink" | "slate" | "hanji" | "sea" | "night" | "contrast";
-/** 2026.11.26 : 잿빛 · 한지 · 바다 · 밤하늘 · 또렷을 더했다 — 사용자 요청 「더 다양하게 · 덜 어두운 다크도」. 앞 다섯은 바탕 빛깔만 틀고, 뒤 다섯은 바탕 밝기까지 옮긴다. */
-export const PALETTES: { id: Palette; label: string }[] = [
-  { id: "blue", label: "쪽빛" },
-  { id: "forest", label: "숲" },
-  { id: "plum", label: "자두" },
-  { id: "rose", label: "진달래" },
-  { id: "ink", label: "먹" },
-  { id: "slate", label: "잿빛" },
-  { id: "hanji", label: "한지" },
-  { id: "sea", label: "바다" },
-  { id: "night", label: "밤하늘" },
-  { id: "contrast", label: "또렷" },
+export type Palette = "blue" | "forest" | "plum" | "rose" | "ink" | "slate" | "hanji" | "sea" | "night" | "dusk" | "contrast";
+/** 2026.11.26 : 바탕까지 바꾸는 구성을 더하고 두 묶음으로 나눴다 — 사용자 요청 「더 다양하게 · 덜 어두운 다크도 · 이름도 개선」.
+ *  accent : 바탕은 거의 그대로 두고 강조색 · 바탕 빛깔만 튼다  /  base : 바탕의 밝기 · 빛깔 자체를 바꾼다.
+ *  이름은 그 구성에서 눈에 먼저 들어오는 색의 사물로 짓는다 (숲 → 솔잎 · 자두 → 포도 · 잿빛 → 안개 · 또렷 → 선명).
+ *  id 는 설정 파일에 남아 있으므로 이름이 바뀌어도 그대로 둔다. hint 는 설정에서 고른 구성 아래에 한 줄로 보인다. */
+export const PALETTES: { id: Palette; label: string; group: "accent" | "base"; hint: string }[] = [
+  { id: "blue", label: "쪽빛", group: "accent", hint: "기본 · 앱 아이콘과 같은 파랑" },
+  { id: "forest", label: "솔잎", group: "accent", hint: "초록 강조 · 푸른 기가 도는 바탕" },
+  { id: "plum", label: "포도", group: "accent", hint: "보라 강조 · 보랏빛이 도는 바탕" },
+  { id: "rose", label: "진달래", group: "accent", hint: "분홍 강조 · 붉은 기가 도는 바탕" },
+  { id: "ink", label: "먹", group: "accent", hint: "빛깔 없이 먹색 강조 · 색 표시와 폴더만 눈에 띈다" },
+  { id: "slate", label: "안개", group: "base", hint: "덜 어두운 어둡게 · 눈이 편한 회청색" },
+  { id: "hanji", label: "한지", group: "base", hint: "누런 종이 바탕 · 어둡게는 따뜻한 밤색" },
+  { id: "sea", label: "바다", group: "base", hint: "청록 바탕 · 어둡게는 깊은 바닷빛" },
+  { id: "night", label: "밤하늘", group: "base", hint: "남색 바탕에 호박색 강조" },
+  { id: "dusk", label: "노을", group: "base", hint: "살구빛 바탕 · 어둡게는 저녁 보랏빛" },
+  { id: "contrast", label: "선명", group: "base", hint: "대비를 높여 글자와 선이 또렷하다" },
 ];
 export const isPalette = (v: unknown): v is Palette => PALETTES.some((p) => p.id === v);
 

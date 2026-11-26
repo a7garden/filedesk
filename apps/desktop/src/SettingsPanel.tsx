@@ -79,6 +79,8 @@ export default function SettingsPanel(props: Props) {
   const { current, view, setView, zoomAll, showHidden, setShowHidden, theme, setTheme, palette, setPalette, resetCols, start, setStart, onClose } = props;
   const body = useRef<HTMLDivElement>(null);
   const [at, setAt] = useState<SectionId>("view");
+  /** 색 구성 풀이 줄이 말할 구성 — 견본에 마우스 · 초점이 올라간 것. 없으면 고른 구성. */
+  const [palPeek, setPalPeek] = useState<Palette | null>(null);
   const [skill, setSkill] = useState<SkillStatus | null>(null);
   const [skillMsg, setSkillMsg] = useState("");
   const [version, setVersion] = useState("");
@@ -440,21 +442,40 @@ export default function SettingsPanel(props: Props) {
             <div className="set-line">
               <span className="set-label">색 구성</span>
               {/* 2026.11.26 : 색 구성. 견본마다 data-palette 를 달아 그 구성의 값으로 그린다 — 지금 고른 밝게 · 어둡게를 따라 견본도 바뀐다 */}
-              <div className="palette-pick" role="radiogroup" aria-label="색 구성">
-                {PALETTES.map((p) => (
-                  <button key={p.id} role="radio" aria-checked={palette === p.id} className={"palette-card" + (palette === p.id ? " on" : "")} onClick={() => setPalette(p.id)}>
-                    <span className="palette-swatch" data-palette={p.id} aria-hidden="true">
-                      <i className="ps-side" />
-                      <i className="ps-paper">
-                        <i className="ps-row" />
-                        <i className="ps-row sel" />
-                        <i className="ps-row" />
-                        <i className="ps-dot" />
-                      </i>
-                    </span>
-                    <span>{p.label}</span>
-                  </button>
+              {/* 2026.11.26 : 열한 개가 한 줄에 서면 무엇이 다른지 갈리지 않아 두 묶음으로 나눴다. 아래 풀이 줄은 올린(없으면 고른) 구성을 말한다 */}
+              <div className="palette-pick" role="radiogroup" aria-label="색 구성" onMouseLeave={() => setPalPeek(null)}>
+                {(
+                  [
+                    ["accent", "강조색"],
+                    ["base", "바탕까지"],
+                  ] as const
+                ).map(([g, gl]) => (
+                  <div key={g} className="palette-group">
+                    <span className="palette-group-label">{gl}</span>
+                    <div className="palette-row">
+                      {PALETTES.filter((p) => p.group === g).map((p) => (
+                        <button key={p.id} role="radio" aria-checked={palette === p.id} aria-description={p.hint} className={"palette-card" + (palette === p.id ? " on" : "")} onClick={() => setPalette(p.id)} onMouseEnter={() => setPalPeek(p.id)} onFocus={() => setPalPeek(p.id)} onBlur={() => setPalPeek(null)}>
+                          <span className="palette-swatch" data-palette={p.id} aria-hidden="true">
+                            <i className="ps-side" />
+                            <i className="ps-paper">
+                              <i className="ps-row" />
+                              <i className="ps-row sel" />
+                              <i className="ps-row" />
+                              <i className="ps-dot" />
+                            </i>
+                          </span>
+                          <span>{p.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 ))}
+                <p className="set-hint muted">
+                  {(() => {
+                    const p = PALETTES.find((x) => x.id === (palPeek ?? palette));
+                    return p ? `${p.label} : ${p.hint}` : "";
+                  })()}
+                </p>
               </div>
             </div>
           </section>
