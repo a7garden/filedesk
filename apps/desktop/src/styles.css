@@ -102,6 +102,99 @@
   --focus:      light-dark(rgba(47, 51, 56, 0.5), rgba(227, 229, 232, 0.55));
 }
 
+/* 2026.11.26 : 폭을 넓힌 색 구성 — 사용자 요청 「더 다양하게 · 덜 어두운 다크도」.
+   위 다섯은 바탕 빛깔만 조금 틀어 어둡게가 다 비슷했다(#1f~#25). 아래는 바탕 밝기 자체를 옮기므로
+   글자 · 선 · 올린 줄 · 파일 종이 색까지 구성마다 다시 잡았다. 흐린 글자는 바탕 · 왼쪽 열 · 뜬 면에서 4.5:1 을 넘는다. */
+/* 잿빛 — 덜 어두운 어둡게. 바탕을 #33373e 까지 올리고 면 차를 유지한다 */
+[data-palette="slate"] {
+  --paper:      light-dark(#eef0f3, #33373e);
+  --side:       light-dark(#e3e6ea, #2b2e34);
+  --raise:      light-dark(#f9fafb, #40454d);
+  --ink:        light-dark(#1a1d21, #eef0f3);
+  --ink-2:      light-dark(#41464e, #d0d4da);
+  --muted:      light-dark(#5b616a, #b0b6bf);
+  --faint:      light-dark(#a6acb4, #767d87);
+  --hover:      light-dark(rgba(26, 29, 33, 0.07), rgba(255, 255, 255, 0.08));
+  --line:       light-dark(rgba(26, 29, 33, 0.12), rgba(255, 255, 255, 0.15));
+  --icon-paper: light-dark(#ffffff, #4b5059);
+  --sel:        light-dark(rgba(47, 98, 168, 0.17), rgba(156, 192, 240, 0.28));
+  --accent:     light-dark(#2f62a8, #9cc0f0);
+  --accent-ink: light-dark(#ffffff, #14233a);
+  --focus:      light-dark(rgba(47, 98, 168, 0.55), rgba(156, 192, 240, 0.6));
+}
+/* 한지 — 누런 종이 바탕 · 갈색 글자 · 호박색 강조. 어둡게도 따뜻한 밤색으로 한 단 밝다 */
+[data-palette="hanji"] {
+  --paper:      light-dark(#f4eee2, #2d2925);
+  --side:       light-dark(#e9e1d0, #25221e);
+  --raise:      light-dark(#fbf8f2, #3a3530);
+  --ink:        light-dark(#2a251e, #ece5d8);
+  --ink-2:      light-dark(#4f473c, #cfc6b6);
+  --muted:      light-dark(#685f50, #aba191);
+  --faint:      light-dark(#bdb3a2, #72695c);
+  --hover:      light-dark(rgba(60, 45, 20, 0.07), rgba(255, 240, 215, 0.08));
+  --line:       light-dark(rgba(60, 45, 20, 0.13), rgba(255, 240, 215, 0.14));
+  --icon-paper: light-dark(#fffdf8, #463f38);
+  --sel:        light-dark(rgba(138, 79, 18, 0.16), rgba(226, 173, 107, 0.26));
+  --accent:     light-dark(#8a4f12, #e2ad6b);
+  --accent-ink: light-dark(#ffffff, #2e1c06);
+  --focus:      light-dark(rgba(138, 79, 18, 0.55), rgba(226, 173, 107, 0.6));
+}
+/* 바다 — 청록 바탕. 어둡게는 깊은 바닷빛으로 빛깔이 뚜렷하다 */
+[data-palette="sea"] {
+  --paper:      light-dark(#eef5f5, #15292d);
+  --side:       light-dark(#e0ecec, #0f2124);
+  --raise:      light-dark(#fbfefe, #1f363b);
+  --ink:        light-dark(#16201f, #e3f0f0);
+  --ink-2:      light-dark(#3e4c4d, #bcd2d3);
+  --muted:      light-dark(#5a6869, #8fabad);
+  --faint:      light-dark(#a7b6b7, #52696c);
+  --hover:      light-dark(rgba(16, 50, 52, 0.07), rgba(200, 255, 255, 0.07));
+  --line:       light-dark(rgba(16, 50, 52, 0.12), rgba(200, 255, 255, 0.13));
+  --icon-paper: light-dark(#ffffff, #2a4348);
+  --sel:        light-dark(rgba(11, 111, 120, 0.16), rgba(95, 211, 207, 0.24));
+  --accent:     light-dark(#0b6f78, #5fd3cf);
+  --accent-ink: light-dark(#ffffff, #062426);
+  --focus:      light-dark(rgba(11, 111, 120, 0.55), rgba(95, 211, 207, 0.6));
+  /* 완료 표시가 청록 강조에 묻히지 않게 초록으로 뗀다 */
+  --ok:         light-dark(#2f7a2f, #8fd18a);
+}
+/* 밤하늘 — 남색 바탕에 호박색 강조. 경고가 호박색에 묻히지 않게 빨강으로 뗀다 */
+[data-palette="night"] {
+  --paper:      light-dark(#f2f4fa, #1a2133);
+  --side:       light-dark(#e5e9f4, #131929);
+  --raise:      light-dark(#ffffff, #242d44);
+  --ink:        light-dark(#181c28, #e8ecf6);
+  --ink-2:      light-dark(#414859, #c0c8da);
+  --muted:      light-dark(#626a7a, #95a2ba);
+  --faint:      light-dark(#aab1c0, #56627a);
+  --hover:      light-dark(rgba(24, 32, 64, 0.07), rgba(200, 215, 255, 0.08));
+  --line:       light-dark(rgba(24, 32, 64, 0.12), rgba(200, 215, 255, 0.14));
+  --icon-paper: light-dark(#ffffff, #2e3850);
+  --sel:        light-dark(rgba(153, 86, 0, 0.15), rgba(242, 182, 90, 0.24));
+  --accent:     light-dark(#995600, #f2b65a);
+  --accent-ink: light-dark(#ffffff, #2a1a02);
+  --focus:      light-dark(rgba(153, 86, 0, 0.55), rgba(242, 182, 90, 0.6));
+  --warn:       light-dark(#b4232f, #ff8a8a);
+  --warn-bg:    light-dark(rgba(180, 35, 47, 0.08), rgba(255, 138, 138, 0.1));
+}
+/* 또렷 — 높은 대비. 흰 · 검정 바탕에 선 · 고른 줄을 진하게, 어둡게 강조는 노랑 */
+[data-palette="contrast"] {
+  --paper:      light-dark(#ffffff, #0a0a0a);
+  --side:       light-dark(#f0f0f0, #000000);
+  --raise:      light-dark(#ffffff, #1a1a1a);
+  --ink:        light-dark(#000000, #ffffff);
+  --ink-2:      light-dark(#1f1f1f, #e6e6e6);
+  --muted:      light-dark(#474747, #c2c2c2);
+  --faint:      light-dark(#8a8a8a, #7a7a7a);
+  --hover:      light-dark(rgba(0, 0, 0, 0.09), rgba(255, 255, 255, 0.12));
+  --line:       light-dark(rgba(0, 0, 0, 0.3), rgba(255, 255, 255, 0.32));
+  --icon-paper: light-dark(#ffffff, #262626);
+  --sel:        light-dark(rgba(0, 71, 214, 0.2), rgba(255, 214, 0, 0.3));
+  --accent:     light-dark(#0047d6, #ffd600);
+  --accent-ink: light-dark(#ffffff, #000000);
+  --focus:      light-dark(rgba(0, 71, 214, 0.8), rgba(255, 214, 0, 0.8));
+}
+
 * {
   box-sizing: border-box;
   /* 2026.11.26 : 스크롤바를 가는 막대로 — 디자인 점검. Windows 기본 막대(화살표 단추 + 굵은 회색 엄지)가 글 보기 · 팔레트 · 사이드바에서

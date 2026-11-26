@@ -283,13 +283,19 @@ export const DEFAULT_VIEW: ViewPrefs = { mode: "list", dense: false, size: 1, ic
 export type Theme = "system" | "light" | "dark";
 /** 색 구성 — 화면 색(밝게 · 어둡게)과 따로 고른다. 구성마다 밝게 · 어둡게 값을 다 가진다 (styles.css `[data-palette]`).
  *  2026.11.26 : 사용자 요청 「여러 테마색 구성을 지원」으로 더했다. 기본은 쪽빛(앱 아이콘 색). */
-export type Palette = "blue" | "forest" | "plum" | "rose" | "ink";
+export type Palette = "blue" | "forest" | "plum" | "rose" | "ink" | "slate" | "hanji" | "sea" | "night" | "contrast";
+/** 2026.11.26 : 잿빛 · 한지 · 바다 · 밤하늘 · 또렷을 더했다 — 사용자 요청 「더 다양하게 · 덜 어두운 다크도」. 앞 다섯은 바탕 빛깔만 틀고, 뒤 다섯은 바탕 밝기까지 옮긴다. */
 export const PALETTES: { id: Palette; label: string }[] = [
   { id: "blue", label: "쪽빛" },
   { id: "forest", label: "숲" },
   { id: "plum", label: "자두" },
   { id: "rose", label: "진달래" },
   { id: "ink", label: "먹" },
+  { id: "slate", label: "잿빛" },
+  { id: "hanji", label: "한지" },
+  { id: "sea", label: "바다" },
+  { id: "night", label: "밤하늘" },
+  { id: "contrast", label: "또렷" },
 ];
 export const isPalette = (v: unknown): v is Palette => PALETTES.some((p) => p.id === v);
 
