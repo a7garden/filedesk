@@ -6,6 +6,11 @@
   /* 2026.11.11 : 화면 색 고르기 — 기본은 시스템(Windows 밝게 · 어둡게)을 따르고, data-theme 로 하나를 고정한다.
      값마다 light-dark(밝게, 어둡게) 한 줄로 둔다 — 밝은 표 · 어두운 표를 따로 두면 한쪽만 고치는 일이 생긴다. */
   color-scheme: light dark;
+}
+/* 기본 색 구성(쪽빛). [data-palette="blue"] 를 함께 단 것은 설정의 색 구성 견본이 이 값으로 그려지게 하려는 것이다.
+   color-scheme 을 위 :root 에 따로 둔 까닭: 견본에까지 「light dark」가 다시 걸리면 어둡게로 고정해도 견본은 시스템 색을 따른다. */
+:root,
+[data-palette="blue"] {
   /* 2026.11.11 : 밝게의 아이보리(누런 종이색 #f6f5f1 계열)를 빼고 무채색 회색으로 다시 잡았다 — 사용자 요청.
      흐린 글자(--muted)는 바탕 · 왼쪽 열 모두에서 4.5:1 을 넘게 한 단 진하게 (예전 3.2:1).
      2026.11.17 : 어둡게를 다시 잡았다 — 사용자 요청 「너무 시커매서 구분이 안 된다」. 예전 바탕 #1b1b1a · 왼쪽 열 #161615 · 뜬 면 #232322 는
@@ -53,8 +58,56 @@
   color-scheme: dark;
 }
 
+/* ── 색 구성 (2026.11.26 · 사용자 요청 「여러 테마색 구성」) ──
+   화면 색(밝게 · 어둡게)과 따로 고른다. 구성은 바탕 세 면의 빛깔과 강조색만 바꾸고, 글자 · 선 · 경고 · 폴더 색은 기본을 그대로 쓴다 —
+   구성마다 글자 대비를 다시 재지 않아도 되게. 강조색은 밝게 바탕 위 글자로 4.5:1 을 넘게 골랐다.
+   바탕(--paper)을 바꾸면 src-tauri/src/lib.rs paper_color 도 같이 고친다 — 켤 때 창을 미리 칠하는 색이다. */
+[data-palette="forest"] {
+  --paper:      light-dark(#f6f8f6, #1f2421);
+  --side:       light-dark(#ecf0ed, #181c1a);
+  --raise:      light-dark(#ffffff, #2a302c);
+  --sel:        light-dark(rgba(31, 122, 82, 0.16), rgba(116, 199, 155, 0.26));
+  --accent:     light-dark(#1f7a52, #74c79b);
+  --accent-ink: light-dark(#ffffff, #0e2419);
+  --focus:      light-dark(rgba(31, 122, 82, 0.55), rgba(116, 199, 155, 0.6));
+  /* 완료 표시가 강조색(초록)에 묻히지 않게 이 구성에서만 청록으로 뗀다 */
+  --ok:         light-dark(#1d6a8a, #6fb6d6);
+}
+[data-palette="plum"] {
+  --paper:      light-dark(#f8f7fa, #222029);
+  --side:       light-dark(#efedf3, #1a181f);
+  --raise:      light-dark(#ffffff, #2e2b35);
+  --sel:        light-dark(rgba(107, 75, 196, 0.15), rgba(180, 156, 255, 0.27));
+  --accent:     light-dark(#6b4bc4, #b49cff);
+  --accent-ink: light-dark(#ffffff, #1c1236);
+  --focus:      light-dark(rgba(107, 75, 196, 0.55), rgba(180, 156, 255, 0.6));
+}
+[data-palette="rose"] {
+  --paper:      light-dark(#faf7f8, #252023);
+  --side:       light-dark(#f3edef, #1c181a);
+  --raise:      light-dark(#ffffff, #322b2e);
+  --sel:        light-dark(rgba(184, 50, 106, 0.14), rgba(240, 143, 180, 0.26));
+  --accent:     light-dark(#b8326a, #f08fb4);
+  --accent-ink: light-dark(#ffffff, #33101f);
+  --focus:      light-dark(rgba(184, 50, 106, 0.55), rgba(240, 143, 180, 0.6));
+}
+/* 먹 — 빛깔 없는 회색 바탕에 강조도 먹색. 색 표시 · 폴더 색만 남아 눈에 띈다 */
+[data-palette="ink"] {
+  --paper:      light-dark(#f7f7f7, #1f1f1f);
+  --side:       light-dark(#eeeeee, #171717);
+  --raise:      light-dark(#ffffff, #2b2b2b);
+  --sel:        light-dark(rgba(47, 51, 56, 0.17), rgba(255, 255, 255, 0.19));
+  --accent:     light-dark(#2f3338, #e3e5e8);
+  --accent-ink: light-dark(#ffffff, #1a1a1a);
+  --focus:      light-dark(rgba(47, 51, 56, 0.5), rgba(227, 229, 232, 0.55));
+}
+
 * {
   box-sizing: border-box;
+  /* 2026.11.26 : 스크롤바를 가는 막대로 — 디자인 점검. Windows 기본 막대(화살표 단추 + 굵은 회색 엄지)가 글 보기 · 팔레트 · 사이드바에서
+     화면에서 가장 무거운 덩어리였다. 가는 막대는 화살표가 없고 엄지만 흐린 색으로 선다. 따로 정한 곳(none · thin)은 그쪽이 이긴다 */
+  scrollbar-width: thin;
+  scrollbar-color: var(--faint) transparent;
 }
 html,
 body,
@@ -92,6 +145,13 @@ button:disabled {
 }
 .muted {
   color: var(--muted);
+}
+/* 2026.11.26 : 글 고르기 · 기본 입력 칸(체크 · 범위)도 색 구성을 따른다 — 안 두면 브라우저 파랑이 숲 · 진달래 화면에 섞인다 */
+::selection {
+  background: var(--sel);
+}
+:root {
+  accent-color: var(--accent);
 }
 
 /* 뼈대: 왼쪽 열이 위아래를 다 차지하고, 탭은 화면 위에만 — 탭이 왼쪽까지 덮어 과업 줄을 밀어내지 않게 */
@@ -2670,7 +2730,7 @@ body.resizing-y * {
   z-index: 60;
   display: grid;
   place-items: center;
-  background: rgba(0, 0, 0, 0.18);
+  background: light-dark(rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.42));
   animation: fade-in 0.14s ease-out;
 }
 .settings {
@@ -3536,7 +3596,7 @@ body.resizing-y * {
   justify-content: center;
   align-items: flex-start;
   padding-top: 12vh;
-  background: rgba(0, 0, 0, 0.12);
+  background: light-dark(rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.32));
   animation: fade-in 0.12s ease-out;
 }
 .palette {
@@ -3798,6 +3858,70 @@ body.resizing-y * {
 }
 .theme-card.on .mini-window {
   box-shadow: 0 0 0 2px var(--accent);
+}
+/* 색 구성 — 견본은 그 구성의 값(data-palette)으로 그린 작은 창: 왼쪽 열 · 바탕 · 고른 줄 · 강조 점 */
+.palette-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.palette-card {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 8px 8px 6px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.palette-card:hover {
+  background: var(--hover);
+}
+.palette-card.on {
+  color: var(--ink);
+  font-weight: 600;
+}
+.palette-swatch {
+  display: flex;
+  width: 60px;
+  height: 40px;
+  border-radius: 5px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px var(--line);
+}
+.palette-card.on .palette-swatch {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.palette-swatch i {
+  display: block;
+}
+.palette-swatch .ps-side {
+  width: 14px;
+  background: var(--side);
+}
+.palette-swatch .ps-paper {
+  position: relative;
+  flex: 1;
+  padding: 8px 5px 0;
+  background: var(--paper);
+}
+.palette-swatch .ps-row {
+  height: 5px;
+  margin-bottom: 3px;
+  border-radius: 2px;
+  background: var(--hover);
+}
+.palette-swatch .ps-row.sel {
+  background: var(--sel);
+}
+.palette-swatch .ps-dot {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
 }
 /* 아이콘 — 방식마다 한 줄: 이름 · 표본 그림 · 설명. 같은 표본을 위아래로 견준다 */
 .icon-pick {
@@ -4491,7 +4615,7 @@ body.resizing-y * {
   --atomic-editor-border: var(--line);
   --atomic-editor-accent: var(--accent);
   --atomic-editor-accent-bright: var(--accent);
-  --atomic-editor-accent-soft: light-dark(#b9d6cd, #2f5c4f);
+  --atomic-editor-accent-soft: var(--sel); /* 2026.11.26 : 옛 초록 강조색이 남아 있었다 → 색 구성을 따른다 */
   --atomic-editor-link: var(--accent);
   --atomic-editor-link-hover: var(--ink);
   --atomic-editor-code-bg: var(--hover);
@@ -5613,6 +5737,8 @@ body.resizing-y * {
 }
 .switch:checked::before {
   transform: translateX(12px);
+  /* 2026.11.26 : 켠 손잡이는 강조색 위 글자색 — 흰색으로 두면 어둡게(밝은 강조색) · 먹에서 손잡이가 보이지 않는다 */
+  background: var(--accent-ink);
 }
 .switch:focus-visible {
   outline: 1.5px solid var(--focus);

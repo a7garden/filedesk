@@ -1159,19 +1159,32 @@ fn show_main(app: &tauri::App) {
 
 /// 창을 지난 화면 색 바탕으로 칠하고 보인다 — 주 창 · 떼어 낸 창이 같이 쓴다.
 fn show_painted(app: &AppHandle, w: &WebviewWindow) {
-    let theme = settings_path(app)
+    let v = settings_path(app)
         .ok()
         .and_then(|p| std::fs::read_to_string(p).ok())
-        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-        .and_then(|v| v.get("theme")?.as_str().map(str::to_owned));
-    let dark = match theme.as_deref() {
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok());
+    let get = |k: &str| v.as_ref().and_then(|v| v.get(k)?.as_str());
+    let dark = match get("theme") {
         Some("dark") => true,
         Some("light") => false,
         _ => matches!(w.theme(), Ok(tauri::Theme::Dark)),
     };
-    let paper = if dark { tauri::window::Color(0x21, 0x23, 0x27, 0xff) } else { tauri::window::Color(0xf8, 0xf9, 0xfa, 0xff) };
-    let _ = w.set_background_color(Some(paper));
+    let (r, g, b) = paper_color(get("palette").unwrap_or("blue"), dark);
+    let _ = w.set_background_color(Some(tauri::window::Color(r, g, b, 0xff)));
     let _ = w.show();
+}
+
+/// 색 구성마다의 바탕(styles.css `--paper`) — 밝게 · 어둡게. CSS 를 고치면 여기도 같이 고친다.
+/// 2026.11.26 : 색 구성을 더하면서 표로 바꿨다. 모르는 이름은 기본(쪽빛).
+fn paper_color(palette: &str, dark: bool) -> (u8, u8, u8) {
+    let (light, night) = match palette {
+        "forest" => ((0xf6, 0xf8, 0xf6), (0x1f, 0x24, 0x21)),
+        "plum" => ((0xf8, 0xf7, 0xfa), (0x22, 0x20, 0x29)),
+        "rose" => ((0xfa, 0xf7, 0xf8), (0x25, 0x20, 0x23)),
+        "ink" => ((0xf7, 0xf7, 0xf7), (0x1f, 0x1f, 0x1f)),
+        _ => ((0xf8, 0xf9, 0xfa), (0x21, 0x23, 0x27)),
+    };
+    if dark { night } else { light }
 }
 
 /// 떼어 낸 창의 번호 — 창 이름 `w-<번호>` (capabilities/default.json 의 `w-*`).

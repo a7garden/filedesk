@@ -146,6 +146,8 @@ export type Settings = {
   showHidden: boolean;
   /** 화면 색. `system` 이면 Windows 설정(밝게 · 어둡게)을 따른다. */
   theme: Theme;
+  /** 색 구성 — 강조색 · 바탕의 빛깔. 없으면(지난 판 설정) 쪽빛. */
+  palette: Palette;
   /** 나눠 보기 — 오른쪽 칸에 보이는 탭의 번호(session.tabs 안) · 왼쪽 칸 너비 비율 · 오른쪽 칸 탭이 시작하는 번호. 안 나눴으면 null.
    *  session.tabs 는 왼쪽 칸 탭 다음에 오른쪽 칸 탭이 이어진다. 2026.11.11 : 칸마다 탭 묶음을 두면서 `from` 을 더했다 —
    *  없으면(지난 판 설정) 오른쪽 칸은 `right` 탭 하나다. */
@@ -277,6 +279,17 @@ export const DEFAULT_VIEW: ViewPrefs = { mode: "list", dense: false, size: 1, ic
   sort: { key: "name", asc: true }, dirsFirst: true, editions: false, foldStart: true, sizeUnit: "kb", folderSize: false, recent: true, links: false, sideFavs: true, sideOrder: ["pc", "drives", "favs", "apps", "links", "tags", "smart"], sideOff: [], tiles: null, findSkip: ["lnk", "url", "tmp", "crdownload"], viewStrip: true };
 
 export type Theme = "system" | "light" | "dark";
+/** 색 구성 — 화면 색(밝게 · 어둡게)과 따로 고른다. 구성마다 밝게 · 어둡게 값을 다 가진다 (styles.css `[data-palette]`).
+ *  2026.11.26 : 사용자 요청 「여러 테마색 구성을 지원」으로 더했다. 기본은 쪽빛(앱 아이콘 색). */
+export type Palette = "blue" | "forest" | "plum" | "rose" | "ink";
+export const PALETTES: { id: Palette; label: string }[] = [
+  { id: "blue", label: "쪽빛" },
+  { id: "forest", label: "숲" },
+  { id: "plum", label: "자두" },
+  { id: "rose", label: "진달래" },
+  { id: "ink", label: "먹" },
+];
+export const isPalette = (v: unknown): v is Palette => PALETTES.some((p) => p.id === v);
 
 
 /** 셸 작업 결과. `aborted` 는 사용자가 진행 창에서 취소했거나 일부를 건너뛴 것. */

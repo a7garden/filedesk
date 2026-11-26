@@ -2,13 +2,15 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./styles.css";
-import type { Theme } from "./api";
-import { applyTheme } from "./util";
+import { isPalette, type Theme } from "./api";
+import { applyPalette, applyTheme } from "./util";
 
-// 설정 파일을 읽기 전에 지난번 화면 색을 먼저 입힌다 — 켤 때 시스템 색으로 번쩍이지 않게. 설정을 읽으면 App 이 다시 입힌다.
+// 설정 파일을 읽기 전에 지난번 화면 색 · 색 구성을 먼저 입힌다 — 켤 때 시스템 색으로 번쩍이지 않게. 설정을 읽으면 App 이 다시 입힌다.
 try {
   const t = localStorage.getItem("theme");
   if (t === "light" || t === "dark") applyTheme(t as Theme);
+  const p = localStorage.getItem("palette");
+  if (isPalette(p)) applyPalette(p);
 } catch {}
 
 // 웹 화면 기본 메뉴(뒤로 · 새로 고침 · 검사 · 이미지 저장)를 끈다 — 오른쪽 단추는 filedesk 메뉴(ContextMenu)가 맡는다. 글 입력 칸만 남긴다.

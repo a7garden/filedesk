@@ -1,7 +1,7 @@
 // 경로 · 표시 도우미. Windows 경로만 다룬다 (드라이브 · UNC).
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { DocGroup, Entry, Theme } from "./api";
+import type { DocGroup, Entry, Palette, Theme } from "./api";
 
 export const samePath = (a: string, b: string) => norm(a) === norm(b);
 
@@ -23,6 +23,14 @@ export function applyTheme(theme: Theme) {
   getCurrentWindow()
     .setTheme(theme === "system" ? null : theme)
     .catch(() => {});
+}
+
+/** 색 구성을 문서 뿌리에 입힌다 (styles.css `[data-palette]`). 화면 색과 같은 까닭으로 localStorage 에도 둔다. */
+export function applyPalette(palette: Palette) {
+  document.documentElement.dataset.palette = palette;
+  try {
+    localStorage.setItem("palette", palette);
+  } catch {}
 }
 
 /** UNC 의 뿌리(`\\서버\공유`)를 돌려준다. UNC 가 아니면 null. */

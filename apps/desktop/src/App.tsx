@@ -21,7 +21,7 @@ import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState }
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { api, appIconUrl, DEFAULT_VIEW, SIDE_IDS, TAG_LABEL, type SideId, type AppInfo, type AppPin, type Drive, type Place, type Places, type SavedNode, type Settings, type SmartFolder, type SmartScope, type TagColor, type Theme, type ViewPrefs } from "./api";
+import { api, appIconUrl, DEFAULT_VIEW, PALETTES, SIDE_IDS, SIDE_OFFABLE, TAG_LABEL, TILE_ICONS, type SideId, type Tile, type AppInfo, type AppPin, type Drive, type Place, type Places, type SavedNode, type Settings, type SmartFolder, type SmartScope, type TagColor, type Theme, type Palette as PaletteId, isPalette, type ViewPrefs } from "./api";
 import Palette, { type FindScope, type PaletteItem } from "./Palette";
 import { newSmartId, scopeLabel, scopeOf, validSmart } from "./query";
 import SmartEditor from "./SmartEditor";
@@ -33,7 +33,7 @@ import SettingsPanel from "./SettingsPanel";
 import Sidebar from "./Sidebar";
 import TitleBar from "./TitleBar";
 import { useAutoUpdate, useUpdateState } from "./updater";
-import { applyTheme, baseName, DEFAULT_COLS, DEFAULT_KINDS, errText, type KindDef, norm, parseExts, setIconPack, setKinds, type Sort, type SortKey } from "./util";
+import { applyPalette, applyTheme, baseName, DEFAULT_COLS, DEFAULT_KINDS, errText, type KindDef, norm, parseExts, setIconPack, setKinds, type Sort, type SortKey } from "./util";
 
 export type Tab = { id: number; path: string; back: string[]; fwd: string[] };
 
@@ -105,6 +105,7 @@ function withDefaults(s: Partial<Settings> | null): Settings {
     cols: oldDateCol(s?.cols?.length === DEFAULT_COLS.length ? s.cols : s?.cols?.length === DEFAULT_COLS.length - 1 ? [...s.cols, DEFAULT_COLS[DEFAULT_COLS.length - 1]] : DEFAULT_COLS),
     showHidden: s?.showHidden ?? false,
     theme: s?.theme === "light" || s?.theme === "dark" ? s.theme : "system",
+    palette: isPalette(s?.palette) ? s.palette : "blue",
     split,
     layout: s?.layout && typeof s.layout === "object" ? s.layout : null,
     view: {
@@ -399,6 +400,7 @@ export default function App() {
   const [sideW, setSideW] = useState(SIDE_W);
   const [cols, setCols] = useState<number[]>(DEFAULT_COLS);
   const [theme, setTheme] = useState<Theme>("system");
+  const [palette, setPalette] = useState<PaletteId>("blue");
   const [loaded, setLoaded] = useState(false);
   /** 알림 한 줄 — 지금 칸 위에 뜬다. 해낸 일은 ok, 실패 · 취소는 warn. */
   const [notice, setNotice] = useState<{ text: string; tone: "ok" | "warn" } | null>(null);
@@ -570,6 +572,7 @@ export default function App() {
       setCols(s.cols);
       setShowHidden(s.showHidden);
       setTheme(s.theme);
+      setPalette(s.palette);
       setView(s.view);
       setStart(s.start);
       setSmart(s.smart ?? []);
@@ -608,7 +611,7 @@ export default function App() {
   const prefsJson = useRef("");
   useEffect(() => {
     if (!loaded) return;
-    const prefs = { pinned, links, cols, showHidden, theme, view, start, smart, apps: pinnedApps, sideW };
+    const prefs = { pinned, links, cols, showHidden, theme, palette, view, start, smart, apps: pinnedApps, sideW };
     const json = JSON.stringify(prefs);
     const changed = json !== prefsJson.current;
     prefsJson.current = json;
@@ -633,7 +636,7 @@ export default function App() {
         .catch(() => {});
     }, 500);
     return () => window.clearTimeout(t);
-  }, [loaded, tabs, root, focus, pinned, links, cols, showHidden, theme, view, start, smart, pinnedApps, sideW]);
+  }, [loaded, tabs, root, focus, pinned, links, cols, showHidden, theme, palette, view, start, smart, pinnedApps, sideW]);
   // 다른 창이 공용 설정을 바꿨다 — 같이 맞춘다.
   useEffect(() => {
     const un = listen<{ from: string; prefs: Settings }>(PREFS_EVENT, (ev) => {
@@ -645,6 +648,7 @@ export default function App() {
       setCols(s.cols);
       setShowHidden(s.showHidden);
       setTheme(s.theme);
+      setPalette(s.palette);
       setView(s.view);
       setStart(s.start);
       setSmart(s.smart ?? []);
@@ -697,6 +701,9 @@ export default function App() {
   useEffect(() => {
     if (loaded) applyTheme(theme);
   }, [loaded, theme]);
+  useEffect(() => {
+    if (loaded) applyPalette(palette);
+  }, [loaded, palette]);
 
   /** 방금 더한(또는 이미 있던) 것 — 독이 잠깐 올라와 그 타일을 밝힌다. n 은 같은 것을 다시 더해도 다시 밝히려고. */
   const [pinFlash, setPinFlash] = useState<{ paths: string[]; n: number } | null>(null);
@@ -1282,6 +1289,7 @@ export default function App() {
       cmd("theme:system", "화면 색: 시스템", () => setTheme("system")),
       cmd("theme:light", "화면 색: 밝게", () => setTheme("light")),
       cmd("theme:dark", "화면 색: 어둡게", () => setTheme("dark")),
+      ...PALETTES.map((p) => cmd(`palette:${p.id}`, `색 구성: ${p.label}`, () => setPalette(p.id))),
     ];
   };
   const searchInPane = useCallback((q: string, scope: FindScope) => window.dispatchEvent(new CustomEvent("fd:search", { detail: { q, scope } })), []);
@@ -1575,6 +1583,8 @@ export default function App() {
           setShowHidden={setShowHidden}
           theme={theme}
           setTheme={setTheme}
+          palette={palette}
+          setPalette={setPalette}
           resetCols={() => setCols(DEFAULT_COLS)}
           start={start}
           setStart={setStart}

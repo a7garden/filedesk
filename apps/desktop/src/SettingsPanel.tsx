@@ -19,7 +19,7 @@
 //                일반 파일 탐색기에 한 과업에만 맞는 설정이었다 — 상태어는 고정 목록, 작성자 꼬리는 이름 꼴로 추정한다 (fd-core docname).
 import { useEffect, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import { api, DEFAULT_VIEW, iconUrl, type ColKey, type Entry, type SkillAgent, type SkillStatus, type Theme, type ViewPrefs } from "./api";
+import { api, DEFAULT_VIEW, iconUrl, PALETTES, type ColKey, type Entry, type Palette, type SkillAgent, type SkillStatus, type Theme, type ViewPrefs } from "./api";
 import { FileGlyph, FolderGlyph, GripGlyph } from "./glyphs";
 import { moveTo, useDragSort } from "./dragSort";
 import IndexSettings from "./IndexSettings";
@@ -39,6 +39,8 @@ type Props = {
   setShowHidden: (v: boolean) => void;
   theme: Theme;
   setTheme: (t: Theme) => void;
+  palette: Palette;
+  setPalette: (p: Palette) => void;
   resetCols: () => void;
   /** 켤 때 열 폴더 — 비면 지난 탭. */
   start: string;
@@ -74,7 +76,7 @@ const SAMPLES: { name: string; ext: string; isDir: boolean }[] = [
 ];
 
 export default function SettingsPanel(props: Props) {
-  const { current, view, setView, zoomAll, showHidden, setShowHidden, theme, setTheme, resetCols, start, setStart, onClose } = props;
+  const { current, view, setView, zoomAll, showHidden, setShowHidden, theme, setTheme, palette, setPalette, resetCols, start, setStart, onClose } = props;
   const body = useRef<HTMLDivElement>(null);
   const [at, setAt] = useState<SectionId>("view");
   const [skill, setSkill] = useState<SkillStatus | null>(null);
@@ -416,20 +418,44 @@ export default function SettingsPanel(props: Props) {
 
           <section id="set-theme" aria-labelledby="h-theme">
             <h3 id="h-theme">화면 색</h3>
-            <div className="theme-pick" role="radiogroup" aria-label="화면 색">
-              {(
-                [
-                  ["system", "시스템", "Windows 설정 따름"],
-                  ["light", "밝게", ""],
-                  ["dark", "어둡게", ""],
-                ] as [Theme, string, string][]
-              ).map(([t, l, hint]) => (
-                // 2026.11.25 : 「밝게」 위에 같은 말 「밝게」가 뜨던 풍선을 걷었다. 풀이가 필요한 「시스템」만 둔다
-                <button key={t} role="radio" aria-checked={theme === t} className={"theme-card" + (theme === t ? " on" : "")} onClick={() => setTheme(t)} title={hint || undefined}>
-                  <MiniWindow theme={t} />
-                  <span>{l}</span>
-                </button>
-              ))}
+            {/* 2026.11.26 : 밝기와 색 구성을 두 줄로 나눴다 — 한 구획에 견본 줄이 둘 서면 무엇을 고르는 줄인지 갈리지 않았다 */}
+            <div className="set-line">
+              <span className="set-label">밝기</span>
+              <div className="theme-pick" role="radiogroup" aria-label="밝기">
+                {(
+                  [
+                    ["system", "시스템", "Windows 설정 따름"],
+                    ["light", "밝게", ""],
+                    ["dark", "어둡게", ""],
+                  ] as [Theme, string, string][]
+                ).map(([t, l, hint]) => (
+                  // 2026.11.25 : 「밝게」 위에 같은 말 「밝게」가 뜨던 풍선을 걷었다. 풀이가 필요한 「시스템」만 둔다
+                  <button key={t} role="radio" aria-checked={theme === t} className={"theme-card" + (theme === t ? " on" : "")} onClick={() => setTheme(t)} title={hint || undefined}>
+                    <MiniWindow theme={t} />
+                    <span>{l}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="set-line">
+              <span className="set-label">색 구성</span>
+              {/* 2026.11.26 : 색 구성. 견본마다 data-palette 를 달아 그 구성의 값으로 그린다 — 지금 고른 밝게 · 어둡게를 따라 견본도 바뀐다 */}
+              <div className="palette-pick" role="radiogroup" aria-label="색 구성">
+                {PALETTES.map((p) => (
+                  <button key={p.id} role="radio" aria-checked={palette === p.id} className={"palette-card" + (palette === p.id ? " on" : "")} onClick={() => setPalette(p.id)}>
+                    <span className="palette-swatch" data-palette={p.id} aria-hidden="true">
+                      <i className="ps-side" />
+                      <i className="ps-paper">
+                        <i className="ps-row" />
+                        <i className="ps-row sel" />
+                        <i className="ps-row" />
+                        <i className="ps-dot" />
+                      </i>
+                    </span>
+                    <span>{p.label}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           </section>
 
@@ -560,29 +586,35 @@ export default function SettingsPanel(props: Props) {
 /** 표본 확장자의 기본 종류 id — 아이콘 팩 견본이 「종류 이름 그림」을 찾을 때. */
 const kindIdOf = (ext: string) => DEFAULT_KINDS.find((k) => k.exts.includes(ext))?.id;
 
-/** 작은 창 그림 — 화면 색 고르기. 시스템은 왼쪽 밝게 · 오른쪽 어둡게 반반. */
+/** 작은 창 그림 — 화면 색 고르기. 시스템은 왼쪽 밝게 · 오른쪽 어둡게 반반.
+ *  2026.11.26 : 고정 색(옛 아이보리 계열)을 걷고 styles.css 토큰으로 그린다. 그림마다 color-scheme 을 걸어 light-dark() 를
+ *  그 밝기 쪽 값으로 풀게 한다 — 그래서 고른 색 구성(바탕 빛깔 · 강조색)이 견본에도 그대로 보인다. */
 function MiniWindow({ theme }: { theme: Theme }) {
-  const L = { bg: "#f7f7f5", side: "#ecebe7", line: "#d9d8d3", ink: "#3a3a38" };
-  const D = { bg: "#1f2023", side: "#2a2b2f", line: "#3b3c41", ink: "#d6d6d3" };
-  const c = theme === "dark" ? D : L;
+  const fill = (v: string) => ({ fill: `var(--${v})` });
+  const win = (scheme: "light" | "dark") => (
+    <g style={{ colorScheme: scheme }}>
+      <rect width="76" height="48" style={fill("paper")} />
+      <rect width="18" height="48" style={fill("side")} />
+      <rect x="22" y="4" width="24" height="3" rx="1.5" style={fill("ink")} />
+      {[12, 19, 26, 33].map((y) => (
+        <rect key={y} x="22" y={y} width="48" height="4" rx="1.5" style={fill(y === 19 ? "sel" : "hover")} />
+      ))}
+      <circle cx="68" cy="42" r="3" style={fill("accent")} />
+    </g>
+  );
   return (
     <svg width="76" height="48" viewBox="0 0 76 48" aria-hidden="true" className="mini-window">
       <defs>
         <clipPath id={`mw-${theme}`}>
           <rect width="76" height="48" rx="5" />
         </clipPath>
+        <clipPath id="mw-right">
+          <rect x="38" width="38" height="48" />
+        </clipPath>
       </defs>
       <g clipPath={`url(#mw-${theme})`}>
-        <rect width="76" height="48" fill={c.bg} />
-        <rect width="18" height="48" fill={c.side} />
-        {theme === "system" && <rect x="38" width="38" height="48" fill={D.bg} />}
-        {[10, 18, 26, 34].map((y) => (
-          <g key={y}>
-            <rect x="22" y={y} width={theme === "system" ? 14 : 48} height="3" rx="1.5" fill={c.line} />
-            {theme === "system" && <rect x="40" y={y} width="30" height="3" rx="1.5" fill={D.line} />}
-          </g>
-        ))}
-        <rect x="22" y="4" width="24" height="3" rx="1.5" fill={c.ink} />
+        {win(theme === "dark" ? "dark" : "light")}
+        {theme === "system" && <g clipPath="url(#mw-right)">{win("dark")}</g>}
       </g>
     </svg>
   );
