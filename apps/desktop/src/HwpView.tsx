@@ -1,7 +1,7 @@
 // 앱 안 보기 — 한글(hwp · hwpx) 미리보기. rhwp(@rhwp/core · Rust + WASM)가 쪽마다 SVG 로 그린 것을 위에서 아래로 늘어놓는다. 읽기만 한다.
 //
 // 목차
-//   [1] 엔진 — WASM 을 처음 한글 파일을 열 때 한 번만 불러온다 (28MB · 앱 시작을 늦추지 않게)
+//   [1] 엔진 — WASM 을 처음 한글 파일을 열 때(또는 목록에서 한글 파일에 머물 때) 한 번만 불러온다 (28MB · 앱 시작을 늦추지 않게 · hwpEngine.ts)
 //   [2] 불러오기 — raw: 로 파일을 받아 쪽마다 그린다 (앞쪽부터 보인다 · 쪽 사이에 숨을 돌려 화면이 멈추지 않게)
 //   [3] 쪽 — 그림자 뿌리(shadow root)에 쪽 SVG 를 넣고 칸 너비에 맞춰 줄인다
 //   [4] 찾기 — 쪽 글자를 이어 붙여 찾고 그 자리를 밝힌다 (CSS Custom Highlight)
@@ -11,6 +11,8 @@
 // 쪽마다 그림자 뿌리에 넣는 까닭: rhwp 의 SVG 는 쪽마다 같은 id(body-clip-3 등)의 clipPath 를 쓴다 — 한 문서에 늘어놓으면 앞 쪽의 것이 잡혀 글이 잘린다.
 // 파워포인트 보기(SlidesView)와 같은 쪽 틀 · 서식(.slide-*)을 쓴다 — 쪽 보기는 하나의 모양으로.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { engineReady, loadEngine } from "./hwpEngine";
+import Skeleton from "./Skeleton";
 import { errText } from "./util";
 import { rawUrl, stripHasFocus } from "./viewable";
 
@@ -29,22 +31,7 @@ type Props = {
 const MAX_W = 900;
 
 // ───────── [1] 엔진 ─────────
-
-type Rhwp = typeof import("@rhwp/core");
-let engine: Promise<Rhwp> | null = null;
-function loadEngine(): Promise<Rhwp> {
-  engine ??= Promise.all([import("@rhwp/core"), import("@rhwp/core/rhwp_bg.wasm?url")])
-    .then(async ([m, url]) => {
-      await m.default({ module_or_path: url.default });
-      return m;
-    })
-    .catch((e) => {
-      // 실패를 붙잡아 두지 않는다 — 다음에 열 때 다시 시도한다
-      engine = null;
-      throw e;
-    });
-  return engine;
-}
+// hwpEngine.ts — 목록이 미리 데울 수 있게 따로 뒀다 (2026.11.26)
 
 // ───────── [2] 불러오기 ─────────
 
@@ -55,6 +42,8 @@ export default function HwpView(p: Props) {
   const [total, setTotal] = useState(0);
   const [err, setErr] = useState("");
   const [cur, setCur] = useState(0);
+  /** 엔진을 처음 불러오는 열기인가 — 처음이면 1초 남짓 걸려 까닭을 함께 알린다. */
+  const [coldStart] = useState(() => !engineReady());
   const scroller = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
 
@@ -235,6 +224,7 @@ export default function HwpView(p: Props) {
 
   return (
     <div className="viewer-slides">
+      {!err && pages.length > 0 && total > pages.length && <div className="busy-line" aria-hidden="true" />}
       {find.open && (
         <div className="table-find" role="search">
           <div className="table-find-row">
@@ -281,7 +271,9 @@ export default function HwpView(p: Props) {
               </div>
             </section>
           ))}
-        {!err && total > pages.length && <div className="viewer-empty slides-loading">{total ? `쪽을 그리는 중 · ${pages.length} / ${total}` : "한글 문서를 여는 중"}</div>}
+        {/* 첫 쪽이 오기 전 — 쪽 모양 자리. 2026.11.26 : 예전 「여는 중」 글은 조건(total > 0)에 걸려 한 번도 보이지 않았고 빈 칸이었다 */}
+        {!err && pages.length === 0 && <Skeleton kind="pages" note={coldStart ? "한글 읽기 엔진을 처음 불러오는 중" : undefined} />}
+        {!err && pages.length > 0 && total > pages.length && <div className="viewer-empty slides-loading">쪽을 그리는 중 · {pages.length} / {total}</div>}
       </div>
     </div>
   );

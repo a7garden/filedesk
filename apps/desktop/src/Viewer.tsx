@@ -8,6 +8,7 @@
 //   [2] 글 — 불러오기 · 멈추면 저장 · 밖에서 바뀐 것
 //   [3] 마크다운 — 옵시디언처럼 렌더된 채로 고친다 (@atomic-editor/editor · oxb 편집기의 바탕). 그림 · 링크는 문서 폴더 기준
 //   [4] 글 파일(txt · log) — 기호를 그리지 않는 고정폭 편집기
+//       [3] · [4] 의 편집기는 TextEditors.tsx — 글 파일을 열 때만 불러온다. 읽는 동안은 곧 올 모양의 자리(Skeleton.tsx)를 그린다 (2026.11.26)
 //   [5] 그림 — 맞춤 ↔ 원래 크기 · ←/→ 같은 폴더의 그림
 //   [6] 표(csv · tsv) — 칸을 골라 고치기 · 찾기 · 바꾸기 · 줄 더하기 · 지우기 · 되돌리기 (2026.11.25)
 //   [7] 엑셀 — 시트를 표([6])로 읽기만 한다 · 아래 시트 탭 (2026.11.25)
@@ -18,18 +19,10 @@
 // 2026.11.11 : 마크다운의 보기 · 편집 · 나란히 세 갈래를 걷었다 — 사용자 요청. 보는 화면이 곧 고치는 화면이다 (커서가 있는 줄만 기호가 드러난다).
 // 2026.11.11 : 문서 속 웹 그림(https)은 그린다 (tauri.conf.json CSP img-src) — 옵시디언과 같다. 받은 문서를 열기만 해도
 //   그 서버에 요청이 가지만, 이 앱에서 여는 md 는 대개 내 노트 · README 라 그림이 비는 쪽이 더 불편하다고 보았다.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import CodeMirror, { EditorView } from "@uiw/react-codemirror";
-import { languages } from "@codemirror/language-data";
-import { syntaxTree } from "@codemirror/language";
-import { EditorState } from "@codemirror/state";
-import { AtomicCodeMirrorEditor } from "@atomic-editor/editor";
-import "@atomic-editor/editor/styles.css";
 import { api, type Entry } from "./api";
-import { findKit, openFind } from "./editorFind";
-import SlidesView from "./SlidesView";
-import HwpView from "./HwpView";
+import Skeleton, { viewSkeleton } from "./Skeleton";
 import { errText, formatBytes, parentOf } from "./util";
 import {
   ENCODING_LABEL,
@@ -51,6 +44,10 @@ import {
   type TableRow,
   type TextFile,
 } from "./viewable";
+
+// 2026.11.26 : 파워포인트(jszip · pptx 그리기) · 한글 보기도 그 파일을 열 때만 불러온다 — 그림 · 글을 열 때 함께 읽을 까닭이 없다
+const SlidesView = lazy(() => import("./SlidesView"));
+const HwpView = lazy(() => import("./HwpView"));
 
 /** 여는 파일. 목록 밖(마크다운 링크로 간 파일)도 열 수 있어 Entry 전체를 받지 않는다. */
 export type ViewTarget = Pick<Entry, "path" | "name" | "ext" | "modified"> & { size?: number };
@@ -251,6 +248,7 @@ export default function Viewer(p: Props) {
           </button>
         </div>
       )}
+      <Suspense fallback={viewSkeleton(p.target.ext)}>
       {kind === "text" ? (
         <TextView
           key={p.target.path}
@@ -272,6 +270,7 @@ export default function Viewer(p: Props) {
       ) : kind === "image" ? (
         <ImageView target={p.target} siblings={p.siblings} setInfo={setInfo} onPick={p.onPick} active={p.active} zoom={zoom} setZoom={setZoom} />
       ) : null}
+      </Suspense>
     </div>
   );
 }
@@ -411,7 +410,7 @@ function TextView(p: {
         <p>앱 안에서 열 수 없다. {err}</p>
       </div>
     );
-  if (!file) return <div className="viewer-empty" />;
+  if (!file) return <Skeleton kind={p.md ? "md" : p.table ? "table" : "text"} />;
 
   return (
     <>
@@ -441,6 +440,7 @@ function TextView(p: {
         </div>
       )}
       <div className="viewer-text">
+        <Suspense fallback={<Skeleton kind={p.md ? "md" : "text"} />}>
         {p.md ? (
           <MdEditor key={rev} doc={p.path} source={file.text} readOnly={file.mixed} onChange={change} onLink={p.onLink} findRef={p.findRef} />
         ) : p.table && asTable ? (
@@ -457,149 +457,17 @@ function TextView(p: {
             <PlainEditor value={text} readOnly={file.mixed} onChange={change} findRef={p.findRef} />
           </div>
         )}
+        </Suspense>
       </div>
     </>
   );
 }
 
-// ───────── [3] 마크다운 ─────────
+// ───────── [3] 마크다운 · [4] 글 파일 ─────────
+// 편집기는 TextEditors.tsx 에 있다 — 글 파일을 열 때만 불러온다 (2026.11.26 · 그림 · 한글을 열 때 편집기 묶음까지 읽어 늦었다).
 
-/** 편집기가 그린 그림의 주소를 문서 폴더 기준 파일로 바꾼다. 편집기는 `![](그림.png)` 의 주소를 그대로 img 에 넣어
- *  앱 주소(tauri.localhost) 기준으로 찾다 못 그린다. 표 칸의 그림도 같다. */
-function fixImages(root: HTMLElement, doc: string) {
-  for (const img of root.querySelectorAll<HTMLImageElement>("img:not([data-fd])")) {
-    img.dataset.fd = "1";
-    const local = localPath(img.getAttribute("src") ?? "", doc);
-    // 다른 서버의 그림은 읽지 않는다 — 문서를 열기만 해도 그 서버에 Windows 로그인 정보가 건너간다 (2026.11.11 리뷰)
-    if (local && foreignShare(local, doc)) {
-      img.removeAttribute("src");
-      img.alt = `다른 서버 그림은 표시하지 않음: ${local}`;
-    } else if (local && IMAGE_EXTS.has((local.split(".").pop() ?? "").toLowerCase())) img.src = rawUrl(local);
-  }
-}
-
-/** Ctrl+누르기로 링크를 연다 (옵시디언과 같게). 편집기는 링크 끝의 작은 아이콘을 눌러야만 열고, 글자를 누르면 고치기로 들어간다. */
-function ctrlLink(open: React.RefObject<{ onLink: (href: string) => void }>) {
-  return EditorView.domEventHandlers({
-    mousedown: (e, view) => {
-      if (!e.ctrlKey || e.button !== 0) return false;
-      const el = (e.target as HTMLElement).closest(".cm-atomic-link");
-      if (!el) return false;
-      let node: ReturnType<ReturnType<typeof syntaxTree>["resolveInner"]> | null = syntaxTree(view.state).resolveInner(view.posAtDOM(el), 1);
-      while (node && node.name !== "Link" && node.name !== "URL") node = node.parent;
-      const url = node?.name === "URL" ? node : node?.getChild("URL");
-      if (!url) return false;
-      e.preventDefault();
-      open.current.onLink(view.state.doc.sliceString(url.from, url.to));
-      return true;
-    },
-  });
-}
-
-function MdEditor({
-  doc,
-  source,
-  readOnly,
-  onChange,
-  onLink,
-  findRef,
-}: {
-  doc: string;
-  source: string;
-  readOnly: boolean;
-  onChange: (v: string) => void;
-  onLink: (href: string) => void;
-  findRef: FindRef;
-}) {
-  const box = useRef<HTMLDivElement>(null);
-  const cbs = useRef({ onChange, onLink });
-  cbs.current = { onChange, onLink };
-  const view = useRef<EditorView | null>(null);
-  // 찾기 판은 편집기가 제 것을 단다 (own = false) — 글자 · Ctrl+H 만 더한다
-  const extensions = useMemo(() => [ctrlLink(cbs), findKit(view, false)], []);
-  useFindRef(findRef, view);
-  // 열자마자 굴리기 · 치기가 듣게 — 글 파일 편집기(autoFocus)와 같게. 편집기는 뒤늦게 서므로 설 때까지 몇 박자 기다린다 (2026.11.25)
-  useEffect(() => {
-    let n = 0;
-    let raf = 0;
-    const tryFocus = () => {
-      if (view.current) return stripHasFocus() || view.current.focus();
-      if (++n < 60) raf = requestAnimationFrame(tryFocus);
-    };
-    raf = requestAnimationFrame(tryFocus);
-    return () => cancelAnimationFrame(raf);
-  }, [doc]);
-  useEffect(() => {
-    const el = box.current;
-    if (!el) return;
-    fixImages(el, doc);
-    // 편집기는 보이는 줄만 그리고 굴릴 때 다시 만든다 — 새로 붙는 그림마다 고친다
-    const mo = new MutationObserver(() => fixImages(el, doc));
-    mo.observe(el, { childList: true, subtree: true });
-    return () => mo.disconnect();
-  }, [doc]);
-  return (
-    <div className="md-live" ref={box}>
-      <AtomicCodeMirrorEditor
-        documentId={doc}
-        markdownSource={source}
-        readOnly={readOnly}
-        codeLanguages={languages}
-        extensions={extensions}
-        onMarkdownChange={(v) => cbs.current.onChange(v)}
-        onLinkClick={(url) => cbs.current.onLink(url)}
-      />
-    </div>
-  );
-}
-
-/** 찾기 열기를 Viewer 에 단다 — 편집기 밖에서 누른 Ctrl+F · Ctrl+H 가 이 편집기의 찾기 판을 연다. */
-function useFindRef(findRef: FindRef, view: React.RefObject<EditorView | null>) {
-  useEffect(() => {
-    findRef.current = (replace) => view.current && openFind(view.current, replace);
-    return () => {
-      findRef.current = null;
-    };
-  }, [findRef, view]);
-}
-
-// ───────── [4] 글 파일 ─────────
-
-const plainTheme = EditorView.theme({
-  "&": { fontSize: "13px", color: "var(--ink)", height: "100%" },
-  ".cm-scroller": { overflow: "auto" },
-  ".cm-gutters": { display: "none" },
-});
-function PlainEditor({ value, readOnly, onChange, findRef }: { value: string; readOnly: boolean; onChange: (v: string) => void; findRef: FindRef }) {
-  const view = useRef<EditorView | null>(null);
-  // 읽기 전용이면 찾기 판의 바꿀 칸도 숨는다 (EditorState.readOnly) — editable 만 끄면 「모두 바꾸기」로 고쳐졌다
-  const extensions = useMemo(() => [plainTheme, EditorView.lineWrapping, EditorState.readOnly.of(readOnly), findKit(view, true)], [readOnly]);
-  useFindRef(findRef, view);
-  return (
-    <div className="cm-fd cm-code">
-      <CodeMirror
-        value={value}
-        onChange={onChange}
-        extensions={extensions}
-        editable={!readOnly}
-        autoFocus={!stripHasFocus()}
-        height="100%"
-        theme="none"
-        basicSetup={{
-          lineNumbers: false,
-          foldGutter: false,
-          highlightActiveLine: false,
-          highlightActiveLineGutter: false,
-          autocompletion: false,
-          closeBrackets: false,
-          bracketMatching: false,
-          indentOnInput: false,
-          syntaxHighlighting: false,
-        }}
-      />
-    </div>
-  );
-}
+const MdEditor = lazy(() => import("./TextEditors").then((m) => ({ default: m.MdEditor })));
+const PlainEditor = lazy(() => import("./TextEditors").then((m) => ({ default: m.PlainEditor })));
 
 // ───────── [5] 그림 ─────────
 
@@ -622,15 +490,31 @@ function ImageView(p: {
     return Math.min(1, (el.clientWidth - 32) / dims.w, (el.clientHeight - 32) / dims.h);
   };
   const zoomed = p.zoom !== 1;
-  const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
+  /** 받은 그림의 크기 — 그 그림의 경로와 함께 쥔다. 넘긴 직후 한 박자 동안 앞 그림의 크기로 새 그림을 그리지 않게 (2026.11.26). */
+  const [loaded, setLoaded] = useState<{ path: string; w: number; h: number } | null>(null);
+  const dims = loaded?.path === p.target.path ? loaded : null;
   const [broken, setBroken] = useState(false);
   const images = useMemo(() => p.siblings.filter((e) => !e.isDir && IMAGE_EXTS.has(e.ext.toLowerCase())), [p.siblings]);
   const at = images.findIndex((e) => e.path.toLowerCase() === p.target.path.toLowerCase());
 
   useEffect(() => {
-    setDims(null);
     setBroken(false);
   }, [p.target.path]);
+
+  // 앞뒤 그림을 미리 받아 둔다 — ← → 로 넘길 때 기다리지 않게 (2026.11.26). 이 그림을 다 받은 뒤에 시작해 지금 그림과 다투지 않는다.
+  //   같은 주소(rawUrl · 수정 시각)라 넘기면 웹뷰 캐시에서 바로 나온다. 해독(decode)까지 해 두어 그리는 순간의 멈칫도 줄인다.
+  useEffect(() => {
+    if (!dims || at < 0 || images.length < 2) return;
+    const near = [images[(at + 1) % images.length], images[(at - 1 + images.length) % images.length]];
+    const imgs = near.map((e) => {
+      const img = new Image();
+      img.decoding = "async";
+      img.src = rawUrl(e.path, e.modified);
+      img.decode().catch(() => {});
+      return img;
+    });
+    return () => imgs.forEach((img) => (img.src = ""));
+  }, [dims, at, images]);
 
   useEffect(() => {
     const size = p.target.size ?? images[at]?.size;
@@ -686,13 +570,17 @@ function ImageView(p: {
       onClick={() => (zoomed ? p.setZoom(1) : setFit((v) => !v))}
       title={zoomed ? "눌러서 배율 풀기 · Ctrl+0" : fit ? "눌러서 원래 크기 · Space" : "눌러서 화면에 맞춤 · Space"}
     >
+      {/* 받는 동안 그림 자리 — 큰 사진 · NAS 그림은 받는 데 시간이 걸려 빈 칸으로 멈춘 듯 보였다 (2026.11.26) */}
+      {!dims && <Skeleton kind="image" />}
       <img
         style={zoomed && dims ? { width: dims.w * (fit ? fitScale() : 1) * p.zoom, height: dims.h * (fit ? fitScale() : 1) * p.zoom } : undefined}
         key={p.target.path}
+        className={dims ? undefined : "loading"}
         src={rawUrl(p.target.path, p.target.modified)}
         alt={p.target.name}
+        decoding="async"
         draggable={false}
-        onLoad={(e) => setDims({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
+        onLoad={(e) => setLoaded({ path: p.target.path, w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
         onError={() => setBroken(true)}
       />
       {images.length > 1 && at >= 0 && (
@@ -1166,7 +1054,7 @@ function SheetView(p: { path: string; liveModified?: number; setInfo: (n: React.
         <p>앱 안에서 열 수 없다. {err}</p>
       </div>
     );
-  if (!sheets || !table) return <div className="viewer-empty" />;
+  if (!sheets || !table) return <Skeleton kind="table" />;
   return (
     <div className="viewer-sheet">
       <TableView key={at} sheet={table} readOnly readOnlyWhy="엑셀 미리보기는 읽기 전용 · 고치기는 「기본 앱으로 열기」" findRef={p.findRef} />

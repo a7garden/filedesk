@@ -11,6 +11,7 @@
 //   iframe 보다 가볍고, 그림 blob 주소를 그대로 쓴다.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { renderPptx, slideCss, type SlidePreview } from "./pptx";
+import Skeleton from "./Skeleton";
 import { errText } from "./util";
 import { rawUrl, stripHasFocus } from "./viewable";
 
@@ -212,6 +213,7 @@ export default function SlidesView(p: Props) {
   const warn = meta?.warnings.map((w) => WARN[w]).filter(Boolean) ?? [];
   return (
     <div className="viewer-slides">
+      {!err && slides.length > 0 && total > slides.length && <div className="busy-line" aria-hidden="true" />}
       {find.open && (
         <div className="table-find" role="search">
           <div className="table-find-row">
@@ -267,7 +269,9 @@ export default function SlidesView(p: Props) {
               {s.notes && <p className="slide-notes">{s.notes}</p>}
             </section>
           ))}
-        {!err && total > slides.length && <div className="viewer-empty slides-loading">쪽을 그리는 중 · {slides.length} / {total}</div>}
+        {/* 첫 쪽이 오기 전 — 쪽 모양 자리 (2026.11.26 · 예전에는 빈 칸) */}
+        {!err && slides.length === 0 && <Skeleton kind="pages" />}
+        {!err && slides.length > 0 && total > slides.length && <div className="viewer-empty slides-loading">쪽을 그리는 중 · {slides.length} / {total}</div>}
       </div>
     </div>
   );

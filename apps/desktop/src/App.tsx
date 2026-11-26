@@ -33,6 +33,7 @@ import SettingsPanel from "./SettingsPanel";
 import Sidebar from "./Sidebar";
 import TitleBar from "./TitleBar";
 import { useAutoUpdate, useUpdateState } from "./updater";
+import { warmViewers } from "./preload";
 import { applyPalette, applyTheme, baseName, DEFAULT_COLS, DEFAULT_COLS_NARROW, DEFAULT_KINDS, errText, type KindDef, norm, parseExts, setIconPack, setKinds, type Sort, type SortKey } from "./util";
 
 export type Tab = { id: number; path: string; back: string[]; fwd: string[] };
@@ -708,6 +709,10 @@ export default function App() {
   useEffect(() => {
     if (loaded) applyPalette(palette);
   }, [loaded, palette]);
+  // 첫 화면이 선 뒤 한가할 때 보기 틀 · 글 편집기를 받아 둔다 — 처음 미리보기를 열 때 빈 틈 없이 (preload.ts · 2026.11.26)
+  useEffect(() => {
+    if (loaded) warmViewers();
+  }, [loaded]);
 
   /** 방금 더한(또는 이미 있던) 것 — 독이 잠깐 올라와 그 타일을 밝힌다. n 은 같은 것을 다시 더해도 다시 밝히려고. */
   const [pinFlash, setPinFlash] = useState<{ paths: string[]; n: number } | null>(null);

@@ -46,6 +46,8 @@ import { useMarquee } from "./marquee";
 import { DocGlyph, ShortcutMark } from "./shortcut";
 import TagMenu, { TagDot } from "./TagMenu";
 import type { ViewTarget } from "./Viewer";
+import Skeleton, { viewSkeleton } from "./Skeleton";
+import { warmFor } from "./preload";
 import { viewKind } from "./viewable";
 import {
   baseName,
@@ -438,6 +440,15 @@ export default function Pane(p: Props) {
   //   아주 큰 폴더는 묻지 않는다 — 파일마다 처리기를 부르므로 수만 개면 몇 초씩 걸린다.
   //   2026.11.18 리뷰 지적 : 파일이 자꾸 바뀌는 폴더(빌드 중인 작업 사본)에서 다시 읽을 때마다 새로 물어, 처리기 호출이 여럿 겹쳤다.
   //   그래서 잠깐 모았다가 묻고, 앞의 물음이 끝나지 않았으면 가장 마지막 것 하나만 줄 세운다.
+  // 한글 · 파워포인트 파일에 잠시 머물면 그 보기를 미리 데운다 — 한글 엔진은 처음 부를 때 1초 남짓 걸린다 (preload.ts · 2026.11.26).
+  //   화살표로 훑고 지나가는 줄까지 데우지 않게 잠깐 머문 뒤에만.
+  useEffect(() => {
+    const ext = focus?.split(".").pop();
+    if (!ext || !/^(hwpx?|pptx)$/i.test(ext)) return;
+    const t = window.setTimeout(() => warmFor(ext), 350);
+    return () => window.clearTimeout(t);
+  }, [focus]);
+
   const ovBusy = useRef(false);
   const ovNext = useRef<(() => void) | null>(null);
   useEffect(() => {
@@ -2509,8 +2520,12 @@ export default function Pane(p: Props) {
           if (!(e.target as HTMLElement).closest(".row")) backgroundMenu({ x: e.clientX, y: e.clientY }, e.shiftKey);
         }}
       >
+        {deep && deep.items == null && <div className="busy-line" aria-hidden="true" />}
         {error ? (
           <LoadFailed error={error} path={path} onGo={p.onGo} onRetry={() => load(false)} />
+        ) : !deep && entries == null ? (
+          // 폴더를 읽는 동안 — 줄 · 칸 모양 자리. 느린 폴더(NAS · 큰 폴더)에서 빈 칸으로 멈춘 듯 보였다 (2026.11.26)
+          <Skeleton kind={isGrid ? "grid" : "list"} />
         ) : deep && deep.items == null ? (
           <div className="empty">
             {deep.scope === "recent"
@@ -2717,7 +2732,17 @@ export default function Pane(p: Props) {
       )}
       {viewing && p.view.viewStrip && viewStrip()}
       {viewing && (
-        <Suspense fallback={<div className={"viewer" + (p.view.viewStrip ? " with-strip" : "")} />}>
+        // 보기 묶음을 받는 동안 — 이름 줄과 곧 올 보기의 모양을 먼저 그린다 (2026.11.26 · 예전에는 빈 판)
+        <Suspense
+          fallback={
+            <div className={"viewer" + (p.view.viewStrip ? " with-strip" : "")}>
+              <div className="viewer-head">
+                <span className="viewer-name">{viewing.name}</span>
+              </div>
+              {viewSkeleton(viewing.ext)}
+            </div>
+          }
+        >
           <Viewer
             target={viewing}
             strip={{ on: p.view.viewStrip, toggle: () => p.setView((v) => ({ ...v, viewStrip: !v.viewStrip })) }}
