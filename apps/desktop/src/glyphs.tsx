@@ -6,6 +6,7 @@
 //   PlaceGlyph  — 왼쪽 열 자리 그림 (바탕화면 · 다운로드 · 문서 · 네트워크)
 //   Chevron     — 펼침 화살
 import type { ReactNode } from "react";
+import type { TileIcon } from "./api";
 
 /** 폴더 — 뒤판(귀 달린 판)과 앞판 두 겹을 채워 그린다. 색은 styles.css 의 --folder-back · --folder-front.
  *  2026.11.11 : 선 그림 → 채운 그림 (사용자 요청). 선으로는 목록에서 파일 그림보다 가벼워 폴더가 묻혔다. */
@@ -294,7 +295,9 @@ export function FileGlyph({ ext, size = 16 }: { ext: string; size?: number }) {
 
 /** 자리 그림 — 바탕화면 · 다운로드 · 문서 · 네트워크. 폴더 그림과 같은 굵기의 선으로, 왼쪽 열 「이 PC」 칸 · 「연결」 줄에 쓴다.
  *  2026.11.11 : 셸 아이콘(작은 16px 비트맵)을 키우면 흐려져 따로 그렸다. */
-export function PlaceGlyph({ kind, size = 20 }: { kind: "desktop" | "download" | "docs" | "net"; size?: number }) {
+/** 타일 · 연결의 그림 — 16 격자 위 1.25 선. 2026.11.26 : 타일 그림을 고르게 되면서 열넷을 더했다 (TILE_ICONS).
+ *  모두 같은 굵기의 윤곽이라 칸끼리 무게가 같고, 갈래마다 바깥 모양부터 다르게 그려 작게 줄여도 갈린다. */
+export function PlaceGlyph({ kind, size = 20 }: { kind: TileIcon; size?: number }) {
   const p = { fill: "none", stroke: "currentColor", strokeWidth: 1.25, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
   return (
     <svg className="glyph" width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
@@ -314,6 +317,57 @@ export function PlaceGlyph({ kind, size = 20 }: { kind: "desktop" | "download" |
         <>
           <path d="M4 1.75h5.25l2.75 2.75v9.25c0 .28-.22.5-.5.5h-7.5a.5.5 0 0 1-.5-.5v-11.5c0-.28.22-.5.5-.5z" {...p} />
           <path d="M6 7.5h4M6 10h4" {...p} />
+        </>
+      )}
+      {kind === "folder" && <path d="M1.75 4.25c0-.55.45-1 1-1h3.1l1.4 1.5h6c.55 0 1 .45 1 1v6.5c0 .55-.45 1-1 1H2.75c-.55 0-1-.45-1-1z" {...p} />}
+      {kind === "home" && <path d="M2 7.5 8 2.25l6 5.25M3.75 6v7.25h3v-4h2.5v4h3V6" {...p} />}
+      {kind === "star" && <path d="M8 1.9l1.85 3.75 4.15.6-3 2.92.7 4.13L8 11.35 4.3 13.3l.7-4.13-3-2.92 4.15-.6z" {...p} />}
+      {kind === "heart" && <path d="M8 13.25S2 9.75 2 5.75a2.9 2.9 0 0 1 6-1.25 2.9 2.9 0 0 1 6 1.25c0 4-6 7.5-6 7.5z" {...p} />}
+      {kind === "work" && (
+        <>
+          <rect x="1.75" y="5" width="12.5" height="8.25" rx="1.25" {...p} />
+          <path d="M5.75 5V3.5c0-.41.34-.75.75-.75h3c.41 0 .75.34.75.75V5M1.75 8.75h12.5" {...p} />
+        </>
+      )}
+      {kind === "book" && <path d="M8 4c-1.5-1.25-3.75-1.5-6-1.25v9.75c2.25-.25 4.5 0 6 1.25 1.5-1.25 3.75-1.5 6-1.25V2.75C11.75 2.5 9.5 2.75 8 4zM8 4v9.5" {...p} />}
+      {kind === "calendar" && (
+        <>
+          <rect x="2" y="3" width="12" height="10.75" rx="1.25" {...p} />
+          <path d="M2 6.5h12M5 1.75v2.5M11 1.75v2.5" {...p} />
+        </>
+      )}
+      {kind === "image" && (
+        <>
+          <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="1.25" {...p} />
+          <circle cx="5.5" cy="6" r="1.1" {...p} />
+          <path d="M2 12l3.75-3.75 2.75 2.75 2-2 3.5 3.5" {...p} />
+        </>
+      )}
+      {kind === "music" && (
+        <>
+          <path d="M6 12.25V3.5l7-1.5v8.5" {...p} />
+          <circle cx="4.25" cy="12.25" r="1.75" {...p} />
+          <circle cx="11.25" cy="10.5" r="1.75" {...p} />
+        </>
+      )}
+      {kind === "video" && (
+        <>
+          <rect x="1.75" y="3.75" width="9" height="8.5" rx="1.25" {...p} />
+          <path d="M10.75 6.75l3.5-2v6.5l-3.5-2" {...p} />
+        </>
+      )}
+      {kind === "code" && <path d="M5.25 4.5 1.75 8l3.5 3.5M10.75 4.5 14.25 8l-3.5 3.5M9 2.75l-2 10.5" {...p} />}
+      {kind === "archive" && (
+        <>
+          <rect x="1.75" y="2.5" width="12.5" height="3.5" rx=".75" {...p} />
+          <path d="M2.75 6v6.75c0 .41.34.75.75.75h9c.41 0 .75-.34.75-.75V6M6.5 8.75h3" {...p} />
+        </>
+      )}
+      {kind === "cloud" && <path d="M4.5 12.75h7a3 3 0 0 0 .3-5.98A4 4 0 0 0 4.1 7.35a2.7 2.7 0 0 0 .4 5.4z" {...p} />}
+      {kind === "user" && (
+        <>
+          <circle cx="8" cy="5.25" r="2.75" {...p} />
+          <path d="M2.75 14c.5-2.75 2.6-4.5 5.25-4.5s4.75 1.75 5.25 4.5" {...p} />
         </>
       )}
       {kind === "net" && (

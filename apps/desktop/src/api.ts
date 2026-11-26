@@ -215,6 +215,9 @@ export type ViewPrefs = {
   /** 왼쪽 열에서 끈 구획 — 이 PC · 앱 · 색 표시. 즐겨찾기 · 연결 · 스마트 폴더는 제 설정(sideFavs · links · recent)으로 켜고 끈다
    *  (지난 판 설정과 맞추려고 그 셋은 그대로 둔다). */
   sideOff: SideId[];
+  /** 「이 PC」 타일 — 이름 · 아이콘 · 경로를 사람이 고른다. null 이면 처음대로(이 PC 의 바탕화면 · 다운로드 · 문서).
+   *  2026.11.26 : 사용자 요청. 늘 같은 셋이던 타일을 바꾸고 더할 수 있게 했다 — 사이드바 편집에서 고친다. */
+  tiles: Tile[] | null;
   /** 크기 — `kb` 탐색기처럼 늘 KB / `auto` 알맞은 단위 (MB · GB). */
   sizeUnit: "kb" | "auto";
   /** 폴더 크기 칸에 그 안 모든 하위 폴더 파일까지 더한 용량을 보인다. 폴더마다 훑어 세므로 큰 폴더 · NAS 는 늦게 찬다.
@@ -228,12 +231,50 @@ export type ViewPrefs = {
   viewStrip: boolean;
 };
 export type ColKey = "ver" | "date" | "size" | "kind";
-/** 왼쪽 열 구획 — 이 PC · 즐겨찾기 · 앱 · 연결 · 색 표시 · 스마트 폴더. */
-export type SideId = "pc" | "favs" | "apps" | "links" | "tags" | "smart";
-export const SIDE_IDS: SideId[] = ["pc", "favs", "apps", "links", "tags", "smart"];
-export const SIDE_LABEL: Record<SideId, string> = { pc: "이 PC (드라이브)", favs: "즐겨찾기", apps: "앱", links: "연결 (NAS · 공유 폴더)", tags: "색 표시", smart: "스마트 폴더" };
+/** 왼쪽 열 위젯 — 이 PC(타일) · 드라이브 · 즐겨찾기 · 앱 · 연결 · 색 표시 · 스마트 폴더.
+ *  2026.11.26 : 「이 PC」 하나에 들어 있던 타일과 드라이브 목록을 두 위젯으로 나눴다 — 사용자 요청. 따로 넣고 뺀다. */
+export type SideId = "pc" | "drives" | "favs" | "apps" | "links" | "tags" | "smart";
+export const SIDE_IDS: SideId[] = ["pc", "drives", "favs", "apps", "links", "tags", "smart"];
+export const SIDE_LABEL: Record<SideId, string> = { pc: "이 PC (바로 가기)", drives: "드라이브", favs: "즐겨찾기", apps: "앱", links: "연결 (NAS · 공유 폴더)", tags: "색 표시", smart: "스마트 폴더" };
+/** 사이드바 머리에 실제로 서는 이름 (괄호 풀이 없이). */
+export const SIDE_NAME: Record<SideId, string> = { pc: "이 PC", drives: "드라이브", favs: "즐겨찾기", apps: "앱", links: "연결", tags: "색 표시", smart: "스마트 폴더" };
+/** 위젯 이름 밑 한 줄 풀이 — 설정 › 사이드바 · 사이드바 편집의 「위젯 추가」. */
+export const SIDE_HINT: Record<SideId, string> = {
+  pc: "바탕화면 · 다운로드 · 문서 타일",
+  drives: "드라이브와 남은 용량",
+  favs: "자주 가는 폴더 · 파일",
+  apps: "자주 여는 프로그램",
+  links: "NAS · 공유 폴더",
+  tags: "일곱 색 표시와 개수",
+  smart: "조건으로 모아 보기",
+};
+/** sideOff 로 켜고 끄는 위젯. 즐겨찾기 · 연결 · 스마트 폴더는 제 설정(sideFavs · links · recent)으로 켜고 끈다. */
+export const SIDE_OFFABLE: SideId[] = ["pc", "drives", "apps", "tags"];
+
+/** 사이드바 위젯이 켜져 있나. */
+export function sideOn(v: ViewPrefs, id: SideId): boolean {
+  if (id === "favs") return v.sideFavs;
+  if (id === "links") return v.links;
+  if (id === "smart") return v.recent;
+  return !v.sideOff.includes(id);
+}
+export function setSideOn(v: ViewPrefs, id: SideId, on: boolean): ViewPrefs {
+  if (id === "favs") return { ...v, sideFavs: on };
+  if (id === "links") return { ...v, links: on };
+  if (id === "smart") return { ...v, recent: on };
+  return { ...v, sideOff: on ? v.sideOff.filter((x) => x !== id) : [...v.sideOff, id] };
+}
+
+/** 타일 그림. glyphs.tsx PlaceGlyph 가 그린다 — 늘리면 거기에도 그린다. */
+export type TileIcon = "desktop" | "download" | "docs" | "folder" | "home" | "star" | "heart" | "work" | "book" | "calendar" | "image" | "music" | "video" | "code" | "archive" | "cloud" | "net" | "user";
+export const TILE_ICONS: TileIcon[] = ["folder", "desktop", "download", "docs", "home", "star", "heart", "work", "book", "calendar", "image", "music", "video", "code", "archive", "cloud", "net", "user"];
+export type Tile = { path: string; name: string; icon: TileIcon };
+/** 처음대로의 칸 — 이 PC 의 알려진 폴더를 이름 그대로. */
+export function defaultTiles(known: Place[]): Tile[] {
+  return known.map((k) => ({ path: k.path, name: k.name, icon: k.name === "바탕화면" ? "desktop" : k.name === "다운로드" ? "download" : k.name === "문서" ? "docs" : "folder" }));
+}
 export const DEFAULT_VIEW: ViewPrefs = { mode: "list", dense: false, size: 1, icons: "shell", iconPack: "", thumbs: true, namePeek: true, overlays: true, hiddenCols: ["kind"], kinds: DEFAULT_KINDS, folderClick: "double",
-  sort: { key: "name", asc: true }, dirsFirst: true, editions: false, foldStart: true, sizeUnit: "kb", folderSize: false, recent: true, links: false, sideFavs: true, sideOrder: ["pc", "favs", "apps", "links", "tags", "smart"], sideOff: [], findSkip: ["lnk", "url", "tmp", "crdownload"], viewStrip: true };
+  sort: { key: "name", asc: true }, dirsFirst: true, editions: false, foldStart: true, sizeUnit: "kb", folderSize: false, recent: true, links: false, sideFavs: true, sideOrder: ["pc", "drives", "favs", "apps", "links", "tags", "smart"], sideOff: [], tiles: null, findSkip: ["lnk", "url", "tmp", "crdownload"], viewStrip: true };
 
 export type Theme = "system" | "light" | "dark";
 

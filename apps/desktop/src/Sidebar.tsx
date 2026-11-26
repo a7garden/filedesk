@@ -3,7 +3,8 @@
 //
 // 목차
 //   [1] 상태 · 불러오기 — 색 개수 · 색인 상태 · 스마트 폴더 개수 · 연결 더하기
-//   [2] 이 PC · 즐겨찾기 · 앱 · 연결 · 색 표시 · 스마트 폴더 · 설정
+//   [2] 위젯 — 이 PC(타일) · 드라이브 · 즐겨찾기 · 앱 · 연결 · 색 표시 · 스마트 폴더 · 설정
+//   [3] 사이드바 편집 — 위젯 빼기 · 끌어 차례 바꾸기 · 위젯 추가 · 타일의 이름 · 그림 · 경로 (TileEditor · TileForm)
 //
 //   2026.11.11 : 늘 같은 셋(바탕화면 · 다운로드 · 문서)은 세 칸 그림으로 — 고정된 자리라 글 목록으로 읽을 까닭이 없고, 그림 자리를 손이 외운다.
 //                「연결」을 더했다 — NAS · 공유 폴더(\\서버\공유)를 등록해 둔다. 즐겨찾기와 같은 꼴(Place)이고 자리만 다르다.
@@ -37,12 +38,16 @@
 //                경로는 그대로 두고 보일 이름만 바꾼다. 비우면 원래 이름으로.
 //   2026.11.24 : 「즐겨찾기」를 왼쪽 열에도 둔다 (사용자 요청 · 설정 › 보기 › 표시할 항목에서 끈다). 아래 독과 같은 목록이다 —
 //                독은 마우스를 대야 올라와 자주 가는 곳을 늘 보이게 두지 못했다. 제목의 「＋」는 지금 폴더를 더하고, 제목에 끌어 놓아도 더한다.
+//   2026.11.26 : 사이드바 편집 (사용자 요청 「제어 센터 위젯처럼」). 어디서든 오른쪽 메뉴 › 「사이드바 편집」이면 구획이 위젯 카드가 되어
+//                − 로 빼고 · 손잡이로 끌어 차례를 바꾸고 · 맨 아래 「위젯 추가」에서 다시 넣는다. 설정 › 사이드바와 같은 값을 고친다.
+//                「이 PC」에 함께 있던 타일과 드라이브 목록을 두 위젯으로 나눴고, 타일은 이름 · 그림을 바꾸고 지금 폴더를 더한다.
 // 항목마다 [data-drop] — 파일을 끌어다 놓으면 그 자리로 옮긴다.
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import ContextMenu, { type CtxEntry, type CtxMenuState } from "./ContextMenu";
-import { api, appIconUrl, TAG_COLORS, TAG_LABEL, type AppPin, type Drive, type HubStatus, type Place, type Places, type SideId, type SmartFolder, type TagColor, type ViewPrefs } from "./api";
+import { api, appIconUrl, defaultTiles, setSideOn, SIDE_HINT, SIDE_LABEL, SIDE_NAME, sideOn, TAG_COLORS, TAG_LABEL, TILE_ICONS, type AppPin, type Drive, type HubStatus, type Place, type Places, type SideId, type SmartFolder, type TagColor, type Tile, type TileIcon, type ViewPrefs } from "./api";
 import { APP_DROP, LINK_DROP, PIN_DROP, TAG_DROP } from "./App";
+import { moveTo, useDragSort } from "./dragSort";
 import { FolderGlyph, PlaceGlyph } from "./glyphs";
 import { DocGlyph } from "./shortcut";
 import { ago, kindTable, remoteOnly, scopeLabel, scopeOf, tzOffset } from "./query";
@@ -62,6 +67,8 @@ type Props = {
   /** 연결의 보일 이름 — label 은 공유 줄 하나, host 는 서버 줄(그 서버의 연결 전부에 적는다). 빈 이름이면 원래대로. */
   onRenameLinks: (paths: string[], key: "label" | "host", name: string) => void;
   view: ViewPrefs;
+  /** 사이드바 편집 — 위젯 켜고 끄기 · 차례 · 타일을 고친다 (설정 › 사이드바와 같은 값). */
+  setView: (f: (v: ViewPrefs) => ViewPrefs) => void;
   current: string;
   onGo: (path: string) => void;
   onGoNewTab: (path: string) => void;
@@ -100,14 +107,23 @@ const LINK_CHECK = 60000;
 export default function Sidebar(props: Props) {
   const upd = useUpdateState();
   const newVersion = upd.update && (upd.phase === "available" || upd.phase === "downloading") ? upd.update.version : null;
-  const { places, links, onAddLinks, onUnlink, onRenameLinks, view, current, onGo, onGoNewTab, settingsOpen, onSettings, smart, inbox, onOpenSmart, onEditSmart, onNewSmart, apps, onLaunchApp, onUnpinApp, onAddApp, pinned, onPinHere, onUnpin, onOpenFile, onMovePin, onDupSmart, onDeleteSmart, onNotice } = props;
+  const { places, links, onAddLinks, onUnlink, onRenameLinks, view, setView, current, onGo, onGoNewTab, settingsOpen, onSettings, smart, inbox, onOpenSmart, onEditSmart, onNewSmart, apps, onLaunchApp, onUnpinApp, onAddApp, pinned, onPinHere, onUnpin, onOpenFile, onMovePin, onDupSmart, onDeleteSmart, onNotice } = props;
 
   // ───────── 오른쪽 메뉴 ─────────
   const [menu, setMenu] = useState<CtxMenuState | null>(null);
+  /** 사이드바 편집 중인가 · 편집 중 고른 타일(경로). */
+  const [editing, setEditing] = useState(false);
+  const [tileSel, setTileSel] = useState<string | null>(null);
+  const startEdit = (sel: string | null = null) => {
+    setTileSel(sel);
+    setEditing(true);
+  };
+  /** 모든 오른쪽 메뉴 끝에 「사이드바 편집」 — 어느 항목에서 눌러도 편집으로 들어간다. 항목 사이 빈 곳은 이것 하나. */
   const openMenu = (e: React.MouseEvent, label: string, items: CtxEntry[]) => {
     e.preventDefault();
     e.stopPropagation();
-    setMenu({ x: e.clientX, y: e.clientY, label, items });
+    const edit: CtxEntry = { label: "사이드바 편집", run: () => startEdit(), strong: !items.length };
+    setMenu({ x: e.clientX, y: e.clientY, label, items: items.length ? [...items, "sep", edit] : [edit] });
   };
   const copyPath = (p: string) =>
     navigator.clipboard
@@ -263,7 +279,7 @@ export default function Sidebar(props: Props) {
   const suggestions = (known ?? []).filter((k) => !linked.has(norm(k.path)));
 
   /** 이름을 고치는 중인 연결 줄 — 서버 줄은 서버 이름, 공유 줄은 경로. */
-  const [editing, setEditing] = useState<{ key: "host" | "label"; id: string } | null>(null);
+  const [renaming, setRenaming] = useState<{ key: "host" | "label"; id: string } | null>(null);
 
   // 연결이 열리는가 — 열 때 · 연결이 바뀔 때 · 1분마다. 모르는 동안(null)은 열린 것처럼 그린다
   const [offline, setOffline] = useState<Set<string> | null>(null);
@@ -313,38 +329,61 @@ export default function Sidebar(props: Props) {
     "sep",
     { label: "즐겨찾기에서 제거", run: () => onUnpin(f.path) },
   ];
+  /** 보이는 위젯 — 차례대로. */
+  const visible = view.sideOrder.filter((id) => sideOn(view, id));
+  /** 타일 — 고친 적 없으면 이 PC 의 바탕화면 · 다운로드 · 문서. */
+  const tiles: Tile[] = view.tiles ?? (places ? defaultTiles(places.known) : []);
+  // 타일을 다 뺐으면 「이 PC」는 그리지 않는다 — 드라이브는 제 머리를 단다
+  const drivesTail = tiles.length > 0 && visible[visible.indexOf("drives") - 1] === "pc";
+  /** 타일을 고친다. 처음 고칠 때 지금 보이는 타일을 그대로 적어 둔다 (그 뒤로는 고른 경로를 따른다). */
+  const setTiles = (f: (ts: Tile[]) => Tile[]) => setView((v) => ({ ...v, tiles: f(v.tiles ?? (places ? defaultTiles(places.known) : [])) }));
   const sections: Record<SideId, React.ReactNode> = {
-    pc: (
-      <>
-          {places && (
-            <section>
-              <h2>이 PC</h2>
-              {/* 늘 같은 셋 — 세 칸 그림. 자리가 고정이라 손이 외운다 */}
-              <div className="known-grid">
-                {places.known.map((k) => (
-                  <button key={k.path} className={"known-tile" + (norm(k.path) === here ? " current" : "")} title={k.path} {...nav(k.path)} onContextMenu={(e) => openMenu(e, k.name, placeItems(k.path))}>
-                    <PlaceGlyph kind={k.name === "바탕화면" ? "desktop" : k.name === "다운로드" ? "download" : "docs"} />
-                    <span>{k.name}</span>
-                  </button>
-                ))}
-              </div>
-              <ul className="drive-list">
-                {shownDrives.map((d) => (
-                  <li key={d.path} onContextMenu={(e) => openMenu(e, d.label, placeItems(d.path))}>
-                    {driveRow(d, current, onGo, onGoNewTab)}
-                  </li>
-                ))}
-                {drives.length > DRIVES_SHOWN && (
-                  <li>
-                    <button className="side-empty" aria-expanded={moreDrives} onClick={() => setMoreDrives((v) => !v)}>
-                      {moreDrives ? "접기" : `드라이브 ${drives.length - DRIVES_SHOWN}개 더`}
-                    </button>
-                  </li>
-                )}
-              </ul>
-            </section>
+    pc: tiles.length > 0 && (
+      <section>
+        <h2>이 PC</h2>
+        {/* 타일 — 처음에는 바탕화면 · 다운로드 · 문서. 자리가 고정이라 손이 외운다. 편집에서 이름 · 그림을 바꾸고 더한다 */}
+        <div className="known-grid">
+          {tiles.map((t) => (
+            <button
+              key={t.path}
+              className={"known-tile" + (norm(t.path) === here ? " current" : "")}
+              title={t.path}
+              {...nav(t.path)}
+              onContextMenu={(e) =>
+                openMenu(e, t.name, [
+                  ...placeItems(t.path),
+                  "sep",
+                  { label: "이름 · 그림 편집…", run: () => startEdit(t.path) },
+                  { label: "타일에서 제거", run: () => setTiles((ts) => ts.filter((x) => x.path !== t.path)) },
+                ])
+              }
+            >
+              <PlaceGlyph kind={t.icon} />
+              <span>{t.name}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+    ),
+    drives: drives.length > 0 && (
+      // 「이 PC」 바로 뒤에 서면 머리 없이 붙는다 — 두 위젯으로 갈라지기 전(2026.11.26) 모양 그대로
+      <section className={drivesTail ? "side-tail" : undefined}>
+        {!drivesTail && <h2>드라이브</h2>}
+        <ul className="drive-list">
+          {shownDrives.map((d) => (
+            <li key={d.path} onContextMenu={(e) => openMenu(e, d.label, placeItems(d.path))}>
+              {driveRow(d, current, onGo, onGoNewTab)}
+            </li>
+          ))}
+          {drives.length > DRIVES_SHOWN && (
+            <li>
+              <button className="side-empty" aria-expanded={moreDrives} onClick={() => setMoreDrives((v) => !v)}>
+                {moreDrives ? "접기" : `드라이브 ${drives.length - DRIVES_SHOWN}개 더`}
+              </button>
+            </li>
           )}
-      </>
+        </ul>
+      </section>
     ),
     favs: (
       <>
@@ -454,7 +493,7 @@ export default function Sidebar(props: Props) {
                 const down = ls.every((l) => offline?.has(norm(l.path)));
                 const alias = ls.find((l) => l.host)?.host;
                 const paths = ls.map((l) => l.path);
-                const renameHost = () => setEditing({ key: "host", id: host });
+                const renameHost = () => setRenaming({ key: "host", id: host });
                 return (
                   <div key={host} className="link-host">
                     {/* 서버 줄 — 누르는 곳이 아니라 묶음 이름이라 두 번 누르기 · 오른쪽 메뉴로만 이름을 바꾼다 */}
@@ -476,11 +515,11 @@ export default function Sidebar(props: Props) {
                       }
                     >
                       <PlaceGlyph kind="net" size={14} />
-                      {editing?.key === "host" && editing.id === host ? (
+                      {renaming?.key === "host" && renaming.id === host ? (
                         <NameInput
                           value={alias ?? host}
                           onDone={(v) => {
-                            setEditing(null);
+                            setRenaming(null);
                             if (v != null) onRenameLinks(paths, "host", v.trim() === host ? "" : v);
                           }}
                         />
@@ -494,19 +533,19 @@ export default function Sidebar(props: Props) {
                         const off = !!offline?.has(norm(l.path));
                         const plain = shareOf(l.path) ?? l.name;
                         const shown = l.label ?? plain;
-                        if (editing?.key === "label" && editing.id === l.path)
+                        if (renaming?.key === "label" && renaming.id === l.path)
                           return (
                             <li key={l.path} className="side-row link-rename">
                               <NameInput
                                 value={shown}
                                 onDone={(v) => {
-                                  setEditing(null);
+                                  setRenaming(null);
                                   if (v != null) onRenameLinks([l.path], "label", v.trim() === plain ? "" : v);
                                 }}
                               />
                             </li>
                           );
-                        const renameShare = () => setEditing({ key: "label", id: l.path });
+                        const renameShare = () => setRenaming({ key: "label", id: l.path });
                         return (
                           <li key={l.path} className="side-row">
                             <button
@@ -628,18 +667,161 @@ export default function Sidebar(props: Props) {
       </>
     ),
   };
-  const off = new Set(view.sideOff);
+  // ───────── [3] 사이드바 편집 ─────────
+
+  // 끌어 차례 바꾸기 — 보이는 위젯끼리. 숨은 위젯은 제자리에 둔 채 보이는 위젯 자리만 다시 채운다 (설정 › 사이드바의 차례와 하나다)
+  const sort = useDragSort<HTMLOListElement>(visible.length, (from, to) =>
+    setView((v) => {
+      const moved = moveTo(
+        v.sideOrder.filter((id) => sideOn(v, id)),
+        from,
+        to,
+      );
+      let k = 0;
+      return { ...v, sideOrder: v.sideOrder.map((id) => (sideOn(v, id) ? moved[k++] : id)) };
+    }),
+  );
+  /** 위젯 추가 — 켜고 맨 아래로. */
+  const addWidget = (id: SideId) => setView((v) => ({ ...setSideOn(v, id, true), sideOrder: [...v.sideOrder.filter((x) => x !== id), id] }));
+  const doneEdit = () => {
+    setEditing(false);
+    setTileSel(null);
+  };
+  // Esc — 고른 타일이 있으면 그것부터 닫고, 없으면 편집을 마친다. 글 칸 · 메뉴 · 창 안의 Esc 는 그쪽이 먼저 받는다
+  useEffect(() => {
+    if (!editing) return;
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || (e.target as HTMLElement).closest?.("input, .ctx-menu, [role=dialog]")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (tileSel) setTileSel(null);
+      else doneEdit();
+    };
+    window.addEventListener("keydown", key, true);
+    return () => window.removeEventListener("keydown", key, true);
+  }, [editing, tileSel]);
+  const hidden = view.sideOrder.filter((id) => !sideOn(view, id));
+  const picked = tiles.find((t) => t.path === tileSel) ?? null;
+  /** 지금 폴더를 타일로 더할 수 있나 — 드라이브 · 공유 경로이고 아직 타일이 아닌 것 (찾기 결과 · 색 표시 모아 보기는 경로가 아니다). */
+  const canAddHere = /^([A-Za-z]:\\|\\\\)/.test(current) && !tiles.some((t) => norm(t.path) === here);
+  const removeTile = (p: string) => {
+    setTiles((ts) => ts.filter((x) => x.path !== p));
+    if (tileSel === p) setTileSel(null);
+  };
+  const addHere = () => {
+    if (!canAddHere) return;
+    setTiles((ts) => [...ts, { path: current, name: baseName(current) || current, icon: "folder" }]);
+    setTileSel(current);
+  };
+
+  if (editing)
+    return (
+      <nav className="side editing" aria-label="사이드바 편집" onContextMenu={(e) => e.preventDefault()}>
+        <div className="side-drag" data-tauri-drag-region aria-hidden="true" />
+        <div className="edit-bar">
+          <span>사이드바 편집</span>
+          <button className="act primary" onClick={doneEdit} title="편집 마치기 (Esc)">
+            완료
+          </button>
+        </div>
+        <ol className={"widget-list" + (sort.dragging ? " sorting" : "")} ref={sort.list} aria-label="사이드바 위젯">
+          {visible.map((id, i) => (
+            <li key={id} className="widget" {...sort.item(i)}>
+              {/* 머리 줄 전체가 손잡이 — 점 여섯 개 손잡이를 따로 두지 않는다 (2026.11.26 사용자 지적 「애플스럽지 않음」).
+                  빼기는 제어 센터처럼 카드 왼쪽 위 모서리에 걸친다 */}
+              <button className="widget-handle" {...sort.handle(i, SIDE_LABEL[id])}>
+                {SIDE_NAME[id]}
+              </button>
+              <button className="widget-x" title="사이드바에서 빼기" aria-label={`${SIDE_NAME[id]} 위젯 빼기`} onClick={() => setView((v) => setSideOn(v, id, false))}>
+                <MinusGlyph />
+              </button>
+              {id === "pc" ? (
+                <div className="widget-body">
+                  <TileEditor
+                    tiles={tiles}
+                    sel={tileSel}
+                    onSel={setTileSel}
+                    canAdd={canAddHere}
+                    here={current}
+                    onAdd={addHere}
+                    onMove={(from, to) => setTiles((ts) => moveTo(ts, from, to))}
+                    onRemove={removeTile}
+                  />
+                  {picked && (
+                    <TileForm
+                      key={picked.path}
+                      tile={picked}
+                      col={tiles.indexOf(picked) % TILE_COLS}
+                      onChange={(t) => setTiles((ts) => ts.map((x) => (x.path === picked.path ? t : x)))}
+                      onRemove={() => removeTile(picked.path)}
+                      onClose={() => setTileSel(null)}
+                    />
+                  )}
+                  {view.tiles && (
+                    <button
+                      className="side-empty"
+                      title="바탕화면 · 다운로드 · 문서 셋으로"
+                      onClick={() => {
+                        setView((v) => ({ ...v, tiles: null }));
+                        setTileSel(null);
+                      }}
+                    >
+                      타일 처음대로
+                    </button>
+                  )}
+                </div>
+              ) : (
+                // 미리 보기 — 누르기 · 끌어 놓기는 편집을 마친 뒤에
+                <div className="widget-body" inert>
+                  {sections[id] || <p className="side-hint">비어 있음</p>}
+                </div>
+              )}
+            </li>
+          ))}
+        </ol>
+        <section className="widget-gallery" aria-label="위젯 추가">
+          <h2>위젯 추가</h2>
+          {hidden.length ? (
+            <ul>
+              {hidden.map((id) => (
+                <li key={id}>
+                  <button className="widget-add" onClick={() => addWidget(id)} title={`${SIDE_NAME[id]} 위젯을 사이드바 맨 아래에 추가`}>
+                    <span className="widget-plus" aria-hidden="true">
+                      ＋
+                    </span>
+                    <span className="widget-add-text">
+                      <b>{SIDE_NAME[id]}</b>
+                      <small>{SIDE_HINT[id]}</small>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="side-hint">모든 위젯이 사이드바에 있음</p>
+          )}
+        </section>
+      </nav>
+    );
 
   return (
-    <nav className="side" aria-label="위치">
+    <nav
+      className="side"
+      aria-label="위치"
+      onContextMenu={(e) => {
+        // 연결 추가 창은 포털이라 React 이벤트가 여기까지 올라온다 — 그 창 · 열린 메뉴 안의 오른쪽 단추는 건드리지 않는다
+        // (주소 칸의 붙여넣기 메뉴가 막히고, 메뉴 위에서 누르면 메뉴가 「사이드바 편집」 하나로 바뀌었다)
+        const t = e.target as Node;
+        if (!e.currentTarget.contains(t) || (t as HTMLElement).closest?.(".ctx-menu")) return;
+        openMenu(e, "사이드바", []);
+      }}
+    >
       {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
       {/* 창 끌기는 제목 줄 옆 띠에서만. 2026.11.18 : 사용자 지적 — 왼쪽 열 전체가 끌기 자리여서 항목 사이 빈 곳 · 목록 아래를 누르고 끌어도 창이 움직였다 */}
       <div className="side-drag" data-tauri-drag-region aria-hidden="true" />
-      {view.sideOrder
-        .filter((id) => !off.has(id))
-        .map((id) => (
-          <Fragment key={id}>{sections[id]}</Fragment>
-        ))}
+      {visible.map((id) => (
+        <Fragment key={id}>{sections[id]}</Fragment>
+      ))}
       {formOpen &&
         createPortal(
           <div className="set-backdrop" onMouseDown={(e) => e.target === e.currentTarget && closeForm()}>
@@ -835,6 +1017,176 @@ function NameInput({ value, onDone }: { value: string; onDone: (v: string | null
       }}
       onBlur={() => finish(ref.current?.value ?? value)}
     />
+  );
+}
+
+/** 타일 그림 이름 — 고르는 판의 읽기 글 · 풍선 도움말. */
+const ICON_LABEL: Record<TileIcon, string> = {
+  folder: "폴더", desktop: "바탕화면", download: "다운로드", docs: "문서", home: "집", star: "별", heart: "하트", work: "가방",
+  book: "책", calendar: "달력", image: "그림", music: "음악", video: "영상", code: "코드", archive: "보관 상자", cloud: "클라우드", net: "서버", user: "사람",
+};
+
+/** 타일 격자의 열 수 — styles.css .known-grid 와 같다. 편집 판 꼬리가 고른 타일의 열을 가리킨다. */
+const TILE_COLS = 3;
+/** 이만큼 움직여야 끌기다 — 그 아래는 누르기(고르기). */
+const DRAG_START = 4;
+
+/** 빼기 표시 — 빨간 원 안의 가로줄 (위젯 · 타일). */
+function MinusGlyph() {
+  return (
+    <svg width="8" height="8" viewBox="0 0 10 10" aria-hidden="true">
+      <path d="M1.5 5h7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+type TileDrag = { from: number; to: number; dx: number; dy: number; x0: number; y0: number; slots: DOMRect[]; moved: boolean };
+
+/** 편집 중의 타일 — 누르면 그 타일을 고르고(아래 TileForm), 잡고 끌면 자리를 옮기고, 끝의 ＋ 는 지금 폴더를 더한다.
+ *  2026.11.26 : ‹ › 단추로 한 칸씩 옮기던 것을 끌기로 바꿨다 (사용자 지적 「애플스럽지 않음」). 끄는 타일은 손을 따라오고
+ *  나머지는 놓일 차례의 자리로 비켜선다 — 홈 화면 아이콘처럼. 키보드는 Ctrl+← → 로 옮긴다.
+ *  빼기(−)는 올려 둘 때 · 고른 타일에만 — 늘 보이면 위젯의 − 와 겹쳐 빨간 점이 아홉 개였다. */
+function TileEditor({ tiles, sel, onSel, canAdd, here, onAdd, onMove, onRemove }: { tiles: Tile[]; sel: string | null; onSel: (p: string | null) => void; canAdd: boolean; here: string; onAdd: () => void; onMove: (from: number, to: number) => void; onRemove: (path: string) => void }) {
+  const grid = useRef<HTMLDivElement>(null);
+  const [drag, setDrag] = useState<TileDrag | null>(null);
+  /** 끌기로 끝난 누르기는 고르기로 치지 않는다 (pointerup 뒤에 click 이 온다). */
+  const dragged = useRef(false);
+  const live = drag?.moved ? drag : null;
+  /** 끄는 동안 i 번 타일이 설 자리 — 끈 것은 손 자리, 나머지는 옮긴 뒤 차례의 자리. */
+  const shift = (i: number): string | undefined => {
+    if (!live) return undefined;
+    if (i === live.from) return `translate(${live.dx}px, ${live.dy}px)`;
+    const j = moveTo(
+      tiles.map((_, k) => k),
+      live.from,
+      live.to,
+    ).indexOf(i);
+    const a = live.slots[i];
+    const b = live.slots[j];
+    return j === i ? undefined : `translate(${b.left - a.left}px, ${b.top - a.top}px)`;
+  };
+  return (
+    <div className={"known-grid tile-edit" + (live ? " sorting" : "")} ref={grid}>
+      {tiles.map((t, i) => (
+        <div key={t.path} className={"tile-wrap" + (live?.from === i ? " lifted" : "")} style={{ transform: shift(i) }}>
+          <button
+            className={"known-tile" + (sel === t.path ? " picked" : "")}
+            title={`${t.path}\n눌러 이름 · 그림 편집 · 끌어 자리 옮기기 (Ctrl+← →)`}
+            aria-pressed={sel === t.path}
+            onClick={() => {
+              if (dragged.current) return void (dragged.current = false);
+              onSel(sel === t.path ? null : t.path);
+            }}
+            onKeyDown={(e) => {
+              const d = e.ctrlKey ? (e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : 0) : 0;
+              if (!d) return;
+              e.preventDefault();
+              e.stopPropagation();
+              const to = i + d;
+              if (to < 0 || to >= tiles.length) return;
+              onMove(i, to);
+              requestAnimationFrame(() => grid.current?.querySelectorAll<HTMLElement>(".tile-wrap > .known-tile")[to]?.focus());
+            }}
+            onPointerDown={(e) => {
+              if (e.button !== 0 || !grid.current) return;
+              const slots = [...grid.current.querySelectorAll<HTMLElement>(":scope > .tile-wrap")].map((el) => el.getBoundingClientRect());
+              e.currentTarget.setPointerCapture(e.pointerId);
+              setDrag({ from: i, to: i, dx: 0, dy: 0, x0: e.clientX, y0: e.clientY, slots, moved: false });
+            }}
+            onPointerMove={(e) =>
+              setDrag((d) => {
+                if (!d) return d;
+                const dx = e.clientX - d.x0;
+                const dy = e.clientY - d.y0;
+                const moved = d.moved || Math.hypot(dx, dy) > DRAG_START;
+                if (!moved) return d;
+                // 끄는 타일 가운데에서 가장 가까운 자리가 놓일 차례
+                const r = d.slots[d.from];
+                const cx = r.left + r.width / 2 + dx;
+                const cy = r.top + r.height / 2 + dy;
+                let to = d.from;
+                let best = Infinity;
+                d.slots.forEach((s, k) => {
+                  const dist = Math.hypot(s.left + s.width / 2 - cx, s.top + s.height / 2 - cy);
+                  if (dist < best) [best, to] = [dist, k];
+                });
+                return { ...d, dx, dy, moved, to };
+              })
+            }
+            onPointerUp={() => {
+              if (drag?.moved) {
+                dragged.current = true;
+                if (drag.to !== drag.from) onMove(drag.from, drag.to);
+              }
+              setDrag(null);
+            }}
+            onLostPointerCapture={() => setDrag(null)}
+          >
+            <PlaceGlyph kind={t.icon} />
+            <span>{t.name}</span>
+          </button>
+          <button className="tile-x" title="타일에서 제거" aria-label={`${t.name} 타일에서 제거`} onClick={() => onRemove(t.path)}>
+            <MinusGlyph />
+          </button>
+        </div>
+      ))}
+      <button className="known-tile tile-add" disabled={!canAdd} title={canAdd ? `지금 폴더 추가\n${here}` : "지금 폴더는 이미 타일에 있거나 폴더가 아님"} onClick={onAdd}>
+        <span className="tile-plus" aria-hidden="true">
+          ＋
+        </span>
+        <span>지금 폴더</span>
+      </button>
+    </div>
+  );
+}
+
+/** 고른 타일 고치기 — 이름(Enter · 칸 밖을 누르면 정함, 비우면 폴더 이름) · 그림 · 제거. 꼬리가 고른 타일의 열을 가리킨다. */
+function TileForm({ tile, col, onChange, onRemove, onClose }: { tile: Tile; col: number; onChange: (t: Tile) => void; onRemove: () => void; onClose: () => void }) {
+  const [name, setName] = useState(tile.name);
+  /** Esc 로 닫을 때 — 닫히며 오는 blur 가 고치던 이름을 저장하지 않게. */
+  const cancelled = useRef(false);
+  const commit = () => {
+    if (cancelled.current) return;
+    const v = name.trim() || baseName(tile.path) || tile.path;
+    setName(v);
+    if (v !== tile.name) onChange({ ...tile, name: v });
+  };
+  return (
+    <div className="tile-form" role="group" aria-label={`${tile.name} 타일 편집`} style={{ "--caret": `${((col + 0.5) / TILE_COLS) * 100}%` } as React.CSSProperties}>
+      <input
+        className="tile-form-name"
+        autoFocus
+        value={name}
+        spellCheck={false}
+        aria-label="이름"
+        placeholder={baseName(tile.path)}
+        onChange={(e) => setName(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === "Enter") commit();
+          if (e.key === "Escape") {
+            cancelled.current = true;
+            onClose();
+          }
+        }}
+      />
+      <div className="tile-icons" role="radiogroup" aria-label="그림">
+        {TILE_ICONS.map((k) => (
+          <button key={k} role="radio" aria-checked={tile.icon === k} aria-label={ICON_LABEL[k]} title={ICON_LABEL[k]} className={tile.icon === k ? "on" : undefined} onClick={() => onChange({ ...tile, icon: k })}>
+            <PlaceGlyph kind={k} size={16} />
+          </button>
+        ))}
+      </div>
+      <div className="tile-form-foot">
+        <span className="tile-form-path" title={tile.path}>
+          {tile.path}
+        </span>
+        <button className="tile-form-remove" onClick={onRemove}>
+          제거
+        </button>
+      </div>
+    </div>
   );
 }
 

@@ -299,7 +299,7 @@ export default function SettingsPanel(props: Props) {
               <span className="set-label">사이드바</span>
               <div>
                 <SideLayout view={view} setView={setView} />
-                <p className="muted set-hint">손잡이를 끌어 순서 바꾸기 · 끈 구획은 사이드바에서 숨김</p>
+                <p className="muted set-hint">손잡이를 끌어 순서 바꾸기 · 끈 위젯은 사이드바에서 숨김 · 사이드바에서 오른쪽 단추 › 사이드바 편집으로도 바꾼다</p>
               </div>
             </div>
           </section>

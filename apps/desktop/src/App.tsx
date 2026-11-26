@@ -132,8 +132,9 @@ function withDefaults(s: Partial<Settings> | null): Settings {
       links: typeof s?.view?.links === "boolean" ? s.view.links : Array.isArray(s?.links) && s.links.length > 0,
       sideFavs: s?.view?.sideFavs !== false,
       // 모르는 이름은 버리고, 빠진 구획(새 판에서 더한 것)은 끝에 잇는다
-      sideOrder: [...new Set([...(Array.isArray(s?.view?.sideOrder) ? s.view.sideOrder : []).filter((x): x is SideId => SIDE_IDS.includes(x as SideId)), ...SIDE_IDS])],
-      sideOff: Array.isArray(s?.view?.sideOff) ? s.view.sideOff.filter((x): x is SideId => x === "pc" || x === "apps" || x === "tags") : [],
+      sideOrder: readSideOrder(s?.view?.sideOrder),
+      sideOff: readSideOff(s?.view?.sideOrder, s?.view?.sideOff),
+      tiles: readTiles(s?.view?.tiles),
       sizeUnit: s?.view?.sizeUnit === "auto" ? "auto" : "kb",
       folderSize: s?.view?.folderSize === true,
       kinds: validKinds(s?.view?.kinds),
@@ -144,6 +145,27 @@ function withDefaults(s: Partial<Settings> | null): Settings {
     apps: Array.isArray(s?.apps) ? s.apps.filter((a) => a && typeof a.id === "string" && typeof a.name === "string").map((a) => ({ ...a, icon: typeof a.icon === "string" ? a.icon : a.id })) : [],
     sideW: clampSide(s?.sideW),
   };
+}
+
+/** 사이드바 위젯 차례 — 모르는 이름은 버리고, 빠진 위젯(새 판에서 더한 것)은 끝에 잇는다.
+ *  2026.11.26 : 「드라이브」가 「이 PC」에서 갈라져 나왔다 — 지난 설정에 없으면 「이 PC」 바로 뒤에 둬서 보이는 모양이 그대로다. */
+function readSideOrder(saved: unknown): SideId[] {
+  const got = (Array.isArray(saved) ? saved : []).filter((x): x is SideId => SIDE_IDS.includes(x as SideId));
+  if (got.length && !got.includes("drives")) got.splice(got.includes("pc") ? got.indexOf("pc") + 1 : got.length, 0, "drives");
+  return [...new Set([...got, ...SIDE_IDS])];
+}
+/** 끈 위젯 — 지난 설정에서 「이 PC」를 껐으면 갈라져 나온 「드라이브」도 끈 채로. */
+function readSideOff(order: unknown, saved: unknown): SideId[] {
+  const off = (Array.isArray(saved) ? saved : []).filter((x): x is SideId => SIDE_OFFABLE.includes(x as SideId));
+  const old = Array.isArray(order) && !order.includes("drives");
+  return old && off.includes("pc") && !off.includes("drives") ? [...off, "drives"] : off;
+}
+/** 타일 — 경로 · 이름이 있는 것만, 모르는 그림은 폴더로. 칸이 없거나 망가졌으면 처음대로(null). */
+function readTiles(saved: unknown): Tile[] | null {
+  if (!Array.isArray(saved)) return null;
+  return saved
+    .filter((t) => t && typeof t.path === "string" && t.path && typeof t.name === "string")
+    .map((t) => ({ path: t.path, name: t.name, icon: TILE_ICONS.includes(t.icon) ? t.icon : "folder" }));
 }
 
 /** 옛 기본 수정일 너비(110)를 새 기본으로 — 손대지 않은 열만. 손으로 바꾼 너비는 그대로 둔다. 2026.11.18 */
@@ -1410,6 +1432,7 @@ export default function App() {
           onUnlink={unlink}
           onRenameLinks={renameLinks}
           view={view}
+          setView={setView}
           current={active.path}
           onGo={(p) => navigate(active.id, p)}
           onGoNewTab={(p) => openTab(p)}

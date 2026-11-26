@@ -37,6 +37,14 @@
   --folder-back:  light-dark(#d39a2c, #b8862e);
   --folder-front: light-dark(#f0c25a, #dcb055);
   --icon-paper:   light-dark(#ffffff, #383b40);
+  /* 2026.11.26 : 떠 있는 높이 세 단 — 디자인 점검. 같은 높이의 판이 열댓 가지 그림자 값으로 흩어져 있었고,
+     어둡게에서는 밝게와 같은 옅은 그림자(검정 16%)가 바탕에 묻혀 메뉴 · 창이 떠 보이지 않았다. 어둡게는 그림자를 진하게 둔다.
+     float : 끌어 든 것 · 작은 팝업  /  pop : 메뉴 · 팔레트 · 드롭다운  /  modal : 가운데 창 */
+  --shadow-float: 0 4px 14px light-dark(rgba(0, 0, 0, 0.14), rgba(0, 0, 0, 0.42));
+  --shadow-pop:   0 8px 28px light-dark(rgba(0, 0, 0, 0.16), rgba(0, 0, 0, 0.5));
+  --shadow-modal: 0 18px 48px light-dark(rgba(0, 0, 0, 0.22), rgba(0, 0, 0, 0.6));
+  /* 빼기 표시(사이드바 편집의 빨간 −) — 지우기가 아닌 「목록에서 빼기」. 경고 글(--warn)과 갈리게 밝은 빨강 */
+  --minus:        light-dark(#d9443a, #e5655c);
 }
 :root[data-theme="light"] {
   color-scheme: light;
@@ -214,7 +222,7 @@ button:disabled {
   padding: 16px 18px;
   border-radius: 10px;
   background: var(--raise);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.16), inset 0 0 0 1px var(--line);
+  box-shadow: var(--shadow-pop), inset 0 0 0 1px var(--line);
 }
 
 /* 업데이트 카드 (UpdateCard) — 지금 판 줄, 새 판이면 판 번호 · 바뀐 내용 목록 · 설치. 설정 「업데이트」와 제목 줄 펼침 창이 같이 쓴다.
@@ -704,7 +712,7 @@ button:disabled {
   padding: 4px 10px;
   border-radius: 6px;
   background: var(--raise);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--shadow-float);
   color: var(--warn);
 }
 .head-right {
@@ -1171,7 +1179,7 @@ body.col-resizing * {
   flex-direction: column;
   border-radius: 10px;
   background: var(--raise);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.16), inset 0 0 0 1px var(--line);
+  box-shadow: var(--shadow-pop), inset 0 0 0 1px var(--line);
   animation: pop-in 0.14s ease-out;
   transform-origin: top left;
   font-size: 12.5px;
@@ -1662,14 +1670,14 @@ body.resizing-y * {
   padding: 3px 10px;
   border-radius: 6px;
   background: var(--raise);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16), inset 0 0 0 1px var(--line);
+  box-shadow: var(--shadow-float), inset 0 0 0 1px var(--line);
   font-weight: 600;
   pointer-events: none;
   white-space: nowrap;
 }
 /* 창 밖으로 끌었다 — 놓으면 새 창. 2026.11.24 */
 .tab-ghost.out {
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16), inset 0 0 0 1.5px var(--accent);
+  box-shadow: var(--shadow-float), inset 0 0 0 1.5px var(--accent);
 }
 .tab-ghost em {
   margin-left: 8px;
@@ -1868,7 +1876,7 @@ body.resizing-y * {
   padding: 8px;
   border-radius: 10px;
   background: var(--raise);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.16), inset 0 0 0 1px var(--line);
+  box-shadow: var(--shadow-pop), inset 0 0 0 1px var(--line);
   display: grid;
   gap: 4px;
   animation: pop-in 0.14s ease-out;
@@ -2105,7 +2113,7 @@ body.resizing-y * {
   padding: 14px 16px 16px;
   border-radius: 12px;
   background: var(--raise);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22), inset 0 0 0 1px var(--line);
+  box-shadow: var(--shadow-modal), inset 0 0 0 1px var(--line);
   animation: pop-in 0.16s ease-out;
 }
 .link-dialog-head {
@@ -2388,7 +2396,7 @@ body.resizing-y * {
   padding: 6px;
   border-radius: 12px;
   background: var(--raise);
-  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.16), inset 0 0 0 1px var(--line);
+  box-shadow: var(--shadow-pop), inset 0 0 0 1px var(--line);
   transform: translate(-50%, 16px);
   opacity: 0;
   visibility: hidden;
@@ -2593,7 +2601,7 @@ body.resizing-y * {
   padding: 3px 10px;
   border-radius: 999px;
   background: var(--raise);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12), inset 0 0 0 1px var(--line);
+  box-shadow: var(--shadow-float), inset 0 0 0 1px var(--line);
   font-size: 12px;
   white-space: nowrap;
   color: var(--ink-2);
@@ -2673,7 +2681,7 @@ body.resizing-y * {
   grid-template-columns: 168px 1fr;
   border-radius: 12px;
   background: var(--raise);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22), inset 0 0 0 1px var(--line);
+  box-shadow: var(--shadow-modal), inset 0 0 0 1px var(--line);
   overflow: hidden;
   animation: pop-in 0.16s ease-out;
   user-select: text;
@@ -2940,7 +2948,7 @@ body.resizing-y * {
   padding: 3px 8px;
   border-radius: 5px;
   background: var(--raise);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18), inset 0 0 0 1px var(--line);
+  box-shadow: var(--shadow-float), inset 0 0 0 1px var(--line);
   font: 12px/1 ui-monospace, "Cascadia Mono", Consolas, monospace;
   pointer-events: none;
 }
@@ -3063,7 +3071,7 @@ body.resizing-y * {
   min-height: calc(var(--tile-icon) + 68px);
   z-index: 3;
   background: var(--raise);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18), inset 0 0 0 1px var(--line);
+  box-shadow: var(--shadow-float), inset 0 0 0 1px var(--line);
 }
 .tile.peek.selected {
   background: linear-gradient(var(--sel), var(--sel)), var(--raise);
@@ -3182,7 +3190,7 @@ body.resizing-y * {
   padding: 10px 12px 8px;
   border-radius: 8px;
   background: var(--raise);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.16), inset 0 0 0 1px var(--line);
+  box-shadow: var(--shadow-pop), inset 0 0 0 1px var(--line);
   pointer-events: none;
   animation: pop-in 0.12s ease-out;
   transform-origin: top left;
@@ -3206,7 +3214,7 @@ body.resizing-y * {
   padding: 8px;
   border-radius: 8px;
   background: var(--raise);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18), inset 0 0 0 1px var(--line);
+  box-shadow: var(--shadow-pop), inset 0 0 0 1px var(--line);
   animation: pop-in 0.12s ease-out;
   transform-origin: top left;
 }
@@ -3235,7 +3243,7 @@ body.resizing-y * {
   padding: 4px;
   border-radius: 8px;
   background: var(--raise);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.16), inset 0 0 0 1px var(--line);
+  box-shadow: var(--shadow-pop), inset 0 0 0 1px var(--line);
   display: grid;
   animation: pop-in 0.12s ease-out;
   transform-origin: top left;
@@ -3275,7 +3283,7 @@ body.resizing-y * {
   padding: 4px;
   border-radius: 8px;
   background: var(--raise);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.16), inset 0 0 0 1px var(--line);
+  box-shadow: var(--shadow-pop), inset 0 0 0 1px var(--line);
   display: grid;
   animation: pop-in 0.1s ease-out;
   transform-origin: top left;
@@ -3538,7 +3546,7 @@ body.resizing-y * {
   flex-direction: column;
   border-radius: 10px;
   background: var(--raise);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22), inset 0 0 0 1px var(--line);
+  box-shadow: var(--shadow-modal), inset 0 0 0 1px var(--line);
   overflow: hidden;
   animation: pop-in 0.12s ease-out;
 }
@@ -3994,11 +4002,13 @@ body.resizing-y * {
   user-select: text;
 }
 .viewer-info {
-  flex: 1;
+  /* 줄지 않는다 — 좁으면 파일 이름(.viewer-name)이 말줄임으로 먼저 준다. 2026.11.26 : 이 칸이 줄어 「저장됨」 · 「UTF-8」이 잘렸다 */
+  flex: 1 0 auto;
   min-width: 0;
   display: flex;
   gap: 12px;
-  justify-content: flex-end;
+  /* safe — 넘칠 때 앞이 아니라 끝이 잘린다. 2026.11.26 : 「UTF-8」의 U 왼쪽 획이 잘려 「JTF-8」로 읽혔다 */
+  justify-content: safe flex-end;
   overflow: hidden;
   font-size: 12px;
   color: var(--muted);
@@ -4679,7 +4689,7 @@ body.resizing-y * {
   padding: 10px 12px;
   border-radius: 10px;
   background: var(--raise);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18), inset 0 0 0 1px var(--line);
+  box-shadow: var(--shadow-pop), inset 0 0 0 1px var(--line);
   animation: pop-in 0.12s ease-out;
 }
 .preset-group {
@@ -5179,7 +5189,7 @@ body.resizing-y * {
   padding: 18px 20px 16px;
   border-radius: 12px;
   background: var(--raise);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22), inset 0 0 0 1px var(--line);
+  box-shadow: var(--shadow-modal), inset 0 0 0 1px var(--line);
   animation: pop-in 0.16s ease-out;
 }
 /* 2026.11.12 : 설정과 같은 오른쪽 옆판 — 고치는 동안 왼쪽 칸에 결과가 다시 모인다 (SmartEditor 머리말) */
@@ -5286,7 +5296,7 @@ body.resizing-y * {
   grid-template-columns: minmax(220px, 290px) 1fr;
   border-radius: 12px;
   background: var(--raise);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22), inset 0 0 0 1px var(--line);
+  box-shadow: var(--shadow-modal), inset 0 0 0 1px var(--line);
   overflow: hidden;
   animation: pop-in 0.16s ease-out;
   outline: none;
@@ -5565,7 +5575,7 @@ body.resizing-y * {
   z-index: 2;
   transition: none;
   background: var(--raise);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.16), inset 0 0 0 1px var(--line);
+  box-shadow: var(--shadow-float), inset 0 0 0 1px var(--line);
 }
 @media (prefers-reduced-motion: reduce) {
   .sorting > [data-sort-item] {
@@ -5720,4 +5730,348 @@ body.resizing-y * {
   border-radius: 50%;
   background: var(--faint);
   opacity: 0.6;
+}
+
+/* ── 사이드바 편집 ──
+   2026.11.26 : 사용자 요청 「제어 센터 위젯처럼」. 위젯마다 뜬 카드 한 장 — 테두리 없이 면의 밝기 차와 옅은 그림자로만 떠오른다.
+   머리 줄 전체가 손잡이고, 빼기(−)는 카드 왼쪽 위 모서리에 걸친다. 강조는 빼기의 빨강 하나 · 완료의 파랑 하나.
+   흔들기 움직임은 두지 않는다 — 움직임은 끌 때 비켜서는 것 하나. */
+/* 「이 PC」 바로 뒤의 드라이브 — 갈라지기 전처럼 타일 바로 밑에 붙인다 (구획 사이 18px → 6px) */
+.side-tail {
+  margin-top: -12px;
+}
+.side.editing {
+  gap: 12px;
+  overflow-x: hidden;
+}
+.edit-bar {
+  position: sticky;
+  top: 12px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 -10px -2px;
+  padding: 0 10px 8px 18px;
+  background: var(--side);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.edit-bar .act.primary {
+  height: 24px;
+  padding: 0 12px;
+  border-radius: 12px;
+}
+.widget-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.widget {
+  position: relative;
+  border-radius: 12px;
+  background: var(--raise);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.04);
+  padding: 0 6px 8px;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+.widget[data-lifted] {
+  z-index: 3;
+  transition: box-shadow 0.18s ease;
+  box-shadow: var(--shadow-pop);
+}
+/* 머리 줄 = 손잡이. 이름이 곧 잡는 곳이라 점 여섯 개를 따로 두지 않는다 */
+.widget-handle {
+  display: block;
+  width: 100%;
+  height: 32px;
+  padding: 0 8px 0 10px;
+  border-radius: 12px 12px 0 0;
+  text-align: left;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: grab;
+  touch-action: none;
+}
+.widget-handle:hover {
+  color: var(--ink-2);
+}
+.widget-handle:focus-visible {
+  outline: 1.5px solid var(--focus);
+  outline-offset: -2px;
+}
+/* 빼기 — 빨간 원 안의 가로줄. 지우기가 아니라 사이드바에서 빼는 것이라 아래 「위젯 추가」에서 다시 넣는다.
+   바깥 고리를 바탕색으로 둘러 카드 모서리를 파낸 듯이 보인다 */
+.widget-x,
+.tile-x {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--paper);
+  background: var(--minus);
+}
+.widget-x {
+  top: -6px;
+  left: -6px;
+  width: 18px;
+  height: 18px;
+  box-shadow: 0 0 0 2px var(--side);
+}
+.widget-x:hover,
+.tile-x:hover {
+  filter: brightness(1.08);
+}
+.widget-x:focus-visible,
+.tile-x:focus-visible {
+  outline: 1.5px solid var(--focus);
+  outline-offset: 2px;
+}
+/* 미리 보기 — 평소 모습 그대로이되 누를 수 없다(inert). 머리글은 카드 머리 줄이 대신한다 */
+.widget-body[inert] {
+  opacity: 0.72;
+}
+.widget-body > section > h2 {
+  display: none;
+}
+.widget-body .side-tail {
+  margin-top: 0;
+}
+
+/* 타일 편집 — 잡고 끌면 손을 따라오고 나머지는 비켜선다. 빼기는 올려 둘 때 · 고른 타일에만 */
+.tile-edit {
+  margin-bottom: 2px;
+}
+.tile-wrap {
+  position: relative;
+  min-width: 0;
+  transition: transform 0.18s ease;
+}
+.tile-wrap.lifted {
+  z-index: 2;
+  transition: none;
+}
+.tile-wrap.lifted > .known-tile {
+  background: var(--raise);
+  box-shadow: var(--shadow-float);
+  transform: scale(1.06);
+}
+.tile-wrap > .known-tile {
+  width: 100%;
+  cursor: grab;
+  touch-action: none;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+.tile-edit.sorting,
+.tile-edit.sorting * {
+  cursor: grabbing !important;
+  user-select: none;
+}
+.tile-x {
+  top: -3px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  box-shadow: 0 0 0 2px var(--raise);
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.tile-wrap:hover > .tile-x,
+.tile-wrap:focus-within > .tile-x,
+.tile-wrap:has(.picked) > .tile-x {
+  opacity: 1;
+  transform: none;
+}
+.tile-edit.sorting .tile-x {
+  opacity: 0;
+}
+.known-tile.picked {
+  background: var(--sel);
+  color: var(--ink);
+}
+.known-tile.picked .glyph {
+  color: var(--accent);
+}
+/* 더할 자리 — 빈 칸을 점선으로. 지금 폴더가 이미 타일이면 자리만 흐리게 남긴다 */
+.tile-add {
+  color: var(--muted);
+  outline: 1.25px dashed color-mix(in srgb, var(--muted) 50%, transparent);
+  outline-offset: -4px;
+}
+.tile-add:hover:not(:disabled) {
+  color: var(--accent);
+  outline-color: var(--accent);
+  background: none;
+}
+.tile-add:disabled {
+  opacity: 0.4;
+}
+.tile-add:disabled:hover {
+  background: none;
+  color: var(--muted);
+}
+.tile-plus {
+  display: grid;
+  place-items: center;
+  height: 20px;
+  font-size: 16px;
+  line-height: 1;
+}
+/* 고른 타일의 편집 판 — 꼬리가 그 타일의 열을 가리킨다 (--caret) */
+.tile-form {
+  position: relative;
+  display: grid;
+  /* 긴 경로 한 줄이 판을 넓혀 사이드바에 가로 스크롤이 생겼다 — 줄 너비를 열 너비에 묶는다 */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  margin: 8px 0 4px;
+  padding: 8px;
+  border-radius: 10px;
+  background: var(--side);
+}
+.tile-form::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: calc(var(--caret, 50%) - 6px);
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--side);
+  transform: rotate(45deg);
+  transition: left 0.18s ease;
+}
+.tile-form-name {
+  position: relative;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--raise);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: center;
+}
+.tile-form-name:focus {
+  outline: none;
+  box-shadow: inset 0 0 0 1.5px var(--focus);
+}
+.tile-icons {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 2px;
+}
+.tile-icons button {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  max-height: 30px;
+  border-radius: 50%;
+  color: var(--ink-2);
+}
+.tile-icons button:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.tile-icons button.on {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.tile-icons button:focus-visible {
+  outline: 1.5px solid var(--focus);
+  outline-offset: 1px;
+}
+.tile-form-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px;
+}
+.tile-form-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  font-size: 11px;
+  color: var(--muted);
+}
+.tile-form-remove {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--warn);
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.tile-form-remove:hover {
+  background: var(--warn-bg);
+}
+
+/* 위젯 추가 — 숨긴 위젯. 누르면 켜고 맨 아래로 */
+.widget-gallery {
+  padding-top: 6px;
+}
+.widget-gallery ul {
+  display: grid;
+  gap: 2px;
+}
+.widget-add {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 8px;
+  text-align: left;
+}
+.widget-add:hover {
+  background: var(--hover);
+}
+.widget-plus {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--ok);
+  /* 바탕색 — 어둡게의 밝은 초록 위에 흰 + 는 묻힌다 (2026.11.26) */
+  color: var(--paper);
+  font-size: 12px;
+  line-height: 1;
+}
+.widget-add-text {
+  display: grid;
+  min-width: 0;
+}
+.widget-add-text b {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.widget-add-text small {
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (prefers-reduced-motion: reduce) {
+  .widget,
+  .tile-wrap,
+  .tile-wrap > .known-tile,
+  .tile-x,
+  .tile-form::before {
+    transition: none;
+  }
 }
