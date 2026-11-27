@@ -2,7 +2,8 @@
 //!
 //! 목차
 //! 1. 다루는 확장자 · 상한
-//! 2. 읽기 — UTF-8(BOM 있고 없고) · UTF-16(BOM) · 안 되면 CP949, 줄끝은 LF 로 고쳐 넘긴다
+//! 2. 읽기 — UTF-8(BOM 있고 없고) · UTF-16(BOM) · 안 되면 CP949, 줄끝은 LF 로 고쳐 넘긴다.
+//!    상한보다 큰 글은 끝부분만 읽는다 (읽기 전용 · 2026.11.27)
 //! 3. 쓰기 — 읽을 때의 인코딩 · 줄끝으로 되돌리고, 그사이 밖에서 바뀌었으면 쓰지 않는다.
 //!    새 글을 곁의 임시 파일에 먼저 다 쓴 뒤 원본을 덮는다 — 덮다가 멈춰도 온전한 새 글 하나는 남는다
 //!
@@ -26,8 +27,11 @@ pub const EXTS: &[&str] = &[
     "gitignore", "editorconfig", "nfo", "srt", "csv", "tsv",
 ];
 
-/// 이보다 큰 글은 열지 않는다 — 편집기가 수십 MB 를 받으면 창이 굳는다. 큰 로그는 기본 앱으로 연다.
+/// 이보다 큰 글은 통째로 읽지 않는다 — 편집기가 수십 MB 를 받으면 창이 굳는다.
 pub const MAX_BYTES: u64 = 8 * 1024 * 1024;
+/// 큰 글은 끝의 이만큼만 읽는다 (읽기 전용). 2026.11.27 사용자 요청 : 예전에는 「열 수 없음」으로 끝났는데,
+///   큰 파일은 대개 로그이고 로그는 최근 것(끝)을 보려고 연다. 2MB 면 로그 수만 줄이라 넉넉하고 여는 데 오래 걸리지 않는다.
+pub const TAIL_BYTES: u64 = 2 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -55,6 +59,8 @@ pub struct TextFile {
     pub mixed: bool,
     /// 읽을 때의 수정 시각 (ms) — 쓰기 전에 밖에서 바뀌었는지 본다.
     pub modified: i64,
+    /// 앞에서 읽지 않고 건너뛴 바이트 — 0 이면 파일 전체다. 0 이 아니면 끝부분만 읽은 것이라 고쳐 쓰지 않는다 (TAIL_BYTES).
+    pub skipped: u64,
 }
 
 fn modified_ms(path: &Path) -> std::io::Result<i64> {
@@ -66,27 +72,81 @@ fn modified_ms(path: &Path) -> std::io::Result<i64> {
 
 pub fn read(path: &Path) -> Result<TextFile, String> {
     let meta = std::fs::metadata(path).map_err(|e| e.to_string())?;
-    if meta.len() > MAX_BYTES {
-        return Err(format!("{}MB 넘는 텍스트 파일은 앱에서 열 수 없음", MAX_BYTES / 1024 / 1024));
-    }
+    let tail = meta.len() > MAX_BYTES;
     // 고친 때를 읽기 앞뒤로 재어 같을 때만 받는다 — 읽은 뒤에만 재면, 그사이 다른 프로그램이 쓴 새 시각이 옛 글에 붙어
     // 다음 자동 저장이 「밖에서 안 바뀌었다」로 보고 그 변경을 덮는다. 계속 바뀌면 세 번 만에 그만둔다.
     let mut tries = 0;
-    let (bytes, modified) = loop {
+    //   끝부분만 읽는 큰 로그는 쓰는 중인 일이 흔하다 — 그때는 다시 읽지 않고 읽은 것을 낸다 (고쳐 쓰지 않으니 시각이 어긋나도 덮을 일이 없다).
+    let (head, bytes, start, modified) = loop {
         let before = modified_ms(path).map_err(|e| e.to_string())?;
-        let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+        let (head, bytes, start) = if tail { read_tail(path) } else { std::fs::read(path).map(|b| (Vec::new(), b, 0)) }.map_err(|e| e.to_string())?;
         let after = modified_ms(path).map_err(|e| e.to_string())?;
-        if before == after {
-            break (bytes, after);
+        if before == after || tail {
+            break (head, bytes, start, after);
         }
         tries += 1;
         if tries >= 3 {
             return Err("파일이 계속 바뀌어 읽을 수 없음".into());
         }
     };
-    let (text, encoding) = decode(&bytes)?;
+    let (text, encoding, skipped) = if tail { decode_tail(&head, &bytes, start)? } else { decode(&bytes).map(|(t, e)| (t, e, 0))? };
     let (crlf, mixed) = line_ends(&text);
-    Ok(TextFile { text: text.replace("\r\n", "\n"), encoding, crlf, mixed, modified })
+    Ok(TextFile { text: text.replace("\r\n", "\n"), encoding, crlf, mixed, modified, skipped })
+}
+
+/// 파일의 앞 4바이트(BOM 을 보려고) · `TAIL_BYTES` 만큼의 끝 · 그 끝이 시작하는 자리.
+fn read_tail(path: &Path) -> std::io::Result<(Vec<u8>, Vec<u8>, u64)> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = std::fs::File::open(path)?;
+    let len = f.metadata()?.len();
+    let mut head = vec![0u8; len.min(4) as usize];
+    f.read_exact(&mut head)?;
+    let start = len.saturating_sub(TAIL_BYTES);
+    f.seek(SeekFrom::Start(start))?;
+    let mut bytes = Vec::with_capacity((len - start) as usize);
+    f.read_to_end(&mut bytes)?;
+    Ok((head, bytes, start))
+}
+
+/// 끝부분을 글로 — 인코딩은 파일 앞의 BOM 으로, 없으면 끝부분으로 가린다. 셋째 값은 건너뛴 바이트 (버린 첫 줄까지).
+/// 첫 줄은 버린다 — 줄 한가운데(UTF-8 · CP949 는 글자 한가운데일 수도)에서 잘렸으므로 다음 줄 처음부터 보인다.
+/// 줄바꿈 바이트(0x0A)는 UTF-8 · CP949 의 글자 안에 나오지 않아 그 뒤에서 자르면 글자가 깨지지 않는다.
+fn decode_tail(head: &[u8], bytes: &[u8], start: u64) -> Result<(String, Encoding, u64), String> {
+    let bom = encoding_rs::Encoding::for_bom(head).map(|(e, _)| e);
+    let wide = bom.filter(|e| *e == encoding_rs::UTF_16LE || *e == encoding_rs::UTF_16BE);
+    let (unit, nl): (usize, &[u8]) = match wide {
+        Some(e) if e == encoding_rs::UTF_16LE => (2, &[0x0A, 0]),
+        Some(_) => (2, &[0, 0x0A]),
+        None => (1, b"\n"),
+    };
+    // UTF-16 은 글자 단위가 파일 처음부터 짝수 자리다 — 홀수 자리에서 시작했으면 한 바이트 건너 맞춘다
+    let first = (start % unit as u64) as usize;
+    let mut cut = (first..bytes.len().saturating_sub(unit - 1)).step_by(unit).find(|&i| &bytes[i..i + unit] == nl).map_or(first, |i| i + unit);
+    // 줄바꿈이 없는 한 줄짜리면 UTF-8 글자 한가운데의 이어지는 바이트만 건넌다
+    if cut == first && unit == 1 {
+        while cut < bytes.len() && bytes[cut] & 0xC0 == 0x80 {
+            cut += 1;
+        }
+    }
+    let body = &bytes[cut..];
+    let skipped = start + cut as u64;
+    if let Some(e) = wide {
+        let kind = if e == encoding_rs::UTF_16LE { Encoding::Utf16le } else { Encoding::Utf16be };
+        return Ok((e.decode_without_bom_handling(body).0.into_owned(), kind, skipped));
+    }
+    if body.iter().take(64 * 1024).any(|&b| b == 0) {
+        return Err("텍스트 파일 아님 (바이너리)".into());
+    }
+    match std::str::from_utf8(body) {
+        Ok(s) => Ok((s.to_owned(), if bom.is_some() { Encoding::Utf8bom } else { Encoding::Utf8 }, skipped)),
+        Err(_) => {
+            let (s, _, bad) = encoding_rs::EUC_KR.decode(body);
+            if bad {
+                return Err("알 수 없는 인코딩 (UTF-8 · CP949 아님)".into());
+            }
+            Ok((s.into_owned(), Encoding::Cp949, skipped))
+        }
+    }
 }
 
 /// (CRLF 인가, 섞였나). 줄끝이 없으면 LF 로 본다.
@@ -132,6 +192,10 @@ pub fn write(path: &Path, text: &str, encoding: Encoding, crlf: bool, expected: 
     let now = modified_ms(path).map_err(|e| e.to_string())?;
     if now != expected {
         return Err("changed".into());
+    }
+    // 큰 글은 끝부분만 읽었다 (read) — 그 글로 덮으면 앞부분이 사라진다. 화면도 읽기 전용으로 막지만 여기서 한 번 더 막는다
+    if std::fs::metadata(path).map_err(|e| e.to_string())?.len() > MAX_BYTES {
+        return Err(format!("{}MB 넘는 텍스트 파일은 앱에서 고쳐 쓰지 않음", MAX_BYTES / 1024 / 1024));
     }
     let text = if crlf { text.replace("\r\n", "\n").replace('\n', "\r\n") } else { text.to_owned() };
     let bytes = encode(&text, encoding)?;
@@ -250,6 +314,31 @@ mod tests {
         write(&p, "new\n", f.encoding, f.crlf, f.modified).unwrap();
         assert_eq!(std::fs::read(&p).unwrap(), b"new\n");
         assert!(!tmp_path.exists());
+    }
+
+    #[test]
+    fn big_file_reads_only_the_tail_from_a_line_start() {
+        // 한 줄 「12345 가나다」 + 줄끝 — 끝부분이 줄 한가운데 · 글자 한가운데에서 시작해도 다음 줄 처음부터 온다
+        let line = "12345 가나다\r\n";
+        let n = (MAX_BYTES as usize / line.len()) + 10;
+        let p = tmp("big.log", line.repeat(n).as_bytes());
+        let f = read(&p).unwrap();
+        let len = (line.len() * n) as u64;
+        assert!(f.skipped > len - TAIL_BYTES && f.skipped < len - TAIL_BYTES + line.len() as u64);
+        // 건너뛴 것 + 읽은 글(줄끝 CR 을 빼고 넘기므로 줄 수만큼 더한다) = 파일 크기
+        assert_eq!(f.skipped + f.text.len() as u64 + f.text.matches('\n').count() as u64, len);
+        assert!(f.text.starts_with("12345 가나다\n") && f.crlf && !f.mixed);
+        std::fs::remove_file(&p).ok();
+        // UTF-16 LE(BOM) — 홀수 자리에서 잘려도 글자 단위를 맞춘다
+        let mut wide = vec![0xFF, 0xFE, 0x41, 0x00];
+        for _ in 0..n {
+            wide.extend(line.encode_utf16().flat_map(|u| u.to_le_bytes()));
+        }
+        let p = tmp("big16.log", &wide);
+        let f = read(&p).unwrap();
+        assert_eq!(f.encoding, Encoding::Utf16le);
+        assert!(f.text.starts_with("12345 가나다\n") && f.skipped > 0);
+        std::fs::remove_file(&p).ok();
     }
 
     #[test]

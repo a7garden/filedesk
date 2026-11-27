@@ -96,14 +96,15 @@ export const stripHasFocus = () => !!document.activeElement?.closest(".view-stri
 export const rawUrl = (path: string, m?: number) => `http://fdicon.localhost/${encodeURIComponent(`raw:${path}`)}${m ? `?m=${m}` : ""}`;
 
 export type TextEncoding = "utf8" | "utf8bom" | "utf16le" | "utf16be" | "cp949";
-/** `mixed` — 줄끝이 섞인 파일. 고쳐 쓰면 줄끝이 한 가지로 바뀌어 읽기만 한다 (fd-core textfile). */
-export type TextFile = { text: string; encoding: TextEncoding; crlf: boolean; mixed: boolean; modified: number };
+/** `mixed` — 줄끝이 섞인 파일. 고쳐 쓰면 줄끝이 한 가지로 바뀌어 읽기만 한다 (fd-core textfile).
+ *  `skipped` — 앞에서 건너뛴 바이트. 8MB 넘는 글은 끝 2MB 만 읽어 읽기 전용으로 본다 (2026.11.27 · 0 이면 전체). */
+export type TextFile = { text: string; encoding: TextEncoding; crlf: boolean; mixed: boolean; modified: number; skipped: number };
 export const ENCODING_LABEL: Record<TextEncoding, string> = { utf8: "UTF-8", utf8bom: "UTF-8 BOM", utf16le: "UTF-16", utf16be: "UTF-16 BE", cp949: "CP949" };
 
 export const textApi = {
   read: (path: string) => invoke<TextFile>("read_text", { path }),
   /** 밖에서 바뀌었으면 오류 `changed`. 돌려주는 값은 쓴 뒤의 수정 시각. */
-  write: (path: string, f: Omit<TextFile, "modified" | "mixed">, modified: number) =>
+  write: (path: string, f: Omit<TextFile, "modified" | "mixed" | "skipped">, modified: number) =>
     invoke<number>("write_text", { path, text: f.text, encoding: f.encoding, crlf: f.crlf, modified }),
   modifiedOf: (path: string) => invoke<number>("modified_of", { path }),
   openUrl: (url: string) => invoke<void>("open_url", { url }),

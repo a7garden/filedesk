@@ -4333,6 +4333,10 @@ body.resizing-y * {
   overflow: auto;
   padding: 22px 28px 40vh;
 }
+/* 큰 글의 끝부분 보기 (2026.11.27) — 치지 않으니 아래 여백이 필요 없다. 마지막 줄이 화면 바닥에 온다 (tail 처럼) */
+.viewer-pane.tail {
+  padding-bottom: 22px;
+}
 .viewer-pane > * {
   max-width: 900px;
   margin: 0 auto;

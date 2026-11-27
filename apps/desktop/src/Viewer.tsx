@@ -363,7 +363,7 @@ function TextView(p: {
 
   const change = (v: string) => {
     // 읽기만 하는 파일 — 편집기도 막아 두었지만, 편집기가 스스로 낸 바뀜(체크 상자 등)도 쓰지 않는다
-    if (file?.mixed) return;
+    if (file?.mixed || file?.skipped) return;
     setText(v);
     if (status === "conflict") return;
     setStatus(v === disk.current.text ? "saved" : "dirty");
@@ -382,7 +382,7 @@ function TextView(p: {
     p.setInfo(
       file && (
         <>
-          {p.table && (
+          {p.table && !file.skipped && (
             <span className="cs-seg" role="group" aria-label="보기">
               <button type="button" aria-pressed={asTable} onClick={() => setAsTable(true)}>
                 표
@@ -395,7 +395,7 @@ function TextView(p: {
           <span title="읽은 인코딩 · 줄바꿈 그대로 저장">
             {ENCODING_LABEL[file.encoding]} · {file.crlf ? "CRLF" : "LF"}
           </span>
-          <span className={"viewer-status " + status}>{statusText[status]}</span>
+          <span className={"viewer-status " + status}>{file.skipped ? "읽기 전용" : statusText[status]}</span>
         </>
       ),
     );
@@ -423,10 +423,16 @@ function TextView(p: {
           </button>
         </div>
       )}
-      {file.mixed && (
+      {file.skipped > 0 ? (
         <div className="viewer-bar" role="note">
-          <span>줄바꿈(CRLF · LF)이 섞인 파일이라 읽기 전용</span>
+          <span>큰 파일이라 끝부분만 읽기 전용으로 표시 · 앞 {formatBytes(file.skipped)} 생략 · 전체는 「기본 앱으로 열기」</span>
         </div>
+      ) : (
+        file.mixed && (
+          <div className="viewer-bar" role="note">
+            <span>줄바꿈(CRLF · LF)이 섞인 파일이라 읽기 전용</span>
+          </div>
+        )
       )}
       {status === "error" && (
         <div className="viewer-bar warn" role="alert">
@@ -439,7 +445,12 @@ function TextView(p: {
       )}
       <div className="viewer-text">
         <Suspense fallback={<Skeleton kind={p.md ? "md" : "text"} />}>
-        {p.md ? (
+        {/* 끝부분만 읽은 큰 파일은 꼴(md · 표)과 상관없이 고정폭 글로 — 앞이 잘려 표 머리 줄 · 마크다운 구조가 없다. 열면 맨 끝에 선다 (2026.11.27) */}
+        {file.skipped > 0 ? (
+          <div className="viewer-pane tail">
+            <PlainEditor value={text} readOnly onChange={change} findRef={p.findRef} follow />
+          </div>
+        ) : p.md ? (
           <MdEditor key={rev} doc={p.path} source={file.text} readOnly={file.mixed} onChange={change} onLink={p.onLink} findRef={p.findRef} />
         ) : p.table && asTable ? (
           <TableView
