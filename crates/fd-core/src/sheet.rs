@@ -9,7 +9,8 @@ use std::path::Path;
 use calamine::{Data, Reader, open_workbook_auto};
 use serde::Serialize;
 
-/// 시트마다 내는 줄 수 상한 — 화면 표가 그리는 줄 수(Viewer TABLE_MAX_ROWS)와 같다. 넘는 줄은 세기만 한다.
+/// 시트마다 내는 줄 수 상한. 넘는 줄은 세기만 한다.
+/// 2026.11.27 : 화면 표는 이제 보이는 줄만 그려 줄 수 상한이 없다. 여기 상한은 화면으로 넘기는 글의 양(IPC · JSON)을 묶는다.
 pub const MAX_ROWS: usize = 5000;
 /// 시트마다 내는 열 수 상한 (XFD 까지 16384 열이 있을 수 있다).
 pub const MAX_COLS: usize = 256;
@@ -27,6 +28,8 @@ pub struct Sheet {
     pub total_rows: usize,
     /// 줄이나 열을 상한에서 잘랐는가.
     pub truncated: bool,
+    /// 칸을 읽었는가 — 고른 시트만 읽고 나머지는 이름만 낸다 (`read` 풀이).
+    pub loaded: bool,
 }
 
 /// 칸 값 → 보이는 글.
@@ -53,15 +56,23 @@ fn cell_text(d: &Data) -> String {
     }
 }
 
-/// 통합 문서의 시트를 차례로 읽는다. 숨긴 시트도 낸다 (이름으로 알 수 있게).
-pub fn read(path: &Path) -> Result<Vec<Sheet>, String> {
+/// 통합 문서의 시트 목록과 `at` 번째 시트의 칸을 읽는다. 숨긴 시트도 낸다 (이름으로 알 수 있게).
+/// 2026.11.27 : 고른 시트만 읽는다. 예전에는 모든 시트를 읽어, 시트 여섯 장(3천 줄 · 50 ~ 145열)인 5MB 파일을 여는 데
+///   1.4초가 걸렸다 (첫 시트만이면 0.16초). 다른 시트는 탭을 누를 때 이것을 다시 부른다. `at` 이 시트 수를 넘으면 첫 시트를 읽는다.
+pub fn read(path: &Path, at: usize) -> Result<Vec<Sheet>, String> {
     let mut wb = open_workbook_auto(path).map_err(|e| format!("엑셀 파일을 읽지 못함: {e}"))?;
     let names = wb.sheet_names().to_vec();
+    let at = if at < names.len() { at } else { 0 };
     let mut out = Vec::with_capacity(names.len());
-    for name in names {
+    for (i, name) in names.into_iter().enumerate() {
+        let blank = |name: String, loaded: bool| Sheet { name, rows: Vec::new(), row0: 0, col0: 0, total_rows: 0, truncated: false, loaded };
+        if i != at {
+            out.push(blank(name, false));
+            continue;
+        }
         // 차트 시트처럼 칸이 없는 시트는 빈 시트로 둔다
         let Ok(range) = wb.worksheet_range(&name) else {
-            out.push(Sheet { name, rows: Vec::new(), row0: 0, col0: 0, total_rows: 0, truncated: false });
+            out.push(blank(name, true));
             continue;
         };
         let (row0, col0) = range.start().unwrap_or((0, 0));
@@ -78,7 +89,7 @@ pub fn read(path: &Path) -> Result<Vec<Sheet>, String> {
                 v
             })
             .collect();
-        out.push(Sheet { name, rows, row0, col0, total_rows: h, truncated: h > MAX_ROWS || w > MAX_COLS });
+        out.push(Sheet { name, rows, row0, col0, total_rows: h, truncated: h > MAX_ROWS || w > MAX_COLS, loaded: true });
     }
     Ok(out)
 }

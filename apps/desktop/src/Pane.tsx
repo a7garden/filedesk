@@ -29,7 +29,7 @@
 //   2026.11.25 : 폴더 용량 (설정 › 목록 › 폴더 용량 표시) — 크기 칸에 하위 폴더까지 더한 용량. 폴더마다 Rust 가 훑고([1-2]), 크기 정렬에도 쓴다.
 //   2026.11.12 : 찾기 칸에 조건(`고친:3일 종류:문서 크기:>10MB` …)을 적어 거른다 — 칩으로 보이고 × 로 뗀다 · 「＋ 조건」.
 //                범위에 「모든 드라이브」(색인)를 더했다. 조건은 「스마트 폴더로 저장」하고, 왼쪽 스마트 폴더를 누르면 여기에 모아 보인다.
-import { type CSSProperties, type ReactNode, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type ReactNode, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { api, iconUrl, overlayUrl, TAG_COLORS, TAG_LABEL, today, type ColKey, type DocFile, type DocGroup, type EditionPlan, type DirSize, type Entry, type Found, type QueryResult, type QuerySpec, type Root, type SmartFolder, type SmartScope, type TagColor, type ViewPrefs } from "./api";
 import { kindTable, looksLikeQuery, matches, PRESETS, removeToken, sourceLabel, tzOffset } from "./query";
@@ -47,7 +47,7 @@ import { DocGlyph, ShortcutMark } from "./shortcut";
 import TagMenu, { TagDot } from "./TagMenu";
 import type { ViewTarget } from "./Viewer";
 import Skeleton, { viewSkeleton } from "./Skeleton";
-import { warmFor } from "./preload";
+import { Viewer, warmFor } from "./preload";
 import { viewKind } from "./viewable";
 import {
   baseName,
@@ -77,8 +77,7 @@ import {
   type SortKey,
 } from "./util";
 
-// 편집기 · 마크다운 묶음(수백 KB)은 처음 열 때 읽는다 — 켜는 시간에 얹지 않게
-const Viewer = lazy(() => import("./Viewer"));
+// 편집기 · 마크다운 묶음(수백 KB)은 처음 열 때 읽는다 — 켜는 시간에 얹지 않게. 미뤄 부르는 부품은 preload.ts 의 Viewer (2026.11.27)
 
 /** 센 폴더 용량을 칸끼리 함께 쓰는 짧은 기억 — 폴더를 오가거나 옆 칸에서 같은 폴더를 열 때 다시 훑지 않게.
  *  오래 두지 않는다: 하위 폴더 안에서 바뀐 것은 폴더 감시로 알 수 없어, 기억이 길면 낡은 용량이 남는다. */

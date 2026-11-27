@@ -344,10 +344,10 @@ async fn read_text(path: String) -> CmdResult<fd_core::textfile::TextFile> {
     tauri::async_runtime::spawn_blocking(move || fd_core::textfile::read(Path::new(&path))).await.map_err(|e| e.to_string())?
 }
 
-/// 엑셀 미리보기 — 시트마다 칸 글 (`fd-core::sheet`). 읽기만 한다. 2026.11.25 더했다.
+/// 엑셀 미리보기 — 시트 목록과 `at` 번째 시트의 칸 글 (`fd-core::sheet`). 읽기만 한다. 2026.11.25 더했다 · 2026.11.27 고른 시트만.
 #[tauri::command]
-async fn read_sheets(path: String) -> CmdResult<Vec<fd_core::sheet::Sheet>> {
-    tauri::async_runtime::spawn_blocking(move || fd_core::sheet::read(Path::new(&path))).await.map_err(|e| e.to_string())?
+async fn read_sheets(path: String, at: usize) -> CmdResult<Vec<fd_core::sheet::Sheet>> {
+    tauri::async_runtime::spawn_blocking(move || fd_core::sheet::read(Path::new(&path), at)).await.map_err(|e| e.to_string())?
 }
 
 /// 고친 글을 쓴다. 연 뒤 밖에서 바뀌었으면 `changed` 로 거절한다 (화면이 다시 읽을지 덮어쓸지 묻는다).

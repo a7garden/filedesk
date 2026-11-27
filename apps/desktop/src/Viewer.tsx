@@ -11,7 +11,8 @@
 //       [3] · [4] 의 편집기는 TextEditors.tsx — 글 파일을 열 때만 불러온다. 읽는 동안은 곧 올 모양의 자리(Skeleton.tsx)를 그린다 (2026.11.26)
 //   [5] 그림 — 맞춤 ↔ 원래 크기 · ←/→ 같은 폴더의 그림
 //   [6] 표(csv · tsv) — 칸을 골라 고치기 · 찾기 · 바꾸기 · 줄 더하기 · 지우기 · 되돌리기 (2026.11.25)
-//   [7] 엑셀 — 시트를 표([6])로 읽기만 한다 · 아래 시트 탭 (2026.11.25)
+//       보이는 줄만 그리고 열 너비는 처음에 한 번 잰다 — 줄 수 상한 없음 (2026.11.27)
+//   [7] 엑셀 — 시트를 표([6])로 읽기만 한다 · 아래 시트 탭 (2026.11.25) · 보는 시트만 읽는다 (2026.11.27)
 //   파워포인트는 SlidesView.tsx — 쪽을 HTML 로 그린다 (pptx.ts) · 한글은 HwpView.tsx — 쪽을 SVG 로 그린다 (rhwp)
 //
 // 2026.11.11 : 처음 만들었다. 저장 단추를 두지 않고 입력이 멈추면 쓴다(docket 메모와 같게) — Ctrl+S 는 바로 쓴다.
@@ -19,9 +20,10 @@
 // 2026.11.11 : 마크다운의 보기 · 편집 · 나란히 세 갈래를 걷었다 — 사용자 요청. 보는 화면이 곧 고치는 화면이다 (커서가 있는 줄만 기호가 드러난다).
 // 2026.11.11 : 문서 속 웹 그림(https)은 그린다 (tauri.conf.json CSP img-src) — 옵시디언과 같다. 받은 문서를 열기만 해도
 //   그 서버에 요청이 가지만, 이 앱에서 여는 md 는 대개 내 노트 · README 라 그림이 비는 쪽이 더 불편하다고 보았다.
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { api, type Entry } from "./api";
+import { HwpView, MdEditor, PlainEditor, SlidesView } from "./preload";
 import Skeleton, { viewSkeleton } from "./Skeleton";
 import { errText, formatBytes, parentOf } from "./util";
 import {
@@ -44,10 +46,6 @@ import {
   type TableRow,
   type TextFile,
 } from "./viewable";
-
-// 2026.11.26 : 파워포인트(jszip · pptx 그리기) · 한글 보기도 그 파일을 열 때만 불러온다 — 그림 · 글을 열 때 함께 읽을 까닭이 없다
-const SlidesView = lazy(() => import("./SlidesView"));
-const HwpView = lazy(() => import("./HwpView"));
 
 /** 여는 파일. 목록 밖(마크다운 링크로 간 파일)도 열 수 있어 Entry 전체를 받지 않는다. */
 export type ViewTarget = Pick<Entry, "path" | "name" | "ext" | "modified"> & { size?: number };
@@ -465,9 +463,7 @@ function TextView(p: {
 
 // ───────── [3] 마크다운 · [4] 글 파일 ─────────
 // 편집기는 TextEditors.tsx 에 있다 — 글 파일을 열 때만 불러온다 (2026.11.26 · 그림 · 한글을 열 때 편집기 묶음까지 읽어 늦었다).
-
-const MdEditor = lazy(() => import("./TextEditors").then((m) => ({ default: m.MdEditor })));
-const PlainEditor = lazy(() => import("./TextEditors").then((m) => ({ default: m.PlainEditor })));
+//   파워포인트 · 한글 보기와 함께 미뤄 부르는 부품은 preload.ts 에 모였다 (2026.11.27 · 받아 둔 부품은 기다리지 않고 바로 그린다).
 
 // ───────── [5] 그림 ─────────
 
@@ -603,8 +599,15 @@ function ImageView(p: {
 // 따옴표 · 줄끝 · 다른 칸의 꼴이 그대로 남는다 (parseTable 의 자리). 찾기 · 바꾸기는 칸 글을 기준으로 한다.
 // 2026.11.25 : 읽기만 하던 표에 고치기 · 찾기 · 바꾸기 · 줄 더하기 · 지우기 · 되돌리기를 더했다 (사용자 요청).
 
-/** 한 번에 그리는 줄 수 — 넘으면 앞부분만 그리고 알린다. 수만 줄을 칸마다 DOM 으로 그리면 창이 멈춘다. */
-const TABLE_MAX_ROWS = 5000;
+/** 보이는 줄 위아래로 더 그려 두는 줄 수 — 빨리 굴려도 빈 줄이 비치지 않게.
+ *  2026.11.27 : 표는 보이는 줄만 그린다. 예전에는 앞 5000줄을 칸마다 DOM 으로 다 그려(35열이면 17만 칸) csv 2.5MB 를 열 때 창이 2.6초 멈췄고,
+ *  칸 하나 누를 때마다 표 전체를 다시 그려 0.5 ~ 6초 걸렸다. 이제 줄 수 상한도 없다 — 글 표는 모든 줄을 본다. */
+const TABLE_OVERSCAN = 12;
+/** 열 너비의 위아래 끝 (배율 1 의 px) — 너비는 그 열에서 가장 긴 글로 정한다 (tableCols). */
+const COL_MIN = 44;
+const COL_MAX = 360;
+/** 칸 안쪽 여백(좌우 12px) · 오른쪽 금 1px — styles.css `.viewer-table td` 와 같아야 한다. */
+const CELL_PAD = 25;
 /** 표에서 되돌릴 수 있는 단계 수. */
 const TABLE_UNDO = 100;
 
@@ -658,6 +661,45 @@ function Marked({ v, q, cs }: { v: string; q: string; cs: boolean }) {
   });
   parts.push(v.slice(last));
   return <>{parts}</>;
+}
+
+/** 열 너비 (배율 1 의 px) — 보이는 줄만 그리므로 브라우저가 칸 글로 너비를 정하게 두면 굴릴 때마다 열이 들썩인다.
+ *  그래서 처음에 모든 줄을 훑어 열마다 긴 글 셋을 고르고 그것만 잰다. 넓은 글자(한글 · 한자)는 두 칸으로 센다 —
+ *  글자 수로는 숫자 22자와 한글 12자 중 어느 쪽이 넓은지 알 수 없어 하나만 고르지 않는다.
+ *  잴 때는 표와 같은 서식(13px · 고정폭 숫자)의 숨은 글을 쓴다. 캔버스로 재면 고정폭 숫자를 몰라 긴 숫자 열이 좁게 잡혀 잘렸다.
+ *  `heads` 는 머리 줄 글 — 굵게 그리므로 따로 잰다. */
+function tableCols(rows: TableRow[], first: number, cols: number, heads: string[]): number[] {
+  const PICK = 3;
+  const best: { n: number; v: string }[][] = Array.from({ length: cols }, () => []);
+  for (let r = first; r < rows.length; r++) {
+    const cells = rows[r].cells;
+    for (let c = 0; c < cells.length && c < cols; c++) {
+      const v = cells[c].v;
+      // 너비 상한(360px)을 넘을 만큼 긴 글은 더 셀 까닭이 없다
+      let n = 0;
+      for (let i = 0; i < v.length && n < 80; i++) n += v.charCodeAt(i) >= 0x1100 ? 2 : 1;
+      const top = best[c];
+      if (top.length === PICK && n <= top[PICK - 1].n) continue;
+      top.push({ n, v });
+      top.sort((a, b) => b.n - a.n);
+      if (top.length > PICK) top.pop();
+    }
+  }
+  const probe = document.createElement("div");
+  probe.style.cssText = "position:absolute;left:-99999px;top:0;visibility:hidden;white-space:pre;font-size:13px;font-variant-numeric:tabular-nums";
+  const spans = best.map((top, c) => {
+    const one = (v: string, bold: boolean) => {
+      const s = probe.appendChild(document.createElement("span"));
+      s.style.cssText = `display:block;width:max-content${bold ? ";font-weight:600" : ""}`;
+      s.textContent = v.split("\n", 1)[0];
+      return s;
+    };
+    return [...top.map((t) => one(t.v, false)), one(heads[c] ?? "", true)];
+  });
+  document.body.appendChild(probe);
+  const out = spans.map((ss) => Math.round(Math.min(COL_MAX, Math.max(COL_MIN, Math.max(...ss.map((s) => s.getBoundingClientRect().width)) + CELL_PAD + 2))));
+  probe.remove();
+  return out;
 }
 
 /** 엑셀 열 이름 — 0 → A, 25 → Z, 26 → AA. */
@@ -727,16 +769,73 @@ function TableView(p: {
     const kept = find.open && find.only && find.q ? all.filter((r) => rows[r].cells.some((_, c) => hitSet.has(`${r}:${c}`))) : all;
     return kept;
   }, [rows, first, find.open, find.only, find.q, hitSet]);
-  const shown = body.slice(0, TABLE_MAX_ROWS);
+
+  // 보이는 줄만 그린다 (TABLE_OVERSCAN 풀이). 줄 높이는 칸 하나가 한 줄(nowrap)이라 모두 같다 — 그려진 첫 줄을 재서 쓴다(배율을 바꾸면 다시 잰다).
+  const [view, setView] = useState({ top: 0, h: 800 });
+  const [rowH, setRowH] = useState(29);
+  const headH = useRef(32);
+  const k0 = Math.max(0, Math.floor((view.top - headH.current) / rowH) - TABLE_OVERSCAN);
+  const k1 = Math.min(body.length, Math.ceil((view.top + view.h) / rowH) + TABLE_OVERSCAN);
+  const shown = body.slice(k0, k1);
+  const heads = useMemo(() => (sheet ? Array.from({ length: cols }, (_, c) => colName(sheet.origin.col + c)) : Array.from({ length: cols }, (_, c) => rows[0]?.cells[c]?.v ?? "")), [rows, cols, sheet]);
+  // 열 너비는 글이 바뀌어도(칸 고치기) 다시 재지 않는다 — 고칠 때마다 표 전체를 훑으면 큰 표에서 치는 글이 굼뜨고, 고친 칸 하나로 열이 들썩인다.
+  //   줄 · 열 수가 바뀔 때만 다시 잰다.
+  const widths = useMemo(
+    () => tableCols(rows, first, cols, heads),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rows.length, cols, sheet],
+  );
+  const numW = Math.max(44, String(sheet ? sheet.origin.row + rows.length : rows.length).length * 8 + 26);
+  const onScroll = () => {
+    const el = box.current;
+    if (el) setView((v) => (v.top === el.scrollTop && v.h === el.clientHeight ? v : { top: el.scrollTop, h: el.clientHeight }));
+  };
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    onScroll();
+    const ro = new ResizeObserver(onScroll);
+    ro.observe(el);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useLayoutEffect(() => {
+    const tr = box.current?.querySelector<HTMLElement>("tbody tr:not(.pad)");
+    const th = box.current?.querySelector<HTMLElement>("thead tr");
+    if (th) headH.current = th.getBoundingClientRect().height;
+    // 배율을 바꾸면 줄 높이가 소수(28.6px …)가 된다 — 반올림하면 수천 줄 아래에서 자리가 크게 어긋난다
+    const h = tr?.getBoundingClientRect().height ?? 0;
+    if (h > 0 && Math.abs(h - rowH) > 0.01) setRowH(h);
+  });
+  /** 고른 칸이 아직 그려지지 않았으면 굴린 뒤 그려진 다음에 보이게 한다. */
+  const reveal = useRef(false);
 
   // 파일을 연 두 번 누르기의 둘째 누르기가 막 그려진 표 위에 떨어져 칸 글이 파랗게 골라진 채 열렸다 — 열 때 한 번 푼다
   useEffect(() => window.getSelection()?.removeAllRanges(), []);
 
   // 고른 칸을 보이게 — 머리 줄 · 줄 번호 열은 붙어 있으므로 그만큼 비켜 둔다 (CSS scroll-margin)
+  //   보이는 줄만 그리므로 멀리 있는 줄(Ctrl+End · 찾기 · PageDown)은 아직 없다. 줄 자리를 셈해 먼저 굴리고, 그려진 뒤 가로를 맞춘다.
   useEffect(() => {
-    if (!sel) return;
-    box.current?.querySelector<HTMLElement>(`[data-r="${sel.r}"][data-c="${sel.c}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    const el = box.current;
+    if (!sel || !el) return;
+    const k = body.indexOf(sel.r);
+    if (k >= 0) {
+      const y = k * rowH;
+      const room = el.clientHeight - headH.current;
+      if (y < el.scrollTop) el.scrollTop = y;
+      else if (y + rowH > el.scrollTop + room) el.scrollTop = y + rowH - room;
+      onScroll();
+    }
+    reveal.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sel]);
+  useEffect(() => {
+    if (!reveal.current || !sel) return;
+    const td = box.current?.querySelector<HTMLElement>(`[data-r="${sel.r}"][data-c="${sel.c}"]`);
+    if (!td) return;
+    reveal.current = false;
+    td.scrollIntoView({ block: "nearest", inline: "nearest" });
+  });
 
   // 밖에서 누른 Ctrl+F · Ctrl+H 를 받는다 (Viewer)
   useEffect(() => {
@@ -754,7 +853,6 @@ function TableView(p: {
     const i = cur < 0 ? (k > 0 ? 0 : hits.length - 1) : (cur + k + hits.length) % hits.length;
     setSel(hits[i]);
     setSaid("");
-    if (hits[i].r >= first && !shown.includes(hits[i].r)) setSaid(`${hits[i].r}째 줄은 앞 ${TABLE_MAX_ROWS.toLocaleString()}줄 밖이라 표에 없음`);
   };
   /** 지금 칸의 찾은 말을 바꾸고 다음으로. 지금 칸이 찾은 칸이 아니면 먼저 그리로 간다. */
   const replaceOne = () => {
@@ -819,7 +917,7 @@ function TableView(p: {
     const move = (dr: number, dc: number) => {
       const at = sel ?? { r: 0, c: 0 };
       // 줄은 보이는 차례로 옮긴다 (「맞는 줄만」이면 걸러진 줄 사이를)
-      const order = sheet ? shown : [0, ...shown];
+      const order = sheet ? body : [0, ...body];
       const i = Math.max(0, order.indexOf(at.r));
       const r = order[Math.min(order.length - 1, Math.max(0, i + dr))];
       setSel({ r, c: Math.min(cols - 1, Math.max(0, at.c + dc)) });
@@ -831,8 +929,8 @@ function TableView(p: {
     else if (k === "ArrowLeft" || (k === "Tab" && e.shiftKey)) move(0, -1);
     else if (k === "PageDown") move(20, 0);
     else if (k === "PageUp") move(-20, 0);
-    else if (ctrl && k === "Home") setSel({ r: first === 0 ? (shown[0] ?? 0) : 0, c: 0 });
-    else if (ctrl && k === "End") setSel({ r: shown[shown.length - 1] ?? 0, c: cols - 1 });
+    else if (ctrl && k === "Home") setSel({ r: first === 0 ? (body[0] ?? 0) : 0, c: 0 });
+    else if (ctrl && k === "End") setSel({ r: body[body.length - 1] ?? 0, c: cols - 1 });
     else if ((k === "Enter" || k === "F2") && sel) startEdit(sel);
     else if (k === "F3") go(e.shiftKey ? -1 : 1);
     else if ((k === "Delete" || k === "Backspace") && sel && !p.readOnly) commit(applyEdits(text, cellEdit(rows, sel, "", sep)));
@@ -897,7 +995,7 @@ function TableView(p: {
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
-                const order = sheet ? shown : [0, ...shown];
+                const order = sheet ? body : [0, ...body];
                 endEdit(true, { r: order[order.indexOf(r) + 1] ?? r, c });
               }
               else if (e.key === "Tab") e.preventDefault(), endEdit(true, { r, c: Math.min(cols - 1, Math.max(0, c + (e.shiftKey ? -1 : 1))) });
@@ -979,13 +1077,19 @@ function TableView(p: {
           ? `${sheet ? "읽기 전용 미리보기 · 고치기는 기본 앱으로 · " : ""}Ctrl+F 찾기 · Ctrl+C 칸 복사`
           : "두 번 누르기 · Enter · 바로 치기로 고치기 · Ctrl+F 찾기 · Ctrl+H 바꾸기 · Ctrl+Shift++ 줄 더하기 · Ctrl+Shift+- 줄 지우기 · Ctrl+Z 되돌리기 · Ctrl+휠 확대"}
       </div>
-      {(said || sheet?.note || body.length > TABLE_MAX_ROWS) && (
+      {(said || sheet?.note) && (
         <div className="viewer-bar" role="note">
-          <span>{said || sheet?.note || `${body.length.toLocaleString()}줄 중 앞 ${TABLE_MAX_ROWS.toLocaleString()}줄만 표시 · 전체는 「글」이나 기본 앱으로`}</span>
+          <span>{said || sheet?.note}</span>
         </div>
       )}
-      <div className="viewer-table-scroll" ref={box} tabIndex={0} onKeyDown={onKey} aria-label="표 · 화살표로 칸 고르기 · Enter 로 고치기">
-        <table>
+      <div className="viewer-table-scroll" ref={box} tabIndex={0} onKeyDown={onKey} onScroll={onScroll} aria-label="표 · 화살표로 칸 고르기 · Enter 로 고치기">
+        <table style={{ width: `calc(${numW + widths.reduce((a, w) => a + w, 0)}px * var(--zoom, 1))` }}>
+          <colgroup>
+            <col style={{ width: `calc(${numW}px * var(--zoom, 1))` }} />
+            {widths.map((w, c) => (
+              <col key={c} style={{ width: `calc(${w}px * var(--zoom, 1))` }} />
+            ))}
+          </colgroup>
           <thead>
             <tr>
               <th className="n" aria-label="줄 번호" />
@@ -999,12 +1103,23 @@ function TableView(p: {
             </tr>
           </thead>
           <tbody>
+            {/* 그리지 않은 위아래 줄의 자리 — 굴림 막대가 표 전체 길이를 보이게. 0 이면 두지 않는다 (작은 표는 줄만 있다) */}
+            {k0 > 0 && (
+              <tr className="pad" aria-hidden="true">
+                <td colSpan={cols + 1} style={{ height: k0 * rowH }} />
+              </tr>
+            )}
             {shown.map((r) => (
               <tr key={r}>
                 <td className="n">{sheet ? sheet.origin.row + r + 1 : r}</td>
                 {Array.from({ length: cols }, (_, c) => cell(r, c, false))}
               </tr>
             ))}
+            {k1 < body.length && (
+              <tr className="pad" aria-hidden="true">
+                <td colSpan={cols + 1} style={{ height: (body.length - k1) * rowH }} />
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -1015,14 +1130,17 @@ function TableView(p: {
 // ───────── [7] 엑셀 ─────────
 
 /** 엑셀 · 스프레드시트를 시트마다 표로. 읽기만 한다 — 다시 쓰면 서식 · 수식이 깨지므로 고치기는 기본 앱으로.
- *  보이는 값만 옮긴다 (날짜는 날짜로, 숫자 서식 · 색 · 병합은 옮기지 않는다 · fd-core sheet). */
+ *  보이는 값만 옮긴다 (날짜는 날짜로, 숫자 서식 · 색 · 병합은 옮기지 않는다 · fd-core sheet).
+ *  2026.11.27 : 보는 시트만 읽는다 — 모든 시트를 읽으면 큰 통합 문서는 열기까지 1초를 넘겼다. 다른 시트는 탭을 누를 때 읽어 끼운다. */
 function SheetView(p: { path: string; liveModified?: number; setInfo: (n: React.ReactNode) => void; findRef: FindRef }) {
   const [sheets, setSheets] = useState<Sheet[] | null>(null);
   const [err, setErr] = useState("");
   const [at, setAt] = useState(0);
+  const atNow = useRef(at);
+  atNow.current = at;
   useEffect(() => {
     let gone = false;
-    readSheets(p.path)
+    readSheets(p.path, atNow.current)
       .then((v) => {
         if (gone) return;
         setSheets(v);
@@ -1034,6 +1152,18 @@ function SheetView(p: { path: string; liveModified?: number; setInfo: (n: React.
       gone = true;
     };
   }, [p.path, p.liveModified]);
+  // 아직 읽지 않은 시트로 옮기면 그 시트만 읽어 끼운다. 그 사이 밖에서 고쳐 다시 읽었으면(위) 이 결과는 버린다
+  const want = sheets?.[at] && !sheets[at].loaded ? at : -1;
+  useEffect(() => {
+    if (want < 0) return;
+    let gone = false;
+    readSheets(p.path, want)
+      .then((v) => !gone && v[want] && setSheets((cur) => cur && cur.map((s, i) => (i === want ? v[want] : s))))
+      .catch((e) => !gone && setErr(errText(e)));
+    return () => {
+      gone = true;
+    };
+  }, [want, sheets, p.path]);
   const sheet = sheets?.[at];
   useEffect(() => {
     p.setInfo(sheets && <span>{`${sheets.length}개 시트 · 읽기 전용`}</span>);
@@ -1054,10 +1184,14 @@ function SheetView(p: { path: string; liveModified?: number; setInfo: (n: React.
         <p>앱 안에서 열 수 없다. {err}</p>
       </div>
     );
-  if (!sheets || !table) return <Skeleton kind="table" />;
+  if (!sheets) return <Skeleton kind="table" />;
   return (
     <div className="viewer-sheet">
-      <TableView key={at} sheet={table} readOnly readOnlyWhy="엑셀 미리보기는 읽기 전용 · 고치기는 「기본 앱으로 열기」" findRef={p.findRef} />
+      {table && sheet?.loaded ? (
+        <TableView key={at} sheet={table} readOnly readOnlyWhy="엑셀 미리보기는 읽기 전용 · 고치기는 「기본 앱으로 열기」" findRef={p.findRef} />
+      ) : (
+        <Skeleton kind="table" />
+      )}
       {/* 시트가 하나여도 탭을 둔다 — 엑셀과 같게. 2026.11.25 : 하나면 숨겼더니 시트 탭이 안 보인다는 지적과 겹쳐 어느 시트를 보는지 알 길이 없었다 */}
       <div className="sheet-tabs" role="tablist" aria-label="시트">
         {sheets.map((s, i) => (

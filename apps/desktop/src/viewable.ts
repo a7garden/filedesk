@@ -83,9 +83,10 @@ export function viewKind(ext: string): ViewKind | null {
   return TEXT_EXTS.has(x) ? "text" : IMAGE_EXTS.has(x) ? "image" : SHEET_EXTS.has(x) ? "sheet" : SLIDE_EXTS.has(x) ? "slides" : HWP_EXTS.has(x) ? "hwp" : null;
 }
 
-/** 엑셀 시트 하나 (fd-core sheet::Sheet). */
-export type Sheet = { name: string; rows: string[][]; row0: number; col0: number; totalRows: number; truncated: boolean };
-export const readSheets = (path: string) => invoke<Sheet[]>("read_sheets", { path });
+/** 엑셀 시트 하나 (fd-core sheet::Sheet). `loaded` 가 거짓이면 이름만 있다 — 탭을 누를 때 읽는다. */
+export type Sheet = { name: string; rows: string[][]; row0: number; col0: number; totalRows: number; truncated: boolean; loaded: boolean };
+/** 시트 목록과 `at` 번째 시트의 칸 (2026.11.27 · 고른 시트만 읽는다). */
+export const readSheets = (path: string, at: number) => invoke<Sheet[]>("read_sheets", { path, at });
 
 /** 보기 옆 파일 목록(Pane 의 .view-strip)이 키를 받는 중인가 — 목록에서 ↑↓ 로 넘길 때 새로 연 보기가 초점을 가져가지 않게.
  *  보기마다 열 때 제 몸에 초점을 주는데(바로 굴리기 · 치기), 이 때는 하지 않는다. 2026.11.25 */

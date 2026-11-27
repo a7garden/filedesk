@@ -4353,6 +4353,8 @@ body.resizing-y * {
   overflow: auto;
 }
 .viewer-table table {
+  /* 열 너비는 colgroup 이 정한다 (Viewer tableCols) — 보이는 줄만 그려서, 칸 글로 너비를 정하면 굴릴 때마다 열이 들썩인다 (2026.11.27) */
+  table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
   font-size: calc(13px * var(--zoom, 1));
@@ -4391,8 +4393,13 @@ body.resizing-y * {
 .viewer-table thead .n {
   z-index: 3;
 }
-.viewer-table tbody tr:hover td:not(.n) {
+.viewer-table tbody tr:not(.pad):hover td:not(.n) {
   background: var(--hover);
+}
+/* 그리지 않은 줄의 자리 — 높이만 차지한다 */
+.viewer-table tr.pad td {
+  padding: 0;
+  border: 0;
 }
 
 /* 표 고치기 · 찾기 (2026.11.25) — 고른 칸은 안쪽 테두리, 찾은 칸은 옅은 바탕, 찾은 말은 강조색 밑바탕 */
