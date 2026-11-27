@@ -1030,7 +1030,18 @@ button:disabled {
 .sort-mark {
   margin-left: 4px;
 }
-/* 열 너비 손잡이 — 열 경계선 바로 위, 머리 높이 전체. 손잡이 자체는 그리지 않고, 올리거나 끄는 동안 그 열의 경계선이 진해진다 (.col-guides) */
+/* 열 너비 손잡이 — 열 경계선 바로 위, 머리부터 목록 끝까지. 손잡이 자체는 그리지 않고, 올리거나 끄는 동안 그 열의 경계선이 진해진다 (.col-guides)
+   2026.11.27 : 머리 줄 안에만 있던 것을 경계선과 같은 높이의 층(.col-grips)으로 옮겼다. 선은 목록 끝까지 이어지는데 잡히는 곳은 머리 줄뿐이라 헷갈렸다.
+   층은 목록(.list) 위에 얹고 손잡이 6px 만 마우스를 받는다 — 층 전체가 받으면 줄을 누를 수 없다 */
+.col-grips {
+  z-index: 2;
+}
+.col-grips > span {
+  position: relative;
+}
+.col-grips .resizer {
+  pointer-events: auto;
+}
 .resizer {
   position: absolute;
   top: 0;
@@ -1075,10 +1086,10 @@ body.col-resizing * {
   width: 1px;
   background: var(--line);
 }
-.pane:has(.cols .col-1 > .resizer:hover) .guide.col-1::before,
-.pane:has(.cols .col-2 > .resizer:hover) .guide.col-2::before,
-.pane:has(.cols .col-3 > .resizer:hover) .guide.col-3::before,
-.pane:has(.cols .col-4 > .resizer:hover) .guide.col-4::before,
+.pane:has(.col-grips .col-1 > .resizer:hover) .guide.col-1::before,
+.pane:has(.col-grips .col-2 > .resizer:hover) .guide.col-2::before,
+.pane:has(.col-grips .col-3 > .resizer:hover) .guide.col-3::before,
+.pane:has(.col-grips .col-4 > .resizer:hover) .guide.col-4::before,
 .pane[data-resizing="1"] .guide.col-1::before,
 .pane[data-resizing="2"] .guide.col-2::before,
 .pane[data-resizing="3"] .guide.col-3::before,
@@ -3655,7 +3666,8 @@ body.resizing-y * {
   .row:not(.edition):not(.issue-line) {
     grid-template-columns: var(--cols-narrow);
   }
-  .cols {
+  .cols,
+  .col-guides {
     --cols-mode: narrow;
   }
   .ladder-label {

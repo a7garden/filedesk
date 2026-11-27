@@ -21,7 +21,7 @@
 //       받은 것 · 보관 · 지난 판 자리는 지우기 · 이름 바꾸기 전에 알림 줄에서 한 번 묻는다
 //   [5] 끌기 (앱 밖으로)
 //   [6] 단축키 — 탐색기와 같게 (손에 익은 동작은 바꾸지 않는다)
-//   [7] 그리기 — 목록(열 너비 · 보일 열은 열 머리에서) 또는 격자(GridView). 메모는 길면 올려 둘 때 카드로, 고칠 때는 떠 있는 칸에서
+//   [7] 그리기 — 목록(열 너비는 경계선을 끌어 · 보일 열은 열 머리 · 빈 곳 오른쪽 메뉴에서) 또는 격자(GridView). 메모는 길면 올려 둘 때 카드로, 고칠 때는 떠 있는 칸에서
 //       2026.11.11 : 격자 보기 · 크기(Ctrl+휠) · filedesk 아이콘 · 오른쪽 메뉴에 filedesk 항목(메모 · 색 · 즐겨찾기 · 옆 칸 · 새 판)
 //       2026.11.13 : 오른쪽 메뉴를 filedesk 가 그린다(ContextMenu) — 셸 메뉴는 그 「더 보기」 · Shift+오른쪽 단추 · Shift+F10
 //   [8] 앱 안 보기 — md · txt · 그림은 셸에 넘기지 않고 이 칸에서 연다 (Viewer). 그동안 목록 단축키는 쉰다
@@ -1301,6 +1301,22 @@ export default function Pane(p: Props) {
           { label: sort.key === "modified" ? "오래된 순" : sort.key === "size" ? "작은 순" : "오름차순", checked: sort.asc, run: () => pickSort((s) => ({ ...s, asc: true })) },
         ],
       },
+      // 2026.11.27 : 사용자 요청 「표시할 열을 편집하게」. 열 머리 오른쪽 클릭 · 설정에만 있어 찾기 어려웠다 — 목록 보기에서만 (격자에는 열이 없다)
+      ...(isGrid
+        ? []
+        : [
+            {
+              label: "표시할 열",
+              children: [
+                ...(Object.keys(COL_LABEL) as ColKey[])
+                  // 판 열은 판 관리를 켰을 때만 있다 (설정 「목록 열」과 같은 기준)
+                  .filter((c) => c !== "ver" || p.view.editions)
+                  .map((c) => ({ label: COL_LABEL[c], checked: colOn(c), run: () => toggleCol(c) })),
+                "sep" as const,
+                { label: "열 너비 처음대로", run: resetColWidths },
+              ],
+            },
+          ]),
       { label: p.split ? "나눠 보기 끄기" : "나눠 보기", hint: "Ctrl+\\", run: p.onToggleSplit },
       { label: "새로 고침", hint: "F5", run: () => load(true) },
       "sep",
@@ -1586,7 +1602,7 @@ export default function Pane(p: Props) {
 
   // ───────── [7] 그리기 ─────────
 
-  /** 열 너비 끌기 — 손잡이는 판 · 고친 날 · 크기 열의 <왼쪽> 경계에 있다.
+  /** 열 너비 끌기 — 손잡이는 판 · 고친 날 · 크기 열의 <왼쪽> 경계에 있다. 머리 줄만이 아니라 목록 끝까지 경계선 전체가 손잡이다 (2026.11.27).
    *  2026.11.11 : 오른쪽 경계에 두었더니, 이 열들은 창 오른쪽에 붙어 있어 넓히면 왼쪽 경계가 반대로 밀려 잡은 선이 마우스를 따라오지 않았다.
    *  이름 열은 남는 너비를 다 쓰므로 따로 끌 손잡이가 없다 — 그 오른쪽 경계가 곧 다음 열의 왼쪽 손잡이다. */
   /** 이 칸이 지금 좁은 칸 너비를 쓰는가 — CSS 의 컨테이너 조건(680px)이 다는 표시(--cols-mode)를 읽는다. 칸 너비를 JS 로 다시 재면 경계에서 어긋난다. */
@@ -1659,6 +1675,11 @@ export default function Pane(p: Props) {
   const leastCols = colTemplate("least");
   const toggleCol = (c: ColKey) =>
     p.setView((v) => ({ ...v, hiddenCols: v.hiddenCols.includes(c) ? v.hiddenCols.filter((x) => x !== c) : [...v.hiddenCols, c] }));
+  /** 넓은 칸 · 좁은 칸 너비를 함께 처음대로 — 열 머리 메뉴 · 빈 곳 메뉴가 같이 쓴다. */
+  const resetColWidths = () => {
+    p.setCols(DEFAULT_COLS);
+    p.setColsNarrow(DEFAULT_COLS_NARROW);
+  };
 
   const header = (key: SortKey | null, label: string, i: number, align = "", title?: string) => (
     <div
@@ -1678,20 +1699,22 @@ export default function Pane(p: Props) {
       ) : (
         <span className="col-btn">{label}</span>
       )}
-      {i > 0 && (
-        <span
-          className="resizer"
-          title="너비 조절 · 두 번 눌러 처음대로"
-          onMouseDown={(e) => startResize(e, i)}
-          onDoubleClick={(e) =>
-            narrowNow(e.currentTarget.parentElement!)
-              ? p.setColsNarrow(p.colsNarrow.map((w, j) => (j === i ? DEFAULT_COLS_NARROW[i] : w)))
-              : p.setCols(p.cols.map((w, j) => (j === i ? DEFAULT_COLS[i] : w)))
-          }
-          aria-hidden="true"
-        />
-      )}
     </div>
+  );
+  /** 열 너비 손잡이 한 칸 — 머리부터 목록 끝까지 긋는 경계선(.col-guides)과 같은 자리 · 같은 높이에 선다 (styles.css 「열 손잡이」). */
+  const grip = (i: number) => (
+    <span className={`col-${i}`}>
+      <span
+        className="resizer"
+        title="너비 조절 · 두 번 눌러 처음대로"
+        onMouseDown={(e) => startResize(e, i)}
+        onDoubleClick={(e) =>
+          narrowNow(e.currentTarget.parentElement!)
+            ? p.setColsNarrow(p.colsNarrow.map((w, j) => (j === i ? DEFAULT_COLS_NARROW[i] : w)))
+            : p.setCols(p.cols.map((w, j) => (j === i ? DEFAULT_COLS[i] : w)))
+        }
+      />
+    </span>
   );
 
   // 2026.11.12 : 거르기 줄에 다섯 역할(보는 곳 · 조건 · 종류 · 범위 · 저장)이 같은 알약으로 섞여 있었다.
@@ -2474,6 +2497,17 @@ export default function Pane(p: Props) {
           {colOn("size") && <span className="guide col-3" />}
         </div>
       )}
+      {/* 2026.11.27 : 사용자 지적 「선은 목록 끝까지 이어지는데 끌리는 건 머리 줄뿐이라 헷갈린다」. 손잡이를 머리 줄에서 빼어
+          경계선과 같은 높이의 층에 세운다 — 목록 어느 높이에서 선을 잡아도 끌린다 */}
+      {!isGrid && !error && (
+        <div className="col-guides col-grips" aria-hidden="true">
+          <span className="col-0" />
+          {colOn("ver") && grip(1)}
+          {colOn("date") && grip(2)}
+          {colOn("kind") && grip(4)}
+          {colOn("size") && grip(3)}
+        </div>
+      )}
       {!isGrid && (
         <div
           className="cols"
@@ -2685,10 +2719,7 @@ export default function Pane(p: Props) {
           at={colMenu}
           shown={colOn}
           onToggle={toggleCol}
-          onReset={() => {
-            p.setCols(DEFAULT_COLS);
-            p.setColsNarrow(DEFAULT_COLS_NARROW);
-          }}
+          onReset={resetColWidths}
           onClose={() => setColMenu(null)}
         />
       )}
@@ -2856,6 +2887,9 @@ function MemoEditor({ at, initial, onCommit, onCancel }: { at: { x: number; y: n
   );
 }
 
+/** 끄고 켤 수 있는 열의 이름 — 열 머리 메뉴 · 빈 곳 메뉴 「표시할 열」의 차례. */
+const COL_LABEL: Record<ColKey, string> = { ver: "판", date: "수정일", kind: "종류", size: "크기" };
+
 /** 열 머리 오른쪽 단추 — 보일 열 고르기 · 열 너비 처음대로. */
 function ColumnMenu({ at, shown, onToggle, onReset, onClose }: { at: { x: number; y: number }; shown: (c: ColKey) => boolean; onToggle: (c: ColKey) => void; onReset: () => void; onClose: () => void }) {
   const box = useRef<HTMLDivElement>(null);
@@ -2875,7 +2909,7 @@ function ColumnMenu({ at, shown, onToggle, onReset, onClose }: { at: { x: number
       window.removeEventListener("keydown", esc, true);
     };
   }, [onClose]);
-  const label: Record<ColKey, string> = { ver: "판", date: "수정일", kind: "종류", size: "크기" };
+  const label = COL_LABEL;
   return (
     <div className="pop-menu" ref={box} role="menu" aria-label="표시할 열" style={{ left: Math.min(at.x, window.innerWidth - 200), top: at.y }}>
       {(Object.keys(label) as ColKey[]).map((c) => (

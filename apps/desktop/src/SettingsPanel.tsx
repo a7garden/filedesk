@@ -276,7 +276,7 @@ export default function SettingsPanel(props: Props) {
                   ))}
                 </div>
                 <p className="muted set-hint">
-                  눌러서 켜고 끄기 · 너비는 목록 머리의 경계선을 끌어 조절 ·{" "}
+                  눌러서 켜고 끄기 · 목록 빈 곳이나 열 머리를 오른쪽 클릭해도 고른다 · 너비는 열 경계선을 끌어 조절 ·{" "}
                   <button className="link-btn" onClick={resetCols}>
                     너비 처음대로
                   </button>

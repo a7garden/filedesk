@@ -5,6 +5,8 @@
 // 2026.11.26 : 사용자 지적 「칸을 나눠 열 내용이 생략되면 늘릴 수도 줄일 수도 없다」.
 // 좁은 칸에도 손잡이가 서고, 끌면 좁은 칸 너비(colsNarrow)만 바뀌고 넓은 칸 너비(cols)는 그대로인지,
 // 끌기가 화면에 보이는 너비에서 시작하는지(처음 끄는 만큼 헛돌지 않는지), 넓혀도 이름 열이 최소 너비 밑으로 밀리지 않는지 본다.
+// 2026.11.27 : 손잡이가 머리 줄만이 아니라 목록 끝까지 경계선 전체에 서는지(목록 아래쪽을 잡아 끈다),
+// 빈 곳 오른쪽 메뉴 「표시할 열」로 열을 끄고 켜는지도 본다.
 // 시험 폴더는 끝나면 지운다. 앱 설정은 떠 두었다가 되돌린다.
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -62,11 +64,11 @@ try {
   await until(() => pane.locator(".row").count().then((c) => c >= 3), 5000);
   const width = (i) => pane.locator(`.cols > .col-${i}`).evaluate((el) => Math.round(el.getBoundingClientRect().width));
   /** 손잡이를 dx 만큼 끈다 — 손잡이는 열의 왼쪽 경계라 오른쪽(+)으로 끌면 좁아진다. */
-  const drag = async (i, dx) => {
-    const b = await pane.locator(`.cols > .col-${i} > .resizer`).boundingBox();
+  const drag = async (i, dx, at = 0.5) => {
+    const b = await pane.locator(`.col-grips > .col-${i} > .resizer`).boundingBox();
     if (!b) return false;
     const x = b.x + b.width / 2;
-    const y = b.y + b.height / 2;
+    const y = b.y + b.height * at;
     await page.mouse.move(x, y);
     await page.mouse.down();
     await page.mouse.move(x + dx / 2, y, { steps: 4 });
@@ -104,7 +106,7 @@ try {
   check("머리가 칸 밖으로 넘치지 않는다", over <= 1, `${over}px`);
 
   // 두 번 누르면 좁은 칸 기본값
-  await pane.locator(".cols > .col-2 > .resizer").dblclick();
+  await pane.locator(".col-grips > .col-2 > .resizer").dblclick();
   check("두 번 누르면 좁은 칸 처음대로", await until(async () => (await width(2)) === 96, 1000), `${await width(2)}px`);
 
   // 나눠 보기를 끄면 넓은 칸 — 넓은 칸 너비 그대로이고 거기서도 끈다
@@ -113,7 +115,27 @@ try {
   check("넓은 칸 수정일은 설정 너비 140", await until(async () => (await width(2)) === 140, 2000), `${await width(2)}px`);
   await drag(2, -40);
   check("넓은 칸에서도 끈다", (await width(2)) === 180, `${await width(2)}px`);
-  check("넓은 칸 너비만 바뀐다", await until(() => saved().cols?.[2] === 180 && saved().colsNarrow?.[2] === 96, 3000), JSON.stringify([saved().cols, saved().colsNarrow]));
+  // 경계선 아래쪽(머리 줄에서 먼 곳)을 잡아도 끌린다
+  const head = await pane.locator(".cols").boundingBox();
+  const gb = await pane.locator(".col-grips > .col-2 > .resizer").boundingBox();
+  check("손잡이가 목록 끝까지 선다", gb && head && gb.height > head.height * 4, `손잡이 ${Math.round(gb?.height ?? 0)}px · 머리 ${Math.round(head?.height ?? 0)}px`);
+  await drag(2, 20, 0.9);
+  check("목록 아래쪽에서 끌어도 좁아진다", (await width(2)) === 160, `${await width(2)}px`);
+  check("넓은 칸 너비만 바뀐다", await until(() => saved().cols?.[2] === 160 && saved().colsNarrow?.[2] === 96, 3000), JSON.stringify([saved().cols, saved().colsNarrow]));
+
+  // 빈 곳 오른쪽 메뉴 「표시할 열」 — 크기 열을 끄고 다시 켠다
+  const toggleSize = async () => {
+    const lb = await pane.locator(".list").boundingBox();
+    await page.mouse.click(lb.x + lb.width / 3, lb.y + lb.height - 20, { button: "right" });
+    await page.locator(".ctx-menu .ctx-item", { hasText: "표시할 열" }).click();
+    await page.locator(".ctx-menu .ctx-item", { hasText: /^✓?크기$/ }).click();
+    await sleep(150);
+  };
+  await toggleSize();
+  check("빈 곳 메뉴로 크기 열을 끈다", await until(() => pane.locator(".cols > .col-3").count().then((c) => c === 0), 2000));
+  check("끈 열의 손잡이도 빠진다", (await pane.locator(".col-grips > .col-3").count()) === 0);
+  await toggleSize();
+  check("다시 켠다", await until(() => pane.locator(".cols > .col-3").count().then((c) => c === 1), 2000));
 
   check("스크립트 오류 없음", errors.length === 0, errors.join(" | "));
 } catch (e) {
